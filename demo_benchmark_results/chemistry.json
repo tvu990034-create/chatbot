@@ -1,0 +1,74 @@
+[
+  {
+    "question_id": 4,
+    "question": "What is the chemical symbol for gold?",
+    "options": [
+      "Ag",
+      "Au",
+      "Fe",
+      "Cu",
+      "Pb",
+      "Hg",
+      "Pt",
+      "Zn",
+      "Ni",
+      "Co"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. Gold's chemical symbol is Au from the Latin word 'aurum' meaning gold. The answer is (B).",
+    "category": "chemistry",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. Gold's chemical symbol is Au from the Latin word 'aurum' meaning gold. The answer is (B).",
+    "latency": 1.5637760148161863,
+    "is_correct": true
+  },
+  {
+    "question_id": 5,
+    "question": "What is the atomic number of carbon?",
+    "options": [
+      "4",
+      "6",
+      "8",
+      "12",
+      "14",
+      "16",
+      "2",
+      "10",
+      "18",
+      "20"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. Carbon has 6 protons in its nucleus, so its atomic number is 6. The answer is (B).",
+    "category": "chemistry",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. Carbon has 6 protons in its nucleus, so its atomic number is 6. The answer is (B).",
+    "latency": 2.051936016783371,
+    "is_correct": true
+  },
+  {
+    "question_id": 6,
+    "question": "What is the chemical formula for water?",
+    "options": [
+      "CO2",
+      "H2O",
+      "NaCl",
+      "O2",
+      "H2O2",
+      "CH4",
+      "NH3",
+      "H2",
+      "O3",
+      "C6H12O6"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. Water consists of two hydrogen atoms and one oxygen atom, giving it the formula H2O. The answer is (B).",
+    "category": "chemistry",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. Water consists of two hydrogen atoms and one oxygen atom, giving it the formula H2O. The answer is (B).",
+    "latency": 2.540367085137395,
+    "is_correct": true
+  }
+]

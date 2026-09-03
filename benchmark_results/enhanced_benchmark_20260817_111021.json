@@ -1,0 +1,122 @@
+{
+  "timestamp": "2026-08-17T11:06:59.092914",
+  "model": "ollama/phi3:mini",
+  "gateway_type": "enhanced",
+  "optimization_stats": {
+    "performance_equations_enabled": true,
+    "optimizations": {
+      "simple_cache": {
+        "cached_responses": 82
+      },
+      "prompt_compression": {
+        "enabled": true,
+        "ratio": 0.8
+      },
+      "difficulty_routing": {
+        "enabled": true,
+        "threshold": 0.7
+      },
+      "adaptive_temperature": {
+        "enabled": true,
+        "base_temp": 0.1
+      },
+      "smart_enhancements": {
+        "chain_of_thought": true,
+        "rag": true,
+        "adversarial_detection": true
+      }
+    }
+  },
+  "tests": {
+    "speed": {
+      "cold_times": [
+        19.32569193840027,
+        3.774930238723755,
+        17.69567847251892
+      ],
+      "cached_times": [
+        0.000545501708984375,
+        0.0,
+        0.0
+      ],
+      "avg_cold": 13.598766883214315,
+      "avg_cached": 0.00018183390299479166,
+      "speedup": 74786.75131118881,
+      "improvement": 99.99866286476887
+    },
+    "intelligence": {
+      "total": 6,
+      "correct": 3,
+      "by_difficulty": {
+        "Easy": {
+          "correct": 0,
+          "total": 2
+        },
+        "Medium": {
+          "correct": 2,
+          "total": 2
+        },
+        "Hard": {
+          "correct": 1,
+          "total": 2
+        }
+      },
+      "details": [
+        {
+          "difficulty": "Easy",
+          "question": "What is 2+2?",
+          "is_correct": false,
+          "time": 20.421841621398926
+        },
+        {
+          "difficulty": "Easy",
+          "question": "What is the capital of Japan?",
+          "is_correct": false,
+          "time": 19.95162582397461
+        },
+        {
+          "difficulty": "Medium",
+          "question": "Write a Python function to add two numbers",
+          "is_correct": true,
+          "time": 6.2823216915130615
+        },
+        {
+          "difficulty": "Medium",
+          "question": "If A implies B and B implies C and C is false, is A false?",
+          "is_correct": true,
+          "time": 17.99307107925415
+        },
+        {
+          "difficulty": "Hard",
+          "question": "A car travels at 60 mph for 2 hours, then 40 mph for 3 hours. What is the average speed?",
+          "is_correct": false,
+          "time": 20.401668071746826
+        },
+        {
+          "difficulty": "Hard",
+          "question": "Explain the difference between special and general relativity",
+          "is_correct": true,
+          "time": 20.35613703727722
+        }
+      ],
+      "accuracy": 50.0
+    },
+    "enhancements": {
+      "chain_of_thought": {
+        "is_correct": true,
+        "time": 20.320656299591064,
+        "response_length": 1035
+      },
+      "rag": {
+        "is_correct": false,
+        "time": 15.42374300956726,
+        "response_length": 719
+      },
+      "adaptive_temp": {
+        "is_correct": false,
+        "time": 20.69573163986206,
+        "response_length": 1061
+      }
+    }
+  }
+}

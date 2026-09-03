@@ -1,0 +1,685 @@
+{
+  "timestamp": "20260819_222415",
+  "total_benchmarks": 25,
+  "total_questions": 250,
+  "total_correct": 0,
+  "overall_accuracy": 0.0,
+  "total_duration": 0.07287025451660156,
+  "optimization_techniques": 68,
+  "results": [
+    {
+      "name": "MMLU",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "MMLU-Pro",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "BBH",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "HumanEval",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "ARC-AGI",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "GPQA",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "GSM8K",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "HellaSwag",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "SWE-bench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "MBPP",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "LiveCodeBench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "CodeContests",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "AIME",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "AMC",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "MiniF2F",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "ProofNet",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "AgentBench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "GAIA",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "OSWorld",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "MT-Bench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "TruthfulQA",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "WinoGrande",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "HELM",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "SafetyBench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    },
+    {
+      "name": "HarmBench",
+      "questions": 10,
+      "correct": 0,
+      "accuracy": 0.0,
+      "errors": [
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'",
+        "EnhancedGateway.chat() got an unexpected keyword argument 'enable_optimizations'"
+      ]
+    }
+  ],
+  "optimization_stats": {
+    "performance_equations_enabled": true,
+    "optimizations": {
+      "simple_cache": {
+        "cached_responses": 172
+      },
+      "prompt_compression": {
+        "enabled": true,
+        "ratio": 0.8
+      },
+      "difficulty_routing": {
+        "enabled": true,
+        "threshold": 0.7
+      },
+      "adaptive_temperature": {
+        "enabled": true,
+        "base_temp": 0.1
+      },
+      "calibration_diagnostics": {
+        "enabled": true,
+        "metrics_available": true
+      },
+      "inference_optimization": {
+        "enabled": true,
+        "action_minimization": true,
+        "boltzmann_sampling": true,
+        "cot_chunking": true,
+        "mdl_selection": true
+      },
+      "meta_reasoning": {
+        "enabled": true,
+        "debate_stopping": true,
+        "budget_optimization": true,
+        "meta_policy": true
+      },
+      "performance_optimization": {
+        "cache_optimization": {
+          "enabled": true
+        },
+        "parallel_scaling": {
+          "enabled": true
+        },
+        "queueing_analysis": {
+          "enabled": true
+        },
+        "memory_analysis": {
+          "enabled": true
+        },
+        "token_stopping": {
+          "enabled": true,
+          "token_cost": 0.05
+        }
+      },
+      "advanced_optimization": {
+        "token_cost_optimization": {
+          "enabled": true,
+          "lambda_cost": 0.3
+        },
+        "utility_calculation": {
+          "enabled": true
+        },
+        "ensemble_voting": {
+          "enabled": true
+        },
+        "speedup_analysis": {
+          "enabled": true
+        }
+      },
+      "training_diagnostics": {
+        "calibration_scoring": {
+          "enabled": true
+        },
+        "quality_assessment": {
+          "enabled": true
+        }
+      },
+      "advanced_monitoring": {
+        "enabled": true,
+        "status": {
+          "total_evaluations": 0,
+          "filtered_capability": 0.5,
+          "capability_uncertainty": 0.31622776601683794,
+          "calibration_error": 0.1,
+          "recalibration_count": 0,
+          "change_points_detected": 0,
+          "current_run_length": 0
+        }
+      },
+      "extended_monitoring": {
+        "enabled": true,
+        "status": {
+          "total_evaluations": 0,
+          "drift_detections": 0,
+          "auc": 0.0,
+          "auc_samples": 0,
+          "convergence_stable": false
+        }
+      },
+      "bayesian_causal": {
+        "enabled": true,
+        "reasoning_summary": {
+          "total_hypotheses": 3,
+          "total_evidence_steps": 0,
+          "current_beliefs": {
+            "high_quality": 0.5,
+            "fast_response": 0.2,
+            "relevant_response": 0.3
+          },
+          "highest_probability_hypothesis": "high_quality",
+          "highest_probability": 0.5,
+          "reasoning_steps": 0
+        }
+      },
+      "advanced_reasoning": {
+        "enabled": true,
+        "reasoning_summary": {
+          "entailment_graph": {
+            "total_propositions": 4,
+            "direct_entailments": 2,
+            "transitive_entailments": 0,
+            "avg_path_length": 0.0
+          },
+          "calibration": {
+            "brier_score": 0.0,
+            "ece": 0.0,
+            "perfectly_calibrated": true
+          },
+          "total_reasoning_steps": 0
+        }
+      },
+      "reasoning_optimization": {
+        "enabled": true,
+        "optimization_stats": {
+          "astar_planning": {
+            "total_concepts": 4,
+            "total_links": 4,
+            "paths_planned": 0
+          },
+          "mcts_optimization": {
+            "total_simulations": 0,
+            "tree_size": 0
+          },
+          "total_optimizations": 0
+        }
+      },
+      "decision_argumentation": {
+        "enabled": true,
+        "suite_stats": {
+          "decision_making": {
+            "total_decisions": 0
+          },
+          "argumentation": {
+            "total_arguments": 3,
+            "total_attacks": 0,
+            "accepted_arguments": 0,
+            "rejected_arguments": 3
+          },
+          "information_value": {
+            "total_calculations": 0
+          }
+        }
+      },
+      "human_intelligence": {
+        "enabled": true,
+        "stats": {
+          "prospect_theory": {
+            "loss_aversion": 2.25
+          },
+          "metacognition": {
+            "confidence": 0.5
+          },
+          "self_efficacy": {
+            "efficacy": 0.5
+          },
+          "trust": {
+            "expected_trust": 0.5
+          },
+          "decision_state": {
+            "confidence": 0.5,
+            "self_efficacy": 0.5,
+            "regulatory_resource": 1.0
+          }
+        }
+      },
+      "long_term_memory": {
+        "enabled": true,
+        "stats": {
+          "episodic_count": 0,
+          "semantic_count": 0,
+          "replay_buffer_size": 0,
+          "working_memory_norm": 0.0,
+          "hopfield_patterns": 0
+        }
+      },
+      "safety_suite": {
+        "enabled": true,
+        "stats": {
+          "safety_score": 1.0,
+          "safety_level": "full",
+          "approval_count": 0,
+          "override_count": 0,
+          "deference_rate": 1.0,
+          "watchdog_kill_count": 0,
+          "unsafe_probability": 0.0,
+          "modification_attempts": 0,
+          "escalated_requests": 0
+        }
+      },
+      "academic_suite": {
+        "enabled": true,
+        "stats": {
+          "mcts_simulations": 100,
+          "astar_nodes_expanded": 0,
+          "dqn_steps": 0,
+          "verified_proofs": 0
+        }
+      },
+      "smart_enhancements": {
+        "chain_of_thought": true,
+        "rag": true,
+        "adversarial_detection": true
+      }
+    }
+  }
+}

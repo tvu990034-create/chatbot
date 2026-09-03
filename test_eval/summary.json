@@ -1,0 +1,18 @@
+{
+  "model": "ollama/tinyllama",
+  "timestamp": "2026-08-10T12:13:06.179853",
+  "split": "test",
+  "num_shots": 1,
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 1,
+  "category_results": [
+    {
+      "category": "math",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "test_eval\\math.json"
+    }
+  ]
+}

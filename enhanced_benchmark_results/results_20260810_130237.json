@@ -1,0 +1,81 @@
+{
+  "model": "ollama/tinyllama",
+  "use_advanced_reasoning": false,
+  "timestamp": "20260810_130237",
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 3,
+  "category_results": {
+    "math": 0.0,
+    "chemistry": 0.0,
+    "computer_science": 0.0
+  },
+  "results": [
+    {
+      "question": "What is the derivative of x^2 with respect to x?",
+      "options": [
+        "x",
+        "2x",
+        "x^2",
+        "2x^2",
+        "x/2",
+        "x^3",
+        "1",
+        "0",
+        "2",
+        "x^2/2"
+      ],
+      "correct_answer": "B",
+      "predicted": null,
+      "is_correct": false,
+      "response": "",
+      "latency": 64.21377444267273,
+      "category": "math",
+      "use_advanced_reasoning": false
+    },
+    {
+      "question": "What is the chemical symbol for gold?",
+      "options": [
+        "Ag",
+        "Au",
+        "Fe",
+        "Cu",
+        "Pb",
+        "Hg",
+        "Pt",
+        "Zn",
+        "Ni",
+        "Co"
+      ],
+      "correct_answer": "B",
+      "predicted": null,
+      "is_correct": false,
+      "response": "",
+      "latency": 64.1759340763092,
+      "category": "chemistry",
+      "use_advanced_reasoning": false
+    },
+    {
+      "question": "What does CPU stand for?",
+      "options": [
+        "Central Processing Unit",
+        "Computer Personal Unit",
+        "Central Program Utility",
+        "Computing Processing Unit",
+        "Central Protocol Unit",
+        "Computer Processing Unit",
+        "Central Power Unit",
+        "Core Processing Unit",
+        "Central Processing Utility",
+        "Computer Protocol Unit"
+      ],
+      "correct_answer": "A",
+      "predicted": null,
+      "is_correct": false,
+      "response": "",
+      "latency": 64.14936232566833,
+      "category": "computer_science",
+      "use_advanced_reasoning": false
+    }
+  ]
+}

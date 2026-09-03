@@ -1,0 +1,151 @@
+{
+  "timestamp": "2026-08-17T12:40:13.585863",
+  "model": "ollama/phi3:mini",
+  "gateway": "enhanced_with_diagnostics",
+  "optimization_stats": {
+    "performance_equations_enabled": true,
+    "optimizations": {
+      "simple_cache": {
+        "cached_responses": 82
+      },
+      "prompt_compression": {
+        "enabled": true,
+        "ratio": 0.8
+      },
+      "difficulty_routing": {
+        "enabled": true,
+        "threshold": 0.7
+      },
+      "adaptive_temperature": {
+        "enabled": true,
+        "base_temp": 0.1
+      },
+      "calibration_diagnostics": {
+        "enabled": true,
+        "metrics_available": true
+      },
+      "smart_enhancements": {
+        "chain_of_thought": true,
+        "rag": true,
+        "adversarial_detection": true
+      }
+    }
+  },
+  "tests": {
+    "confidence_estimation": {
+      "estimates": [
+        0.9,
+        0.7,
+        0.6,
+        0.9,
+        0.6
+      ],
+      "by_level": {
+        "High": [
+          0.9,
+          0.9
+        ],
+        "Medium": [
+          0.7
+        ],
+        "Low": [
+          0.6
+        ],
+        "Creative": [
+          0.6
+        ]
+      },
+      "details": [
+        {
+          "expected_level": "High",
+          "estimated_confidence": 0.9,
+          "query_type": "factual"
+        },
+        {
+          "expected_level": "Medium",
+          "estimated_confidence": 0.7,
+          "query_type": "general"
+        },
+        {
+          "expected_level": "Low",
+          "estimated_confidence": 0.6,
+          "query_type": "general"
+        },
+        {
+          "expected_level": "High",
+          "estimated_confidence": 0.9,
+          "query_type": "factual"
+        },
+        {
+          "expected_level": "Creative",
+          "estimated_confidence": 0.6,
+          "query_type": "creative"
+        }
+      ],
+      "mean_estimate": 0.74
+    },
+    "calibration_metrics": {
+      "correct": 3,
+      "total": 5,
+      "times": [
+        8.408692121505737,
+        10.909435987472534,
+        4.800431966781616,
+        29.70383071899414,
+        13.58035683631897
+      ],
+      "details": [
+        {
+          "category": "Factual",
+          "question": "What is the capital of France?",
+          "is_correct": true,
+          "estimated_confidence": 0.8,
+          "time": 8.408692121505737
+        },
+        {
+          "category": "Factual",
+          "question": "What is H2O?",
+          "is_correct": true,
+          "estimated_confidence": 0.8,
+          "time": 10.909435987472534
+        },
+        {
+          "category": "Reasoning",
+          "question": "What is 2+2?",
+          "is_correct": true,
+          "estimated_confidence": 0.65,
+          "time": 4.800431966781616
+        },
+        {
+          "category": "Reasoning",
+          "question": "If A implies B and B implies C, and C is false, what is A?",
+          "is_correct": false,
+          "estimated_confidence": 0.65,
+          "time": 29.70383071899414
+        },
+        {
+          "category": "Creative",
+          "question": "Create a metaphor for AI",
+          "is_correct": false,
+          "estimated_confidence": 0.6,
+          "time": 13.58035683631897
+        }
+      ],
+      "accuracy": 60.0,
+      "avg_time": 13.480549526214599
+    },
+    "diagnostic_metrics": {
+      "mutual_information": 0.0,
+      "conditional_entropy": 0.0,
+      "ideal_conditional_entropy": 0.0,
+      "calibration_score": 0.0,
+      "confidence_stats": {
+        "num_predictions": 5,
+        "mean_confidence": 0.7,
+        "std_confidence": 0.08366600265340758,
+        "accuracy": 0.6,
+        "confidence_accuracy_correlation": 0.7319250547114
+      }
+    }
+  }
+}

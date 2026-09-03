@@ -1,0 +1,86 @@
+[
+  {
+    "query": "hello bro",
+    "test_type": "simple greeting",
+    "duration": 2.744615077972412,
+    "response_length": 28,
+    "test_number": 1
+  },
+  {
+    "query": "hello bro",
+    "test_type": "cache hit test",
+    "duration": 2.052757501602173,
+    "response_length": 28,
+    "test_number": 2
+  },
+  {
+    "query": "what is 2+2",
+    "test_type": "simple math",
+    "duration": 2.4625844955444336,
+    "response_length": 11,
+    "test_number": 3
+  },
+  {
+    "query": "what is 2+2",
+    "test_type": "cache hit test",
+    "duration": 2.0482518672943115,
+    "response_length": 11,
+    "test_number": 4
+  },
+  {
+    "query": "Hello, bro!",
+    "test_type": "punctuation variation",
+    "duration": 2.045651435852051,
+    "response_length": 28,
+    "test_number": 5
+  },
+  {
+    "query": "Hello Bro",
+    "test_type": "case variation",
+    "duration": 2.054666757583618,
+    "response_length": 28,
+    "test_number": 6
+  },
+  {
+    "query": "explain AI",
+    "test_type": "complex explanation",
+    "duration": 4.861088991165161,
+    "response_length": 449,
+    "test_number": 7
+  },
+  {
+    "query": "write python code",
+    "test_type": "coding task",
+    "duration": 4.652921438217163,
+    "response_length": 462,
+    "test_number": 8
+  },
+  {
+    "query": "solve math problem",
+    "test_type": "math task",
+    "duration": 4.309283018112183,
+    "response_length": 493,
+    "test_number": 9
+  },
+  {
+    "query": "the sky is blue",
+    "test_type": "article variation",
+    "duration": 4.197458028793335,
+    "response_length": 414,
+    "test_number": 10
+  },
+  {
+    "query": "why sky blue",
+    "test_type": "rephrased query",
+    "duration": 4.663776874542236,
+    "response_length": 570,
+    "test_number": 11
+  },
+  {
+    "query": "AI explanation",
+    "test_type": "keyword variation",
+    "duration": 4.634397268295288,
+    "response_length": 605,
+    "test_number": 12
+  }
+]

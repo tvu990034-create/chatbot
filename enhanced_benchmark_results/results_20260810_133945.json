@@ -1,0 +1,142 @@
+{
+  "model": "ollama/tinyllama",
+  "use_advanced_reasoning": true,
+  "timestamp": "20260810_133945",
+  "overall_accuracy": 1.0,
+  "total_correct": 5,
+  "total_questions": 5,
+  "category_results": {
+    "math": 1.0,
+    "chemistry": 1.0,
+    "computer_science": 1.0,
+    "physics": 1.0,
+    "philosophy": 1.0
+  },
+  "results": [
+    {
+      "question": "Find the eigenvalues of the matrix [[2, 1], [1, 2]]",
+      "options": [
+        "1 and 3",
+        "2 and 2",
+        "0 and 4",
+        "-1 and 5",
+        "1 and 1",
+        "2 and 4",
+        "0 and 2",
+        "-2 and 6",
+        "√2 and √2",
+        "1 and 4"
+      ],
+      "correct_answer": "A",
+      "predicted": "A",
+      "is_correct": true,
+      "response": "Let's think step by step. For matrix [[2,1],[1,2]], solve det([[2-λ,1],[1,2-λ]]) = 0. This gives (2-λ)² - 1 = 0, so λ² - 4λ + 3 = 0. The solutions are λ = 1 and λ = 3. The answer is (A).",
+      "latency": 0.0010135173797607422,
+      "category": "math",
+      "use_advanced_reasoning": true,
+      "use_cutting_edge": false,
+      "offline_mode": true,
+      "techniques_used": "offline_simulation"
+    },
+    {
+      "question": "What is the hybridization of the central carbon atom in methane (CH4)?",
+      "options": [
+        "sp",
+        "sp2",
+        "sp3",
+        "sp3d",
+        "sp3d2",
+        "d2sp3",
+        "dsp2",
+        "no hybridization",
+        "sp3d3",
+        "sd3"
+      ],
+      "correct_answer": "C",
+      "predicted": "C",
+      "is_correct": true,
+      "response": "Let's think step by step. Carbon in methane forms 4 sigma bonds with hydrogen atoms. To accommodate 4 bonding regions, carbon undergoes sp3 hybridization. The answer is (C).",
+      "latency": 0.0,
+      "category": "chemistry",
+      "use_advanced_reasoning": true,
+      "use_cutting_edge": false,
+      "offline_mode": true,
+      "techniques_used": "offline_simulation"
+    },
+    {
+      "question": "In the context of distributed systems, what does the CAP theorem state?",
+      "options": [
+        "A system can have all three: Consistency, Availability, Partition tolerance",
+        "A system can have at most two of: Consistency, Availability, Partition tolerance",
+        "A system must have at least one of: Consistency, Availability, Partition tolerance",
+        "A system can only have Consistency and Availability",
+        "A system can only have Availability and Partition tolerance",
+        "A system can only have Consistency and Partition tolerance",
+        "A system must sacrifice all three during network partitions",
+        "A system can achieve all three with proper caching",
+        "A system can achieve all three with eventual consistency",
+        "A system can achieve all three with proper load balancing"
+      ],
+      "correct_answer": "B",
+      "predicted": "B",
+      "is_correct": true,
+      "response": "Let's think step by step. The CAP theorem states that in the presence of a network partition, a distributed system can provide either consistency or availability, but not both. Therefore, a system can achieve at most two of the three properties. The answer is (B).",
+      "latency": 0.0,
+      "category": "computer_science",
+      "use_advanced_reasoning": true,
+      "use_cutting_edge": false,
+      "offline_mode": true,
+      "techniques_used": "offline_simulation"
+    },
+    {
+      "question": "What is the uncertainty principle in quantum mechanics?",
+      "options": [
+        "Δx·Δp ≥ ℏ/2",
+        "Δx·Δp ≤ ℏ/2",
+        "Δx·Δp = ℏ",
+        "Δx·Δp = 0",
+        "Δx·Δp ≥ ℏ",
+        "Δx·Δp ≤ ℏ",
+        "Δx·Δp = 2ℏ",
+        "Δx·Δp ≥ 2ℏ",
+        "Δx·Δp = h/2",
+        "Δx·Δp ≥ h/2"
+      ],
+      "correct_answer": "A",
+      "predicted": "A",
+      "is_correct": true,
+      "response": "Let's think step by step. Heisenberg's uncertainty principle states that the product of uncertainties in position (Δx) and momentum (Δp) cannot be arbitrarily small: Δx·Δp ≥ ℏ/2. The answer is (A).",
+      "latency": 0.0,
+      "category": "physics",
+      "use_advanced_reasoning": true,
+      "use_cutting_edge": false,
+      "offline_mode": true,
+      "techniques_used": "offline_simulation"
+    },
+    {
+      "question": "What is the 'brain in a vat' thought experiment designed to challenge?",
+      "options": [
+        "Our knowledge of the external world",
+        "The existence of consciousness",
+        "The nature of free will",
+        "The problem of induction",
+        "The mind-body problem",
+        "The existence of God",
+        "The nature of time",
+        "The concept of self",
+        "The problem of other minds",
+        "The nature of truth"
+      ],
+      "correct_answer": "A",
+      "predicted": "A",
+      "is_correct": true,
+      "response": "Let's think step by step. The 'brain in a vat' thought experiment challenges our ability to know anything about the external world, suggesting that if our experiences could be simulated, we couldn't distinguish between reality and simulation. The answer is (A).",
+      "latency": 0.0,
+      "category": "philosophy",
+      "use_advanced_reasoning": true,
+      "use_cutting_edge": false,
+      "offline_mode": true,
+      "techniques_used": "offline_simulation"
+    }
+  ]
+}

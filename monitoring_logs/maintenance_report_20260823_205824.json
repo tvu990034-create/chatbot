@@ -1,0 +1,41 @@
+{
+  "timestamp": "2026-08-23T20:58:15.690357",
+  "health_status": {
+    "timestamp": "2026-08-23T20:58:15.690357",
+    "checks": {
+      "api": {
+        "status": "healthy",
+        "response_time": 2.046815
+      },
+      "analytics": {
+        "status": "healthy",
+        "cache_hit_rate": 0.4166666666666667,
+        "avg_response_time": 1.3607180404663086
+      },
+      "dashboard": {
+        "status": "healthy"
+      }
+    },
+    "overall_status": "healthy"
+  },
+  "performance_data": {
+    "timestamp": "2026-08-23T20:58:23.881200",
+    "total_requests": 20,
+    "avg_cache_hit_rate": 0.4166666666666667,
+    "avg_response_time": 1.3607180404663086,
+    "system_health": "healthy",
+    "active_gateways": 1,
+    "alerts": [],
+    "threshold_checks": []
+  },
+  "last_health_check": null,
+  "last_cleanup": null,
+  "system_info": {
+    "platform": "Windows",
+    "python_version": "3.12.10",
+    "cpu_count": 12,
+    "memory_total": 16438312960,
+    "memory_available": 927244288,
+    "disk_usage": 94.5
+  }
+}

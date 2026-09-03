@@ -1,0 +1,32 @@
+{
+  "model": "demo_simulation",
+  "timestamp": "2026-08-10T21:52:29.138064",
+  "split": "demo",
+  "num_shots": 5,
+  "overall_accuracy": 0.8888888888888888,
+  "total_correct": 8,
+  "total_questions": 9,
+  "category_results": [
+    {
+      "category": "math",
+      "accuracy": 1.0,
+      "correct": 3,
+      "total": 3,
+      "results_file": "demo_benchmark_results\\math.json"
+    },
+    {
+      "category": "chemistry",
+      "accuracy": 1.0,
+      "correct": 3,
+      "total": 3,
+      "results_file": "demo_benchmark_results\\chemistry.json"
+    },
+    {
+      "category": "computer_science",
+      "accuracy": 0.6666666666666666,
+      "correct": 2,
+      "total": 3,
+      "results_file": "demo_benchmark_results\\computer_science.json"
+    }
+  ]
+}

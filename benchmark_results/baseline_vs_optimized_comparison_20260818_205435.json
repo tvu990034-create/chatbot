@@ -1,0 +1,113 @@
+{
+  "timestamp": "20260818_205435",
+  "baseline_results": {
+    "MMLU": {
+      "benchmark": "MMLU",
+      "total_questions": 10,
+      "correct_answers": 6,
+      "accuracy": 0.6,
+      "duration": 50.0,
+      "metadata": {}
+    },
+    "GSM8K": {
+      "benchmark": "GSM8K",
+      "total_questions": 10,
+      "correct_answers": 5,
+      "accuracy": 0.5,
+      "duration": 60.0,
+      "metadata": {}
+    },
+    "HellaSwag": {
+      "benchmark": "HellaSwag",
+      "total_questions": 10,
+      "correct_answers": 6,
+      "accuracy": 0.6,
+      "duration": 45.0,
+      "metadata": {}
+    },
+    "ARC": {
+      "benchmark": "ARC",
+      "total_questions": 10,
+      "correct_answers": 5,
+      "accuracy": 0.5,
+      "duration": 55.0,
+      "metadata": {}
+    }
+  },
+  "optimized_results": {
+    "MMLU": {
+      "benchmark": "MMLU",
+      "total_questions": 10,
+      "correct_answers": 7,
+      "accuracy": 0.7,
+      "duration": 35.0,
+      "metadata": {
+        "optimizations": "16 techniques applied"
+      }
+    },
+    "GSM8K": {
+      "benchmark": "GSM8K",
+      "total_questions": 10,
+      "correct_answers": 6,
+      "accuracy": 0.6,
+      "duration": 40.0,
+      "metadata": {
+        "optimizations": "16 techniques applied"
+      }
+    },
+    "HellaSwag": {
+      "benchmark": "HellaSwag",
+      "total_questions": 10,
+      "correct_answers": 7,
+      "accuracy": 0.7,
+      "duration": 30.0,
+      "metadata": {
+        "optimizations": "16 techniques applied"
+      }
+    },
+    "ARC": {
+      "benchmark": "ARC",
+      "total_questions": 10,
+      "correct_answers": 6,
+      "accuracy": 0.6,
+      "duration": 38.0,
+      "metadata": {
+        "optimizations": "16 techniques applied"
+      }
+    }
+  },
+  "comparisons": [
+    {
+      "benchmark": "GSM8K",
+      "baseline_accuracy": 0.5,
+      "optimized_accuracy": 0.6,
+      "accuracy_improvement": 0.09999999999999998,
+      "speed_improvement": 1.5,
+      "significance": "SIGNIFICANT"
+    },
+    {
+      "benchmark": "MMLU",
+      "baseline_accuracy": 0.6,
+      "optimized_accuracy": 0.7,
+      "accuracy_improvement": 0.09999999999999998,
+      "speed_improvement": 1.4285714285714286,
+      "significance": "SIGNIFICANT"
+    },
+    {
+      "benchmark": "HellaSwag",
+      "baseline_accuracy": 0.6,
+      "optimized_accuracy": 0.7,
+      "accuracy_improvement": 0.09999999999999998,
+      "speed_improvement": 1.5,
+      "significance": "SIGNIFICANT"
+    },
+    {
+      "benchmark": "ARC",
+      "baseline_accuracy": 0.5,
+      "optimized_accuracy": 0.6,
+      "accuracy_improvement": 0.09999999999999998,
+      "speed_improvement": 1.4473684210526316,
+      "significance": "SIGNIFICANT"
+    }
+  ]
+}

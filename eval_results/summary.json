@@ -1,0 +1,25 @@
+{
+  "model": "ollama/llama3",
+  "timestamp": "2026-08-10T12:21:42.542532",
+  "split": "test",
+  "num_shots": 5,
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 2,
+  "category_results": [
+    {
+      "category": "math",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "eval_results\\math.json"
+    },
+    {
+      "category": "chemistry",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "eval_results\\chemistry.json"
+    }
+  ]
+}

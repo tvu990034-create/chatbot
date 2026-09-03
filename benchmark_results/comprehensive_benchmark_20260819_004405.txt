@@ -1,0 +1,52 @@
+================================================================================
+COMPREHENSIVE BENCHMARK REPORT - phi3:mini OPTIMIZED
+================================================================================
+Generated: 2026-08-19 00:44:05
+
+BENCHMARK SUMMARY
+--------------------------------------------------------------------------------
+Benchmark                 Questions    Correct      Accuracy     Duration    
+--------------------------------------------------------------------------------
+MMLU-Pro                  5            1                  20.0%      351.9s
+BBH                       5            1                  20.0%      186.1s
+AMC                       5            5                 100.0%      166.9s
+ProofNet                  5            5                 100.0%      153.3s
+MT-Bench                  1            1                 100.0%       59.8s
+
+OVERALL STATISTICS
+--------------------------------------------------------------------------------
+Total Questions: 21
+Total Correct: 13
+Overall Accuracy: 61.90%
+Total Duration: 918.0s
+Average Time per Question: 43.72s
+
+MMLU-Pro DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 20.00% (1/5)
+Duration: 351.9s
+Average per question: 70.39s
+
+BBH DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 20.00% (1/5)
+Duration: 186.1s
+Average per question: 37.22s
+
+AMC DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (5/5)
+Duration: 166.9s
+Average per question: 33.38s
+
+ProofNet DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (5/5)
+Duration: 153.3s
+Average per question: 30.67s
+
+MT-Bench DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (1/1)
+Duration: 59.8s
+Average per question: 59.75s

@@ -1,0 +1,18 @@
+{
+  "model": "ollama/phi3:mini",
+  "timestamp": "2026-08-10T12:19:11.417976",
+  "split": "test",
+  "num_shots": 1,
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 1,
+  "category_results": [
+    {
+      "category": "math",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "benchmark_test\\math.json"
+    }
+  ]
+}

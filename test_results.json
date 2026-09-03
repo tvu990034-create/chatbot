@@ -1,0 +1,73 @@
+{
+  "total_tests": 9,
+  "passed_tests": 9,
+  "failed_tests": 0,
+  "pass_rate": 1.0,
+  "total_duration": 63.571715116500854,
+  "results": [
+    {
+      "test": "Health Check",
+      "success": true,
+      "duration": 2.072816848754883,
+      "details": "Status: healthy, Models: 3",
+      "timestamp": "2026-08-23T20:51:30.982867"
+    },
+    {
+      "test": "Basic Chat",
+      "success": true,
+      "duration": 3.8514621257781982,
+      "details": "Response length: 39, Cache hit: False",
+      "timestamp": "2026-08-23T20:51:34.834329"
+    },
+    {
+      "test": "Cache Performance",
+      "success": true,
+      "duration": 16.542158603668213,
+      "details": "Cache hit rate: 100.0%, Avg time: 2.36s",
+      "timestamp": "2026-08-23T20:51:51.378100"
+    },
+    {
+      "test": "Analytics Endpoint",
+      "success": true,
+      "duration": 2.0466418266296387,
+      "details": "Analytics keys: ['gemma2:2b:balanced']",
+      "timestamp": "2026-08-23T20:51:53.424741"
+    },
+    {
+      "test": "Query Variations",
+      "success": true,
+      "duration": 17.965238094329834,
+      "details": "Semantic cache hits: 4/4, Avg time: 4.49s",
+      "timestamp": "2026-08-23T20:52:11.390997"
+    },
+    {
+      "test": "Performance Metrics",
+      "success": true,
+      "duration": 5.667062759399414,
+      "details": "Metrics: cache_hit_rate=35.3%, avg_time=1.37s",
+      "timestamp": "2026-08-23T20:52:17.058059"
+    },
+    {
+      "test": "Error Handling",
+      "success": true,
+      "duration": 5.084049940109253,
+      "details": "Status: 200 (graceful error handling)",
+      "timestamp": "2026-08-23T20:52:22.142109"
+    },
+    {
+      "test": "Concurrent Requests",
+      "success": true,
+      "duration": 5.146419286727905,
+      "details": "Success rate: 100.0%, 5 concurrent requests",
+      "timestamp": "2026-08-23T20:52:27.288528"
+    },
+    {
+      "test": "Long Query Handling",
+      "success": true,
+      "duration": 5.195865631103516,
+      "details": "Response length: 526, Truncated: False",
+      "timestamp": "2026-08-23T20:52:32.484394"
+    }
+  ],
+  "timestamp": "2026-08-23T20:52:32.484952"
+}

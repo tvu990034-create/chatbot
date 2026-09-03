@@ -1,0 +1,39 @@
+================================================================================
+BASELINE vs OPTIMIZED COMPARISON REPORT - phi3:mini
+================================================================================
+Generated: 2026-08-18 20:54:35
+
+PERFORMANCE COMPARISON SUMMARY
+--------------------------------------------------------------------------------
+Benchmark            Baseline     Optimized    Improvement  Speed        Significance
+--------------------------------------------------------------------------------
+GSM8K                     50.0%      60.0%     10.0%    150.0% SIGNIFICANT 
+MMLU                      60.0%      70.0%     10.0%    142.9% SIGNIFICANT 
+HellaSwag                 60.0%      70.0%     10.0%    150.0% SIGNIFICANT 
+ARC                       50.0%      60.0%     10.0%    144.7% SIGNIFICANT 
+
+OVERALL STATISTICS
+--------------------------------------------------------------------------------
+Average Baseline Accuracy: 55.00%
+Average Optimized Accuracy: 65.00%
+Average Accuracy Improvement: 10.00%
+Average Speed Improvement: 146.90%x
+
+SIGNIFICANCE BREAKDOWN
+--------------------------------------------------------------------------------
+Significant Improvements: 4
+Moderate Improvements: 0
+Minor Improvements: 0
+Regressions: 0
+
+KEY FINDINGS
+--------------------------------------------------------------------------------
+Best Accuracy Improvement: GSM8K (+10.0%)
+Worst Performance: GSM8K (+10.0%)
+Best Speed Improvement: GSM8K (150.0%x)
+
+CONCLUSION
+--------------------------------------------------------------------------------
+The optimized phi3:mini shows an average accuracy improvement of 10.00%
+across 4 benchmarks, with an average speed improvement of 146.90%x.
+The optimizations are providing SIGNIFICANT performance gains.

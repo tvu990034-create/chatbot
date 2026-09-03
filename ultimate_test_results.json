@@ -1,0 +1,163 @@
+[
+  {
+    "query": "hello bro",
+    "test_type": "exact 1",
+    "duration": 2.671340227127075,
+    "response_length": 28,
+    "test_number": 1
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact cache hit",
+    "duration": 2.045853614807129,
+    "response_length": 28,
+    "test_number": 2
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact cache hit again",
+    "duration": 2.058270215988159,
+    "response_length": 28,
+    "test_number": 3
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact cache hit x4",
+    "duration": 2.05159068107605,
+    "response_length": 28,
+    "test_number": 4
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact after variations",
+    "duration": 2.0465500354766846,
+    "response_length": 28,
+    "test_number": 5
+  },
+  {
+    "query": "Hello Bro",
+    "test_type": "case variation",
+    "duration": 2.045705556869507,
+    "response_length": 28,
+    "test_number": 6
+  },
+  {
+    "query": "HELLO BRO",
+    "test_type": "all caps",
+    "duration": 2.0447845458984375,
+    "response_length": 28,
+    "test_number": 7
+  },
+  {
+    "query": "hello!",
+    "test_type": "punctuation variation",
+    "duration": 2.715137004852295,
+    "response_length": 39,
+    "test_number": 8
+  },
+  {
+    "query": "hello!?",
+    "test_type": "more punctuation",
+    "duration": 2.051732063293457,
+    "response_length": 39,
+    "test_number": 9
+  },
+  {
+    "query": "hi there bro",
+    "test_type": "semantic variation 1",
+    "duration": 2.5351293087005615,
+    "response_length": 26,
+    "test_number": 10
+  },
+  {
+    "query": "hey there bro",
+    "test_type": "semantic variation 2",
+    "duration": 2.063106060028076,
+    "response_length": 26,
+    "test_number": 11
+  },
+  {
+    "query": "greetings bro",
+    "test_type": "semantic variation 3",
+    "duration": 2.5027005672454834,
+    "response_length": 28,
+    "test_number": 12
+  },
+  {
+    "query": "what is 2+2",
+    "test_type": "math original",
+    "duration": 2.4109537601470947,
+    "response_length": 11,
+    "test_number": 13
+  },
+  {
+    "query": "calculate 2+2",
+    "test_type": "math variation 1",
+    "duration": 3.526506185531616,
+    "response_length": 162,
+    "test_number": 14
+  },
+  {
+    "query": "2 plus 2",
+    "test_type": "math variation 2",
+    "duration": 2.466494083404541,
+    "response_length": 24,
+    "test_number": 15
+  },
+  {
+    "query": "what is 2+2?",
+    "test_type": "math with punctuation",
+    "duration": 2.0516629219055176,
+    "response_length": 11,
+    "test_number": 16
+  },
+  {
+    "query": "explain AI",
+    "test_type": "ai original",
+    "duration": 4.595584869384766,
+    "response_length": 523,
+    "test_number": 17
+  },
+  {
+    "query": "explain artificial intelligence",
+    "test_type": "ai expanded",
+    "duration": 4.670513868331909,
+    "response_length": 556,
+    "test_number": 18
+  },
+  {
+    "query": "AI explanation",
+    "test_type": "ai rephrased",
+    "duration": 4.6242687702178955,
+    "response_length": 610,
+    "test_number": 19
+  },
+  {
+    "query": "tell me about AI",
+    "test_type": "ai semantic",
+    "duration": 4.55555534362793,
+    "response_length": 569,
+    "test_number": 20
+  },
+  {
+    "query": "write python code",
+    "test_type": "code original",
+    "duration": 4.511855363845825,
+    "response_length": 407,
+    "test_number": 21
+  },
+  {
+    "query": "python function",
+    "test_type": "code variation 1",
+    "duration": 2.037001848220825,
+    "response_length": 407,
+    "test_number": 22
+  },
+  {
+    "query": "create python function",
+    "test_type": "code variation 2",
+    "duration": 4.536561012268066,
+    "response_length": 454,
+    "test_number": 23
+  }
+]

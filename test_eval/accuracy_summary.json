@@ -1,0 +1,12 @@
+{
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 1,
+  "category_results": {
+    "math": {
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1
+    }
+  }
+}

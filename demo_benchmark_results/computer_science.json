@@ -1,0 +1,74 @@
+[
+  {
+    "question_id": 7,
+    "question": "What does CPU stand for?",
+    "options": [
+      "Central Processing Unit",
+      "Computer Personal Unit",
+      "Central Program Utility",
+      "Computing Processing Unit",
+      "Central Protocol Unit",
+      "Computer Processing Unit",
+      "Central Power Unit",
+      "Core Processing Unit",
+      "Central Processing Utility",
+      "Computer Protocol Unit"
+    ],
+    "answer": "A",
+    "answer_index": 0,
+    "cot_content": "A: Let's think step by step. CPU is the standard abbreviation for Central Processing Unit, which is the primary component of a computer that processes instructions. The answer is (A).",
+    "category": "computer_science",
+    "pred": "A",
+    "model_outputs": "Let's think step by step. Let's think step by step. CPU is the standard abbreviation for Central Processing Unit, which is the primary component of a computer that processes instructions. The answer is (A).",
+    "latency": 3.790290241123022,
+    "is_correct": true
+  },
+  {
+    "question_id": 8,
+    "question": "What data structure uses LIFO (Last In First Out)?",
+    "options": [
+      "Queue",
+      "Stack",
+      "Array",
+      "Linked List",
+      "Tree",
+      "Graph",
+      "Hash Table",
+      "Heap",
+      "Deque",
+      "Priority Queue"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. LIFO (Last In First Out) is the defining characteristic of a stack data structure. The last element added is the first one removed. The answer is (B).",
+    "category": "computer_science",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. LIFO (Last In First Out) is the defining characteristic of a stack data structure. The last element added is the first one removed. The answer is (B).",
+    "latency": 3.0061007992254014,
+    "is_correct": true
+  },
+  {
+    "question_id": 9,
+    "question": "What is the time complexity of binary search?",
+    "options": [
+      "O(n)",
+      "O(n^2)",
+      "O(log n)",
+      "O(1)",
+      "O(n log n)",
+      "O(2^n)",
+      "O(n!)",
+      "O(sqrt(n))",
+      "O(log log n)",
+      "O(n^3)"
+    ],
+    "answer": "C",
+    "answer_index": 2,
+    "cot_content": "A: Let's think step by step. Binary search divides the search space in half with each comparison, giving it a logarithmic time complexity of O(log n). The answer is (C).",
+    "category": "computer_science",
+    "pred": "O(1)",
+    "model_outputs": "Let me think about this... After considering the options, I believe the answer is different.",
+    "latency": 3.831768231477315,
+    "is_correct": false
+  }
+]

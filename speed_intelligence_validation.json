@@ -1,0 +1,131 @@
+{
+  "total_tests": 4,
+  "successful_tests": 4,
+  "results": [
+    {
+      "test": "ultra_fast_responses",
+      "total_queries": 5,
+      "successful": 5,
+      "avg_duration": 2.0534237384796143,
+      "cache_hits": 1,
+      "cache_hit_rate": 0.2,
+      "details": [
+        {
+          "query": "hello",
+          "duration": 2.067316770553589,
+          "response_length": 38,
+          "cache_hit": false
+        },
+        {
+          "query": "hi",
+          "duration": 2.0490810871124268,
+          "response_length": 49,
+          "cache_hit": false
+        },
+        {
+          "query": "yes",
+          "duration": 2.055509567260742,
+          "response_length": 13,
+          "cache_hit": false
+        },
+        {
+          "query": "2+2",
+          "duration": 2.063180685043335,
+          "response_length": 15,
+          "cache_hit": false
+        },
+        {
+          "query": "what is ai",
+          "duration": 2.0320305824279785,
+          "response_length": 35,
+          "cache_hit": true
+        }
+      ]
+    },
+    {
+      "test": "intelligent_responses",
+      "total_queries": 4,
+      "successful": 4,
+      "avg_duration": 8.245033860206604,
+      "intelligent_responses": 0,
+      "intelligence_rate": 0.0,
+      "details": [
+        {
+          "query": "write a python function to add two numbers",
+          "duration": 9.346443176269531,
+          "response_length": 109,
+          "has_code": false,
+          "has_structure": false
+        },
+        {
+          "query": "calculate 15 * 23",
+          "duration": 9.187878131866455,
+          "response_length": 15,
+          "has_code": false,
+          "has_structure": false
+        },
+        {
+          "query": "explain how machine learning works",
+          "duration": 5.191272020339966,
+          "response_length": 112,
+          "has_code": false,
+          "has_structure": false
+        },
+        {
+          "query": "what is the difference between python and javascript",
+          "duration": 9.254542112350464,
+          "response_length": 109,
+          "has_code": false,
+          "has_structure": false
+        }
+      ]
+    },
+    {
+      "test": "cache_performance",
+      "first_request_duration": 9.627459287643433,
+      "second_request_duration": 9.417786359786987,
+      "third_request_duration": 9.354865074157715,
+      "cache_hit_rate": 1.0,
+      "speed_improvement": 1.0222635043784523
+    },
+    {
+      "test": "concurrent_performance",
+      "concurrent_requests": 5,
+      "successful": 1,
+      "total_duration": 12.144391775131226,
+      "avg_duration": 11.60186972618103,
+      "details": [
+        {
+          "query": "query 0",
+          "duration": 9.599317789077759,
+          "success": true
+        },
+        {
+          "query": "query 1",
+          "duration": 12.097054958343506,
+          "success": false,
+          "error": "HTTPConnectionPool(host='localhost', port=8000): Read timed out. (read timeout=10)"
+        },
+        {
+          "query": "query 4",
+          "duration": 12.082029342651367,
+          "success": false,
+          "error": "HTTPConnectionPool(host='localhost', port=8000): Read timed out. (read timeout=10)"
+        },
+        {
+          "query": "query 2",
+          "duration": 12.118355751037598,
+          "success": false,
+          "error": "HTTPConnectionPool(host='localhost', port=8000): Read timed out. (read timeout=10)"
+        },
+        {
+          "query": "query 3",
+          "duration": 12.112590789794922,
+          "success": false,
+          "error": "HTTPConnectionPool(host='localhost', port=8000): Read timed out. (read timeout=10)"
+        }
+      ]
+    }
+  ],
+  "timestamp": 1787494527.8132715
+}

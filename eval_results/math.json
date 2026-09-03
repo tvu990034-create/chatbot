@@ -1,0 +1,25 @@
+[
+  {
+    "question_id": 1,
+    "question": "What is the derivative of x^2 with respect to x?",
+    "options": [
+      "x",
+      "2x",
+      "x^2",
+      "2x^2",
+      "x/2",
+      "x^3",
+      "1",
+      "0",
+      "2",
+      "x^2/2"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. The derivative of x^n is n*x^(n-1). For x^2, n=2, so derivative is 2*x^(2-1) = 2x. The answer is (B).",
+    "category": "math",
+    "pred": "G",
+    "model_outputs": "",
+    "latency": 0.0001926422119140625
+  }
+]

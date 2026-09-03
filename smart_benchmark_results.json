@@ -1,0 +1,44 @@
+[
+  {
+    "benchmark": "BENCHMARK: MMLU",
+    "duration": 15.1035635471344,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: MMLU\n\nQuestion: What is 2+2? A)3 B)4 C)5 D)6\n\nResponse: The answer is **B) 4**. \n\n2 + 2 = 4 \n\n\nDuration: 13.03s\nOptimizations: 68 active"
+  },
+  {
+    "benchmark": "BENCHMARK: GSM8K",
+    "duration": 5.712901830673218,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: GSM8K\n\nQuestion: A baker has 5 loaves of bread. Each loaf is cut into 8 slices. How many slices total?\n\nResponse: Here's how to solve the problem:\n\n* **Slices per loaf:** 8 slices/loaf\n* **..."
+  },
+  {
+    "benchmark": "BENCHMARK: HellaSwag",
+    "duration": 10.21347188949585,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: HellaSwag\n\nQuestion: I picked up the ball and threw it. What happened next?\n\nResponse: Lots of things could happen next!  Here are a few possibilities:\n\n**Depending on the scenario:**\n\n* **..."
+  },
+  {
+    "benchmark": "BENCHMARK: reasoning",
+    "duration": 8.813256978988647,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: reasoning\n\nQuestion: If all cats are animals, and some animals are black, what can we conclude?\n\nResponse: Here's the conclusion we can draw from the given information:\n\n**Some cats are bla..."
+  },
+  {
+    "benchmark": "BENCHMARK: math",
+    "duration": 8.07670283317566,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: math\n\nQuestion: Solve for x: 2x + 4 = 10\n\nResponse: Here's how to solve for 'x':\n\n1. **Subtract 4 from both sides:** \n   2x + 4 - 4 = 10 - 4\n   2x = 6\n\n2. **Divide both sides by 2:**\n   2x ..."
+  },
+  {
+    "benchmark": "BENCHMARK: coding",
+    "duration": 10.298999309539795,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: coding\n\nQuestion: Write a function to add two numbers in Python\n\nResponse: ```python\ndef add_numbers(a, b):\n  \"\"\"\n  This function adds two numbers together.\n\n  Args:\n    a: The first number..."
+  },
+  {
+    "benchmark": "BENCHMARK: general",
+    "duration": 10.218515157699585,
+    "model": "gemma2:2b",
+    "response": "BENCHMARK: general\n\nQuestion: Explain why the sky is blue\n\nResponse: The sky appears blue due to a phenomenon called **Rayleigh scattering**.  Here's a breakdown:\n\n**1. Sunlight and its Colors:** \n* S..."
+  }
+]

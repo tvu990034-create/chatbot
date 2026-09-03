@@ -1,0 +1,121 @@
+{
+  "timestamp": "2026-08-17T21:13:49.436397",
+  "model": "ollama/phi3:mini",
+  "gateway": "enhanced_with_training_diagnostics",
+  "optimization_stats": {
+    "performance_equations_enabled": true,
+    "optimizations": {
+      "simple_cache": {
+        "cached_responses": 82
+      },
+      "prompt_compression": {
+        "enabled": true,
+        "ratio": 0.8
+      },
+      "difficulty_routing": {
+        "enabled": true,
+        "threshold": 0.7
+      },
+      "adaptive_temperature": {
+        "enabled": true,
+        "base_temp": 0.1
+      },
+      "calibration_diagnostics": {
+        "enabled": true,
+        "metrics_available": true
+      },
+      "inference_optimization": {
+        "enabled": true,
+        "action_minimization": true,
+        "boltzmann_sampling": true,
+        "cot_chunking": true,
+        "mdl_selection": true
+      },
+      "meta_reasoning": {
+        "enabled": true,
+        "debate_stopping": true,
+        "budget_optimization": true,
+        "meta_policy": true
+      },
+      "performance_optimization": {
+        "cache_optimization": {
+          "enabled": true
+        },
+        "parallel_scaling": {
+          "enabled": true
+        },
+        "queueing_analysis": {
+          "enabled": true
+        },
+        "memory_analysis": {
+          "enabled": true
+        },
+        "token_stopping": {
+          "enabled": true,
+          "token_cost": 0.05
+        }
+      },
+      "advanced_optimization": {
+        "token_cost_optimization": {
+          "enabled": true,
+          "lambda_cost": 0.3
+        },
+        "utility_calculation": {
+          "enabled": true
+        },
+        "ensemble_voting": {
+          "enabled": true
+        },
+        "speedup_analysis": {
+          "enabled": true
+        }
+      },
+      "training_diagnostics": {
+        "calibration_scoring": {
+          "enabled": true
+        },
+        "quality_assessment": {
+          "enabled": true
+        }
+      },
+      "smart_enhancements": {
+        "chain_of_thought": true,
+        "rag": true,
+        "adversarial_detection": true
+      }
+    }
+  },
+  "tests": {
+    "training_diagnostics": {
+      "calibration": {
+        "brier_score": 0.10525,
+        "expected_calibration_error": 0.275,
+        "log_loss": 0.3541914852409179
+      },
+      "quality_assessment": {
+        "accuracy": 0.8,
+        "confidence_accuracy_correlation": 0.3535533905932738
+      }
+    },
+    "model_integration": {
+      "quality_assessment": {
+        "accuracy": 0.0,
+        "calibration": {
+          "brier_score": 0.6400000000000001,
+          "expected_calibration_error": 0.8000000000000002,
+          "log_loss": 1.6094379124341005,
+          "num_predictions": 3,
+          "mean_confidence": 0.8000000000000002,
+          "mean_accuracy": 0.0
+        },
+        "confidence_accuracy_correlation": NaN,
+        "num_predictions": 3
+      },
+      "times": [
+        7.2457661628723145,
+        0.42092204093933105,
+        1.3124103546142578
+      ]
+    }
+  }
+}

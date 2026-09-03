@@ -1,0 +1,44 @@
+[
+  {
+    "query": "hello bro",
+    "duration": 2.7088406085968018,
+    "response_length": 28,
+    "test_number": 1
+  },
+  {
+    "query": "hello bro",
+    "duration": 2.033951997756958,
+    "response_length": 28,
+    "test_number": 2
+  },
+  {
+    "query": "what is 2+2",
+    "duration": 2.500368356704712,
+    "response_length": 11,
+    "test_number": 3
+  },
+  {
+    "query": "what is 2+2",
+    "duration": 2.0632739067077637,
+    "response_length": 11,
+    "test_number": 4
+  },
+  {
+    "query": "explain AI",
+    "duration": 4.873504638671875,
+    "response_length": 505,
+    "test_number": 5
+  },
+  {
+    "query": "write python code",
+    "duration": 4.787414073944092,
+    "response_length": 511,
+    "test_number": 6
+  },
+  {
+    "query": "solve math problem",
+    "duration": 4.286760330200195,
+    "response_length": 364,
+    "test_number": 7
+  }
+]

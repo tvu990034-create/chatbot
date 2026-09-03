@@ -1,0 +1,209 @@
+version: "3.9"
+
+# =============================================================================
+#  local-chatbot – full-stack docker-compose
+#
+#  Services
+#  --------
+#  chatbot-api   FastAPI REST server  (port 8000)
+#  chatbot-ui    Gradio chat UI       (port 7860)
+#  chromadb      Vector store         (port 8001)
+#  ollama        Local LLM (CPU)      (port 11434)
+#
+#  Optional GPU services (uncomment to use)
+#  --------
+#  vllm          vLLM OpenAI-compat   (port 8080)
+#  sglang        SGLang server        (port 8080)
+#
+#  Quick start (CPU / Ollama)
+#  --------------------------
+#  1. cp .env.example .env   (edit as needed)
+#  2. docker compose up -d
+#  3. open http://localhost:7860
+#
+#  Pull a model into Ollama after first start:
+#    docker compose exec ollama ollama pull llama3
+# =============================================================================
+
+x-common-env: &common-env
+  env_file: .env
+  environment:
+    - PYTHONUNBUFFERED=1
+    - PYTHONDONTWRITEBYTECODE=1
+
+x-chatbot-base: &chatbot-base
+  build:
+    context: .
+    dockerfile: Dockerfile
+  restart: unless-stopped
+  volumes:
+    - ./data:/app/data
+    - ./.env:/app/.env:ro
+  depends_on:
+    chromadb:
+      condition: service_healthy
+    ollama:
+      condition: service_started
+  networks:
+    - chatbot-net
+
+# ─────────────────────────────────────────────
+services:
+
+  # ── FastAPI REST API ────────────────────────
+  chatbot-api:
+    <<: *chatbot-base
+    <<: *common-env
+    container_name: chatbot-api
+    command: python main.py api --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    environment:
+      - API_HOST=0.0.0.0
+      - API_PORT=8000
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - LOCAL_BACKEND=ollama
+      - LOCAL_BACKEND_HOST=ollama
+      - LOCAL_BACKEND_PORT=11434
+      - DEFAULT_MODEL=ollama/llama3
+      - LITELLM_API_BASE=http://ollama:11434
+
+  # ── Gradio UI ───────────────────────────────
+  chatbot-ui:
+    <<: *chatbot-base
+    <<: *common-env
+    container_name: chatbot-ui
+    command: python main.py ui --host 0.0.0.0 --port 7860
+    ports:
+      - "7860:7860"
+    depends_on:
+      chatbot-api:
+        condition: service_healthy
+    environment:
+      - UI_HOST=0.0.0.0
+      - UI_PORT=7860
+      - CHROMA_HOST=chromadb
+      - CHROMA_PORT=8000
+      - LOCAL_BACKEND=ollama
+      - LOCAL_BACKEND_HOST=ollama
+      - LOCAL_BACKEND_PORT=11434
+      - DEFAULT_MODEL=ollama/llama3
+      - LITELLM_API_BASE=http://ollama:11434
+
+  # ── ChromaDB vector store ───────────────────
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chatbot-chromadb
+    restart: unless-stopped
+    ports:
+      - "8001:8000"
+    volumes:
+      - chromadb-data:/chroma/chroma
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/chroma/chroma
+      - ANONYMIZED_TELEMETRY=FALSE
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/heartbeat"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    networks:
+      - chatbot-net
+
+  # ── Ollama (CPU-friendly local LLM) ─────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: chatbot-ollama
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-models:/root/.ollama
+    networks:
+      - chatbot-net
+    # Uncomment the lines below if you have an NVIDIA GPU available:
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+  # ─────────────────────────────────────────────
+  # OPTIONAL: vLLM (NVIDIA GPU required)
+  # ─────────────────────────────────────────────
+  # vllm:
+  #   image: vllm/vllm-openai:latest
+  #   container_name: chatbot-vllm
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:8000"
+  #   volumes:
+  #     - huggingface-cache:/root/.cache/huggingface
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #   command: >
+  #     --model meta-llama/Meta-Llama-3-8B-Instruct
+  #     --host 0.0.0.0
+  #     --port 8000
+  #     --gpu-memory-utilization 0.90
+  #     --max-model-len 8192
+  #     --dtype auto
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - chatbot-net
+
+  # ─────────────────────────────────────────────
+  # OPTIONAL: SGLang (NVIDIA GPU required)
+  # ─────────────────────────────────────────────
+  # sglang:
+  #   image: lmsysorg/sglang:latest
+  #   container_name: chatbot-sglang
+  #   restart: unless-stopped
+  #   ports:
+  #     - "8080:30000"
+  #   volumes:
+  #     - huggingface-cache:/root/.cache/huggingface
+  #   environment:
+  #     - HUGGING_FACE_HUB_TOKEN=${HUGGING_FACE_HUB_TOKEN:-}
+  #   command: >
+  #     python -m sglang.launch_server
+  #     --model-path meta-llama/Meta-Llama-3-8B-Instruct
+  #     --host 0.0.0.0
+  #     --port 30000
+  #     --trust-remote-code
+  #   deploy:
+  #     resources:
+  #       reservations:
+  #         devices:
+  #           - driver: nvidia
+  #             count: all
+  #             capabilities: [gpu]
+  #   networks:
+  #     - chatbot-net
+
+# ─────────────────────────────────────────────
+volumes:
+  chromadb-data:
+  ollama-models:
+  # huggingface-cache:   # uncomment when using vLLM or SGLang
+
+networks:
+  chatbot-net:
+    driver: bridge

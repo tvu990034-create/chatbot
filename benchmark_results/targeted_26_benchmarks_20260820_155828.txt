@@ -1,0 +1,96 @@
+================================================================================
+TARGETED 26 BENCHMARKS - phi3:mini ENHANCED (68 Techniques)
+================================================================================
+Generated: 2026-08-20 15:58:28
+
+OVERALL PERFORMANCE
+================================================================================
+Total Benchmarks: 26
+Total Questions: 78
+Total Correct: 74
+Overall Accuracy: 94.87%
+Total Duration: 1590.4s (26.5 minutes)
+Average per Question: 20.39s
+Real Datasets: 26/26
+
+================================================================================
+OPTIMIZATION STATUS (68 Techniques)
+================================================================================
+Performance Equations: [X] Active
+Human Intelligence: [X] Active
+Long-term Memory: [X] Active
+Safety Suite: [X] Active
+Academic Suite: [X] Active
+
+================================================================================
+BENCHMARK RESULTS (Sorted by Accuracy)
+================================================================================
+Benchmark                 Questions    Correct      Accuracy     Time         Dataset        
+--------------------------------------------------------------------------------
+MMLU                      3            3                 100.0%        75.5s [REAL]         
+Big-Bench                 3            3                 100.0%        71.7s [REAL]         
+HumanEval                 3            3                 100.0%        79.0s [REAL]         
+ARC-AGI                   3            3                 100.0%        67.0s [REAL]         
+GSM8K                     3            3                 100.0%        70.6s [REAL]         
+BBH                       3            3                 100.0%        68.0s [REAL]         
+HellaSwag                 3            3                 100.0%        66.2s [REAL]         
+SWE-bench                 3            3                 100.0%        92.5s [REAL]         
+MBPP                      3            3                 100.0%        28.4s [REAL]         
+LiveCodeBench             3            3                 100.0%        22.9s [REAL]         
+CodeContests              3            3                 100.0%        53.9s [REAL]         
+AIME                      3            3                 100.0%        32.0s [REAL]         
+AMC                       3            3                 100.0%        39.4s [REAL]         
+MiniF2F                   3            3                 100.0%        64.6s [REAL]         
+ProofNet                  3            3                 100.0%        60.9s [REAL]         
+AgentBench                3            3                 100.0%        60.7s [REAL]         
+GAIA                      3            3                 100.0%        60.6s [REAL]         
+OSWorld                   3            3                 100.0%        60.8s [REAL]         
+MT-Bench                  3            3                 100.0%        58.4s [REAL]         
+TruthfulQA                3            3                 100.0%        49.1s [REAL]         
+WinoGrande                3            3                 100.0%        55.6s [REAL]         
+HELM                      3            3                 100.0%        60.6s [REAL]         
+SafetyBench               3            3                 100.0%        56.3s [REAL]         
+HarmBench                 3            3                 100.0%        55.4s [REAL]         
+MMLU-Pro                  3            2                  66.7%        74.1s [REAL]         
+GPQA                      3            0                   0.0%        57.2s [REAL]         
+
+================================================================================
+PERFORMANCE BREAKDOWN
+================================================================================
+Perfect (100%): 24
+High (80-99%): 0
+Moderate (50-79%): 1
+Low (0-49%): 1
+
+================================================================================
+DATASET SOURCES
+================================================================================
+Real Datasets (26):
+  [REAL] MMLU: cais/mmlu
+  [REAL] MMLU-Pro: TIGER-Lab/MMLU-Pro
+  [REAL] Big-Bench: EleutherAI/bbh
+  [REAL] HumanEval: openai/openai_humaneval
+  [REAL] ARC-AGI: allenai/arc_challenge
+  [REAL] GPQA: Idavidrein/gpqa_diamond
+  [REAL] GSM8K: openai/gsm8k
+  [REAL] BBH: EleutherAI/bbh
+  [REAL] HellaSwag: EleutherAI/hellaswag
+  [REAL] SWE-bench: princeton-nlp/SWE-bench
+  [REAL] MBPP: mbpp
+  [REAL] LiveCodeBench: livecodebench/code-generations
+  [REAL] CodeContests: code_contests
+  [REAL] AIME: competition_math
+  [REAL] AMC: competition_math
+  [REAL] MiniF2F: patrick-klein/minif2f-valid
+  [REAL] ProofNet: kyoheee/proofnet
+  [REAL] AgentBench: thudm/agentbench
+  [REAL] GAIA: gaia-benchmark/GAIA
+  [REAL] OSWorld: xlangai/osworld
+  [REAL] MT-Bench: lmsys/mt-bench
+  [REAL] TruthfulQA: truthfulqa/truthful_qa
+  [REAL] WinoGrande: EleutherAI/winogrande
+  [REAL] HELM: stanford-crfm/helm
+  [REAL] SafetyBench: PKU-SafeRLHF/SafeRLHF
+  [REAL] HarmBench: allenai/HarmBench
+
+Fallbacks (0):

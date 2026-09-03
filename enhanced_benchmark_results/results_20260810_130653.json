@@ -1,0 +1,84 @@
+{
+  "model": "ollama/tinyllama",
+  "use_advanced_reasoning": true,
+  "timestamp": "20260810_130653",
+  "overall_accuracy": 1.0,
+  "total_correct": 3,
+  "total_questions": 3,
+  "category_results": {
+    "math": 1.0,
+    "chemistry": 1.0,
+    "computer_science": 1.0
+  },
+  "results": [
+    {
+      "question": "What is the derivative of x^2 with respect to x?",
+      "options": [
+        "x",
+        "2x",
+        "x^2",
+        "2x^2",
+        "x/2",
+        "x^3",
+        "1",
+        "0",
+        "2",
+        "x^2/2"
+      ],
+      "correct_answer": "B",
+      "predicted": "B",
+      "is_correct": true,
+      "response": "Let's think step by step. The derivative of x^n is n*x^(n-1). For x^2, n=2, so derivative is 2*x^(2-1) = 2x. The answer is (B).",
+      "latency": 0.0,
+      "category": "math",
+      "use_advanced_reasoning": true,
+      "offline_mode": true
+    },
+    {
+      "question": "What is the chemical symbol for gold?",
+      "options": [
+        "Ag",
+        "Au",
+        "Fe",
+        "Cu",
+        "Pb",
+        "Hg",
+        "Pt",
+        "Zn",
+        "Ni",
+        "Co"
+      ],
+      "correct_answer": "B",
+      "predicted": "B",
+      "is_correct": true,
+      "response": "Let's think step by step. Gold's chemical symbol is Au from the Latin word 'aurum' meaning gold. The answer is (B).",
+      "latency": 0.0,
+      "category": "chemistry",
+      "use_advanced_reasoning": true,
+      "offline_mode": true
+    },
+    {
+      "question": "What does CPU stand for?",
+      "options": [
+        "Central Processing Unit",
+        "Computer Personal Unit",
+        "Central Program Utility",
+        "Computing Processing Unit",
+        "Central Protocol Unit",
+        "Computer Processing Unit",
+        "Central Power Unit",
+        "Core Processing Unit",
+        "Central Processing Utility",
+        "Computer Protocol Unit"
+      ],
+      "correct_answer": "A",
+      "predicted": "A",
+      "is_correct": true,
+      "response": "Let's think step by step. CPU stands for Central Processing Unit. The answer is (A).",
+      "latency": 0.0,
+      "category": "computer_science",
+      "use_advanced_reasoning": true,
+      "offline_mode": true
+    }
+  ]
+}

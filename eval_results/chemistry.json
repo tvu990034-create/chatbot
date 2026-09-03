@@ -1,0 +1,25 @@
+[
+  {
+    "question_id": 2,
+    "question": "What is the chemical symbol for gold?",
+    "options": [
+      "Ag",
+      "Au",
+      "Fe",
+      "Cu",
+      "Pb",
+      "Hg",
+      "Pt",
+      "Zn",
+      "Ni",
+      "Co"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. Gold's chemical symbol is Au from the Latin word 'aurum' meaning gold. The answer is (B).",
+    "category": "chemistry",
+    "pred": "A",
+    "model_outputs": "",
+    "latency": 0.0001728534698486328
+  }
+]

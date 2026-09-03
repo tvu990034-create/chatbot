@@ -1,0 +1,25 @@
+{
+  "model": "ollama/phi3:mini",
+  "timestamp": "2026-08-10T12:16:41.156922",
+  "split": "test",
+  "num_shots": 2,
+  "overall_accuracy": 0.0,
+  "total_correct": 0,
+  "total_questions": 2,
+  "category_results": [
+    {
+      "category": "math",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "benchmark_results\\math.json"
+    },
+    {
+      "category": "chemistry",
+      "accuracy": 0.0,
+      "correct": 0,
+      "total": 1,
+      "results_file": "benchmark_results\\chemistry.json"
+    }
+  ]
+}

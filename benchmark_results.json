@@ -1,0 +1,83 @@
+{
+  "benchmark_info": {
+    "timestamp": "2026-08-24T08:12:25.620208",
+    "api_url": "http://localhost:8000",
+    "total_questions": 3
+  },
+  "statistics": {
+    "total_questions": 3,
+    "successful": 3,
+    "failed": 0,
+    "accuracy": 1.0,
+    "total_correct": 2,
+    "total_with_truth": 2,
+    "avg_duration": 5.724928617477417,
+    "cache_hit_rate": 0.0,
+    "subject_accuracy": {
+      "math": {
+        "total": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "geography": {
+        "total": 1,
+        "correct": 1,
+        "accuracy": 1.0
+      },
+      "coding": {
+        "total": 1,
+        "correct": 0,
+        "accuracy": 0.0
+      }
+    },
+    "errors": 0
+  },
+  "results": [
+    {
+      "question": "What is 2+2?",
+      "ground_truth": "4",
+      "subject": "math",
+      "model": "gemma2:2b",
+      "response": "2 + 2 = 4 \n",
+      "duration": 6.7554848194122314,
+      "cache_hit": false,
+      "optimizations_applied": 100,
+      "performance_mode": "baseline",
+      "timestamp": "2026-08-24T08:12:15.198577",
+      "success": true,
+      "extracted_answer": "2 + 2 = 4",
+      "is_correct": true
+    },
+    {
+      "question": "What is the capital of France?",
+      "ground_truth": "Paris",
+      "subject": "geography",
+      "model": "gemma2:2b",
+      "response": "The capital of France is **Paris**. \ud83c\uddeb\ud83c\uddf7 \n",
+      "duration": 2.531424045562744,
+      "cache_hit": false,
+      "optimizations_applied": 100,
+      "performance_mode": "baseline",
+      "timestamp": "2026-08-24T08:12:17.730554",
+      "success": true,
+      "extracted_answer": "The capital of France is",
+      "is_correct": true
+    },
+    {
+      "question": "Write a Python function to add two numbers",
+      "ground_truth": null,
+      "subject": "coding",
+      "model": "gemma2:2b",
+      "response": "```python\ndef add_numbers(num1, num2):\n  \"\"\"Adds two numbers together.\n\n  Args:\n    num1: The first number.\n    num2: The second number.\n\n  Returns:\n    The sum of the two numbers.\n  \"\"\"\n  return num1 + num2\n\n# Example usage\nresult = add_numbers(5, 3)\nprint(f\"The sum is: {result}\") \n```\n\n**Explanation:**\n\n1. **`def add_numbers(num1, num2):`**: This line defines a function named `add_numbers` that takes two arguments, `num1` and `num2`.\n2. **`\"\"\"...\"\"\"`**: This is a docstring, providing a description of the function's purpose, arguments, and return value.\n3. **`return num1 + num2`**: This line calculates the sum of `num1` and `num2` and returns the result.\n4. **`result = add_numbers(5, 3)`**: This line calls the `add_numbers` function with arguments `5` and `3`, storing the returned sum in the `result` variable.\n5. **`print(f\"The sum is: {result}\")`**: This line prints the result using an f-string to format the output.\n\n**How to use it:**\n\n1",
+      "duration": 7.887876987457275,
+      "cache_hit": false,
+      "optimizations_applied": 100,
+      "performance_mode": "baseline",
+      "timestamp": "2026-08-24T08:12:25.619529",
+      "success": true,
+      "extracted_answer": "```python def add_numbers(num1, num2): \"\"\"Adds",
+      "is_correct": null
+    }
+  ],
+  "errors": []
+}

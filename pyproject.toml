@@ -1,0 +1,90 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.backends.legacy:build"
+
+[project]
+name = "local-chatbot"
+version = "0.1.0"
+description = "A local AI chatbot integrating vLLM, SGLang, LiteLLM, LangGraph, LlamaIndex, Haystack, and Aider"
+requires-python = ">=3.10,<3.14"
+license = { text = "MIT" }
+
+dependencies = [
+    # --- API gateway & LLM routing ---
+    "litellm>=1.94.0",
+
+    # --- Local model serving (optional, GPU-heavy; install separately) ---
+    # "vllm>=0.6.0",      # uncomment if you have an NVIDIA GPU
+    # "sglang>=0.4.0",    # uncomment for SGLang backend
+
+    # --- Agent orchestration ---
+    "langgraph>=0.2.0",
+    "langchain-core>=0.3.0",
+    "langchain-community>=0.3.0",
+
+    # --- RAG: LlamaIndex ---
+    "llama-index-core>=0.12.0",
+    "llama-index-llms-litellm>=0.3.0",
+    "llama-index-embeddings-huggingface>=0.4.0",
+    "llama-index-vector-stores-chroma>=0.3.0",
+    "llama-index-readers-file>=0.3.0",
+
+    # --- RAG: Haystack ---
+    "haystack-ai>=3.0.0",
+    "chroma-haystack>=2.0.0",
+
+    # --- Embeddings & vector store ---
+    "chromadb>=0.5.0",
+    "sentence-transformers>=3.0.0",
+
+    # --- Code-aware tool (Aider) ---
+    # "aider-chat>=0.82.0",  # Commented out due to dependency conflicts with litellm
+    # "gitpython>=3.1.0",
+    # "tree-sitter>=0.21.0",
+
+    # --- Web server & API ---
+    "fastapi>=0.115.0",
+    "uvicorn[standard]>=0.30.0",
+    "python-multipart>=0.0.9",
+    "pydantic>=2.7.0",
+    "pydantic-settings>=2.3.0",
+
+    # --- Chat UI ---
+    "gradio>=4.44.0",
+
+    # --- Utilities ---
+    "httpx>=0.27.0",
+    "python-dotenv>=1.0.0",
+    "tenacity>=8.3.0",
+    "rich>=13.7.0",
+    "typer>=0.12.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=24.0.0",
+    "ruff>=0.4.0",
+    "mypy>=1.10.0",
+]
+vllm = ["vllm>=0.6.0"]
+sglang = ["sglang>=0.4.0"]
+
+[project.scripts]
+local-chatbot = "local_chatbot.main:app"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP"]
+
+[tool.black]
+line-length = 100
+target-version = ["py310", "py311", "py312"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]

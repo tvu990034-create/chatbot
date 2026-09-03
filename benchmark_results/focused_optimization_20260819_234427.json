@@ -1,0 +1,40 @@
+{
+  "timestamp": "20260819_234427",
+  "overall_accuracy": 0.6666666666666666,
+  "total_duration": 561.1799154281616,
+  "total_questions": 6,
+  "total_correct": 4,
+  "optimization_techniques": 68,
+  "classification": {
+    "perfect": 2,
+    "high": 0,
+    "moderate": 0,
+    "low": 1
+  },
+  "results": [
+    {
+      "name": "MMLU",
+      "questions": 2,
+      "correct": 2,
+      "accuracy": 1.0,
+      "duration": 191.48607301712036,
+      "errors": []
+    },
+    {
+      "name": "TruthfulQA",
+      "questions": 2,
+      "correct": 2,
+      "accuracy": 1.0,
+      "duration": 112.66006827354431,
+      "errors": []
+    },
+    {
+      "name": "GSM8K",
+      "questions": 2,
+      "correct": 0,
+      "accuracy": 0.0,
+      "duration": 257.02642798423767,
+      "errors": []
+    }
+  ]
+}

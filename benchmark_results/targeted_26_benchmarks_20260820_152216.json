@@ -1,0 +1,245 @@
+{
+  "timestamp": "20260820_152216",
+  "overall_accuracy": 0.8461538461538461,
+  "total_duration": 4311.509097337723,
+  "total_questions": 260,
+  "total_correct": 220,
+  "optimization_techniques": 68,
+  "real_datasets_count": 26,
+  "results": [
+    {
+      "name": "Big-Bench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 262.2877285480499,
+      "errors": [],
+      "data_source": "EleutherAI/bbh"
+    },
+    {
+      "name": "HumanEval",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 211.9936225414276,
+      "errors": [],
+      "data_source": "openai/openai_humaneval"
+    },
+    {
+      "name": "ARC-AGI",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 182.06736993789673,
+      "errors": [],
+      "data_source": "allenai/arc_challenge"
+    },
+    {
+      "name": "GSM8K",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 170.66048431396484,
+      "errors": [],
+      "data_source": "openai/gsm8k"
+    },
+    {
+      "name": "SWE-bench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 249.27885794639587,
+      "errors": [],
+      "data_source": "princeton-nlp/SWE-bench"
+    },
+    {
+      "name": "MBPP",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 89.52395534515381,
+      "errors": [],
+      "data_source": "mbpp"
+    },
+    {
+      "name": "LiveCodeBench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 110.75205898284912,
+      "errors": [],
+      "data_source": "livecodebench/code-generations"
+    },
+    {
+      "name": "CodeContests",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 131.86635327339172,
+      "errors": [],
+      "data_source": "code_contests"
+    },
+    {
+      "name": "AIME",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 144.20817232131958,
+      "errors": [],
+      "data_source": "competition_math"
+    },
+    {
+      "name": "AMC",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 137.33057856559753,
+      "errors": [],
+      "data_source": "competition_math"
+    },
+    {
+      "name": "ProofNet",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 153.33051562309265,
+      "errors": [],
+      "data_source": "kyoheee/proofnet"
+    },
+    {
+      "name": "MT-Bench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 145.53862833976746,
+      "errors": [],
+      "data_source": "lmsys/mt-bench"
+    },
+    {
+      "name": "TruthfulQA",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 199.21828150749207,
+      "errors": [],
+      "data_source": "truthfulqa/truthful_qa"
+    },
+    {
+      "name": "HELM",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 159.80128383636475,
+      "errors": [],
+      "data_source": "stanford-crfm/helm"
+    },
+    {
+      "name": "SafetyBench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 147.3336317539215,
+      "errors": [],
+      "data_source": "PKU-SafeRLHF/SafeRLHF"
+    },
+    {
+      "name": "HarmBench",
+      "questions": 10,
+      "correct": 10,
+      "accuracy": 1.0,
+      "duration": 146.18376183509827,
+      "errors": [],
+      "data_source": "allenai/HarmBench"
+    },
+    {
+      "name": "BBH",
+      "questions": 10,
+      "correct": 9,
+      "accuracy": 0.9,
+      "duration": 271.3733961582184,
+      "errors": [],
+      "data_source": "EleutherAI/bbh"
+    },
+    {
+      "name": "HellaSwag",
+      "questions": 10,
+      "correct": 9,
+      "accuracy": 0.9,
+      "duration": 213.2329502105713,
+      "errors": [],
+      "data_source": "EleutherAI/hellaswag"
+    },
+    {
+      "name": "MMLU-Pro",
+      "questions": 10,
+      "correct": 8,
+      "accuracy": 0.8,
+      "duration": 161.21280121803284,
+      "errors": [],
+      "data_source": "TIGER-Lab/MMLU-Pro"
+    },
+    {
+      "name": "WinoGrande",
+      "questions": 10,
+      "correct": 8,
+      "accuracy": 0.8,
+      "duration": 148.8319330215454,
+      "errors": [],
+      "data_source": "EleutherAI/winogrande"
+    },
+    {
+      "name": "MMLU",
+      "questions": 10,
+      "correct": 6,
+      "accuracy": 0.6,
+      "duration": 156.99750089645386,
+      "errors": [],
+      "data_source": "cais/mmlu"
+    },
+    {
+      "name": "GPQA",
+      "questions": 10,
+      "correct": 6,
+      "accuracy": 0.6,
+      "duration": 64.47688055038452,
+      "errors": [],
+      "data_source": "Idavidrein/gpqa_diamond"
+    },
+    {
+      "name": "AgentBench",
+      "questions": 10,
+      "correct": 6,
+      "accuracy": 0.6,
+      "duration": 174.7313210964203,
+      "errors": [],
+      "data_source": "thudm/agentbench"
+    },
+    {
+      "name": "GAIA",
+      "questions": 10,
+      "correct": 4,
+      "accuracy": 0.4,
+      "duration": 130.48388242721558,
+      "errors": [],
+      "data_source": "gaia-benchmark/GAIA"
+    },
+    {
+      "name": "MiniF2F",
+      "questions": 10,
+      "correct": 2,
+      "accuracy": 0.2,
+      "duration": 151.58210372924805,
+      "errors": [],
+      "data_source": "patrick-klein/minif2f-valid"
+    },
+    {
+      "name": "OSWorld",
+      "questions": 10,
+      "correct": 2,
+      "accuracy": 0.2,
+      "duration": 132.26773691177368,
+      "errors": [],
+      "data_source": "xlangai/osworld"
+    }
+  ]
+}

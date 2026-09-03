@@ -1,0 +1,74 @@
+[
+  {
+    "question_id": 1,
+    "question": "What is the derivative of x^2 with respect to x?",
+    "options": [
+      "x",
+      "2x",
+      "x^2",
+      "2x^2",
+      "x/2",
+      "x^3",
+      "1",
+      "0",
+      "2",
+      "x^2/2"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. The derivative of x^n is n*x^(n-1). For x^2, n=2, so derivative is 2*x^(2-1) = 2x. The answer is (B).",
+    "category": "math",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. The derivative of x^n is n*x^(n-1). For x^2, n=2, so derivative is 2*x^(2-1) = 2x. The answer is (B).",
+    "latency": 1.5068680499882334,
+    "is_correct": true
+  },
+  {
+    "question_id": 2,
+    "question": "What is the integral of 2x with respect to x?",
+    "options": [
+      "x^2",
+      "2x^2",
+      "x^2 + C",
+      "2x^2 + C",
+      "x",
+      "2x",
+      "x + C",
+      "2x + C",
+      "x^3",
+      "2x^3"
+    ],
+    "answer": "C",
+    "answer_index": 2,
+    "cot_content": "A: Let's think step by step. The integral of 2x is x^2 + C, where C is the constant of integration. The answer is (C).",
+    "category": "math",
+    "pred": "C",
+    "model_outputs": "Let's think step by step. Let's think step by step. The integral of 2x is x^2 + C, where C is the constant of integration. The answer is (C).",
+    "latency": 4.406190487552033,
+    "is_correct": true
+  },
+  {
+    "question_id": 3,
+    "question": "What is the value of sin(90 degrees)?",
+    "options": [
+      "0",
+      "1",
+      "-1",
+      "0.5",
+      "0.707",
+      "1.414",
+      "2",
+      "infinity",
+      "undefined",
+      "90"
+    ],
+    "answer": "B",
+    "answer_index": 1,
+    "cot_content": "A: Let's think step by step. sin(90 degrees) = 1. This is a fundamental trigonometric value. The answer is (B).",
+    "category": "math",
+    "pred": "B",
+    "model_outputs": "Let's think step by step. Let's think step by step. sin(90 degrees) = 1. This is a fundamental trigonometric value. The answer is (B).",
+    "latency": 1.5097137407626011,
+    "is_correct": true
+  }
+]

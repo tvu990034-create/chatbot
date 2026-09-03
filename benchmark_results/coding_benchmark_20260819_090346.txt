@@ -1,0 +1,63 @@
+================================================================================
+CODING AND AGENT BENCHMARK REPORT - phi3:mini OPTIMIZED
+================================================================================
+Generated: 2026-08-19 09:03:46
+
+NOTE: These benchmarks require special environments (code execution,
+terminal simulation, OS simulation). Results show text-only generation
+capability, not full execution verification.
+
+BENCHMARK SUMMARY
+--------------------------------------------------------------------------------
+Benchmark                 Questions    Correct      Accuracy     Duration    
+--------------------------------------------------------------------------------
+SWE-bench                 3            3                 100.0%      170.4s
+MBPP                      3            3                 100.0%      113.5s
+T-Bench                   3            3                 100.0%      110.5s
+AgentBench                3            1                  33.3%       93.3s
+GAIA                      3            2                  66.7%      125.6s
+OSWorld                   3            3                 100.0%      142.1s
+
+OVERALL STATISTICS
+--------------------------------------------------------------------------------
+Total Questions: 18
+Total Correct: 15
+Overall Accuracy: 83.33%
+Total Duration: 755.5s
+Average Time per Question: 41.97s
+
+SWE-bench DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (3/3)
+Duration: 170.4s
+Average per question: 56.81s
+
+MBPP DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (3/3)
+Duration: 113.5s
+Average per question: 37.84s
+
+T-Bench DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (3/3)
+Duration: 110.5s
+Average per question: 36.83s
+
+AgentBench DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 33.33% (1/3)
+Duration: 93.3s
+Average per question: 31.12s
+
+GAIA DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 66.67% (2/3)
+Duration: 125.6s
+Average per question: 41.88s
+
+OSWorld DETAILS
+--------------------------------------------------------------------------------
+Accuracy: 100.00% (3/3)
+Duration: 142.1s
+Average per question: 47.36s

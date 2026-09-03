@@ -1,0 +1,135 @@
+[
+  {
+    "query": "hello bro",
+    "test_type": "exact match",
+    "duration": 2.711956739425659,
+    "response_length": 28,
+    "test_number": 1
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact cache hit",
+    "duration": 2.032491445541382,
+    "response_length": 28,
+    "test_number": 2
+  },
+  {
+    "query": "hello bro",
+    "test_type": "exact cache hit again",
+    "duration": 2.0254247188568115,
+    "response_length": 28,
+    "test_number": 3
+  },
+  {
+    "query": "hello",
+    "test_type": "partial match",
+    "duration": 2.5682127475738525,
+    "response_length": 39,
+    "test_number": 4
+  },
+  {
+    "query": "hi bro",
+    "test_type": "variation 1",
+    "duration": 2.479400873184204,
+    "response_length": 28,
+    "test_number": 5
+  },
+  {
+    "query": "hey bro",
+    "test_type": "variation 2",
+    "duration": 2.468181610107422,
+    "response_length": 25,
+    "test_number": 6
+  },
+  {
+    "query": "hello!",
+    "test_type": "punctuation only",
+    "duration": 2.056533098220825,
+    "response_length": 39,
+    "test_number": 7
+  },
+  {
+    "query": "HELLO BRO",
+    "test_type": "all caps",
+    "duration": 2.0368223190307617,
+    "response_length": 28,
+    "test_number": 8
+  },
+  {
+    "query": "What is 2+2?",
+    "test_type": "auto-detect",
+    "duration": 2.4668991565704346,
+    "response_length": 11,
+    "test_number": 9
+  },
+  {
+    "query": "what is 2+2",
+    "test_type": "auto-detect",
+    "duration": 2.049152135848999,
+    "response_length": 11,
+    "test_number": 10
+  },
+  {
+    "query": "2+2",
+    "test_type": "auto-detect",
+    "duration": 2.5110418796539307,
+    "response_length": 11,
+    "test_number": 11
+  },
+  {
+    "query": "calculate 2+2",
+    "test_type": "auto-detect",
+    "duration": 3.506117582321167,
+    "response_length": 162,
+    "test_number": 12
+  },
+  {
+    "query": "explain artificial intelligence",
+    "test_type": "auto-detect",
+    "duration": 4.278365612030029,
+    "response_length": 500,
+    "test_number": 13
+  },
+  {
+    "query": "explain AI",
+    "test_type": "auto-detect",
+    "duration": 4.317859172821045,
+    "response_length": 401,
+    "test_number": 14
+  },
+  {
+    "query": "AI explanation",
+    "test_type": "auto-detect",
+    "duration": 4.296064376831055,
+    "response_length": 535,
+    "test_number": 15
+  },
+  {
+    "query": "write python function",
+    "test_type": "auto-detect",
+    "duration": 4.307838678359985,
+    "response_length": 411,
+    "test_number": 16
+  },
+  {
+    "query": "python code for addition",
+    "test_type": "auto-detect",
+    "duration": 4.2694971561431885,
+    "response_length": 280,
+    "test_number": 17
+  },
+  {
+    "query": "solve 2x + 4 = 10",
+    "test_type": "auto-detect",
+    "duration": 4.246363878250122,
+    "response_length": 272,
+    "test_number": 18
+  },
+  {
+    "query": "math problem 2x + 4 = 10",
+    "test_type": "auto-detect",
+    "duration": 4.286619424819946,
+    "response_length": 266,
+    "test_number": 19
+  }
+]

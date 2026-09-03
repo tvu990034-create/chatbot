@@ -1,0 +1,34 @@
+question,ground_truth,subject,response,extracted_answer,is_correct,duration,cache_hit,model,performance_mode,timestamp
+What is 2+2?,4,math,"2 + 2 = 4 
+",2 + 2 = 4,True,6.7554848194122314,False,gemma2:2b,baseline,2026-08-24T08:12:15.198577
+What is the capital of France?,Paris,geography,"The capital of France is **Paris**. 🇫🇷 
+",The capital of France is,True,2.531424045562744,False,gemma2:2b,baseline,2026-08-24T08:12:17.730554
+Write a Python function to add two numbers,,coding,"```python
+def add_numbers(num1, num2):
+  """"""Adds two numbers together.
+
+  Args:
+    num1: The first number.
+    num2: The second number.
+
+  Returns:
+    The sum of the two numbers.
+  """"""
+  return num1 + num2
+
+# Example usage
+result = add_numbers(5, 3)
+print(f""The sum is: {result}"") 
+```
+
+**Explanation:**
+
+1. **`def add_numbers(num1, num2):`**: This line defines a function named `add_numbers` that takes two arguments, `num1` and `num2`.
+2. **`""""""...""""""`**: This is a docstring, providing a description of the function's purpose, arguments, and return value.
+3. **`return num1 + num2`**: This line calculates the sum of `num1` and `num2` and returns the result.
+4. **`result = add_numbers(5, 3)`**: This line calls the `add_numbers` function with arguments `5` and `3`, storing the returned sum in the `result` variable.
+5. **`print(f""The sum is: {result}"")`**: This line prints the result using an f-string to format the output.
+
+**How to use it:**
+
+1","```python def add_numbers(num1, num2): """"""Adds",,7.887876987457275,False,gemma2:2b,baseline,2026-08-24T08:12:25.619529

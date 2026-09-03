@@ -1,0 +1,58 @@
+{
+  "timestamp": "20260820_074822",
+  "overall_accuracy": 1.0,
+  "total_duration": 127.78860330581665,
+  "total_questions": 6,
+  "total_correct": 6,
+  "optimization_techniques": 68,
+  "speed_stats": {
+    "performance_equations_enabled": true,
+    "cache_enabled": true,
+    "cache_hit_rate": 0.0,
+    "cache_hits": 0,
+    "cache_misses": 0,
+    "total_requests": 6,
+    "average_response_time": 21.295607805252075,
+    "total_time": 127.77364683151245,
+    "optimizations": {
+      "human_intelligence": {
+        "enabled": true
+      },
+      "long_term_memory": {
+        "enabled": true
+      },
+      "safety_suite": {
+        "enabled": true
+      },
+      "academic_suite": {
+        "enabled": true
+      }
+    }
+  },
+  "results": [
+    {
+      "name": "MMLU",
+      "questions": 2,
+      "correct": 2,
+      "accuracy": 1.0,
+      "duration": 37.19554543495178,
+      "errors": []
+    },
+    {
+      "name": "GSM8K",
+      "questions": 2,
+      "correct": 2,
+      "accuracy": 1.0,
+      "duration": 62.41805696487427,
+      "errors": []
+    },
+    {
+      "name": "TruthfulQA",
+      "questions": 2,
+      "correct": 2,
+      "accuracy": 1.0,
+      "duration": 28.17393684387207,
+      "errors": []
+    }
+  ]
+}

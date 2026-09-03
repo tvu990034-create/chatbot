@@ -1,0 +1,22 @@
+{
+  "overall_accuracy": 0.6666666666666666,
+  "total_correct": 6,
+  "total_questions": 9,
+  "category_results": {
+    "chemistry": {
+      "accuracy": 1.0,
+      "correct": 3,
+      "total": 3
+    },
+    "computer_science": {
+      "accuracy": 0.3333333333333333,
+      "correct": 1,
+      "total": 3
+    },
+    "math": {
+      "accuracy": 0.6666666666666666,
+      "correct": 2,
+      "total": 3
+    }
+  }
+}

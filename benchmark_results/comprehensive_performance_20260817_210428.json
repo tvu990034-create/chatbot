@@ -1,0 +1,132 @@
+{
+  "timestamp": "2026-08-17T21:04:10.727893",
+  "model": "ollama/phi3:mini",
+  "gateway": "enhanced_with_all_optimizations",
+  "optimization_stats": {
+    "performance_equations_enabled": true,
+    "optimizations": {
+      "simple_cache": {
+        "cached_responses": 82
+      },
+      "prompt_compression": {
+        "enabled": true,
+        "ratio": 0.8
+      },
+      "difficulty_routing": {
+        "enabled": true,
+        "threshold": 0.7
+      },
+      "adaptive_temperature": {
+        "enabled": true,
+        "base_temp": 0.1
+      },
+      "calibration_diagnostics": {
+        "enabled": true,
+        "metrics_available": true
+      },
+      "inference_optimization": {
+        "enabled": true,
+        "action_minimization": true,
+        "boltzmann_sampling": true,
+        "cot_chunking": true,
+        "mdl_selection": true
+      },
+      "meta_reasoning": {
+        "enabled": true,
+        "debate_stopping": true,
+        "budget_optimization": true,
+        "meta_policy": true
+      },
+      "performance_optimization": {
+        "cache_optimization": {
+          "enabled": true
+        },
+        "parallel_scaling": {
+          "enabled": true
+        },
+        "queueing_analysis": {
+          "enabled": true
+        },
+        "memory_analysis": {
+          "enabled": true
+        },
+        "token_stopping": {
+          "enabled": true,
+          "token_cost": 0.05
+        }
+      },
+      "smart_enhancements": {
+        "chain_of_thought": true,
+        "rag": true,
+        "adversarial_detection": true
+      }
+    }
+  },
+  "tests": {
+    "meta_reasoning": {
+      "debate_stopping": {
+        "should_stop": true,
+        "confidence": 0.85,
+        "expected_gain": 0.02
+      },
+      "budget_optimization": {
+        "original_steps": 3,
+        "optimized_steps": 2,
+        "budget": 3.0
+      },
+      "meta_policy": {
+        "selected_action": "retrieve",
+        "state": 0
+      }
+    },
+    "performance_optimization": {
+      "cache_optimization": {
+        "optimal_cache_size": 59,
+        "hit_rate": 0.7067582473387113,
+        "minimum_cost": 2.0562087633064436
+      },
+      "parallel_scaling": {
+        "current_speedup": 3.0769230769230775,
+        "target_speedup": 4.7058823529411775,
+        "max_speedup": 10.000000000000002,
+        "improvement": 1.6289592760181
+      },
+      "queueing_analysis": {
+        "wait_time": 0.3333333333333333,
+        "total_response_time": 0.4583333333333333,
+        "utilization": 0.625,
+        "is_stable": true
+      },
+      "memory_analysis": {
+        "memory_bytes": 536870912.0,
+        "memory_gb": 0.5,
+        "memory_mb": 512.0
+      },
+      "token_stopping": {
+        "should_stop": true,
+        "stopping_point": 1,
+        "marginal_utilities": [
+          0.1,
+          0.039999999999999994,
+          0.03,
+          0.02,
+          0.0125
+        ]
+      }
+    },
+    "model_integration": {
+      "questions": [
+        "What is 2+2?",
+        "What is the capital of Japan?"
+      ],
+      "responses": [
+        "The sum of 2 and 2 is 4.",
+        "\nTokyo"
+      ],
+      "times": [
+        16.647508144378662,
+        0.6944916248321533
+      ]
+    }
+  }
+}
