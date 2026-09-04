@@ -1,13 +1,46 @@
 """
 Configuration Management System for Local Chatbot API
 Centralized configuration with environment variable support
+BUG 14 FIX: Added validation for malformed environment variables
 """
 
 import os
 import json
+import logging
 from typing import Dict, Any, Optional
-from dataclasses import dataclass, asdict
+from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
+
+# BUG 14 FIX: Safe parsing functions for environment variables
+def _safe_parse_int(env_value: str, default: int, name: str) -> int:
+    """Safely parse an integer from environment variable with validation."""
+    try:
+        return int(env_value)
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Invalid value for {name}: '{env_value}', using default: {default}. Error: {e}")
+        return default
+
+def _safe_parse_float(env_value: str, default: float, name: str) -> float:
+    """Safely parse a float from environment variable with validation."""
+    try:
+        return float(env_value)
+    except (ValueError, TypeError) as e:
+        logger.warning(f"Invalid value for {name}: '{env_value}', using default: {default}. Error: {e}")
+        return default
+
+def _safe_parse_bool(env_value: str, default: bool, name: str) -> bool:
+    """Safely parse a boolean from environment variable with validation."""
+    if isinstance(env_value, bool):
+        return env_value
+    if env_value.lower() in ('true', '1', 'yes', 'on'):
+        return True
+    elif env_value.lower() in ('false', '0', 'no', 'off'):
+        return False
+    else:
+        logger.warning(f"Invalid boolean value for {name}: '{env_value}', using default: {default}")
+        return default
 
 @dataclass
 class CacheConfig:
@@ -27,7 +60,8 @@ class ModelConfig:
     temperature: float = 0.1
     max_tokens: int = 120
     top_p: float = 0.45
-    timeout: int = 8
+    # BUG 76 FIX: Use centralized timeout configuration (import after to avoid circular)
+    timeout: int = 5
 
 @dataclass
 class PerformanceConfig:
@@ -113,27 +147,42 @@ class ConfigManager:
         return base_config
     
     def _apply_env_variables(self, config: AppConfig) -> AppConfig:
-        """Apply environment variable overrides."""
+        """Apply environment variable overrides.
+        BUG 14 FIX: Uses safe parsing to prevent crashes on malformed values.
+        """
         # Cache settings
-        config.cache.enabled = os.getenv("CACHE_ENABLED", str(config.cache.enabled)).lower() == "true"
-        config.cache.max_size = int(os.getenv("CACHE_MAX_SIZE", str(config.cache.max_size)))
+        cache_enabled_env = os.getenv("CACHE_ENABLED", str(config.cache.enabled))
+        config.cache.enabled = _safe_parse_bool(cache_enabled_env, config.cache.enabled, "CACHE_ENABLED")
+        
+        cache_max_size_env = os.getenv("CACHE_MAX_SIZE", str(config.cache.max_size))
+        config.cache.max_size = _safe_parse_int(cache_max_size_env, config.cache.max_size, "CACHE_MAX_SIZE")
         
         # Model settings
         config.model.default_model = os.getenv("DEFAULT_MODEL", config.model.default_model)
-        config.model.temperature = float(os.getenv("MODEL_TEMPERATURE", str(config.model.temperature)))
-        config.model.max_tokens = int(os.getenv("MODEL_MAX_TOKENS", str(config.model.max_tokens)))
+        
+        model_temp_env = os.getenv("MODEL_TEMPERATURE", str(config.model.temperature))
+        config.model.temperature = _safe_parse_float(model_temp_env, config.model.temperature, "MODEL_TEMPERATURE")
+        
+        model_max_tokens_env = os.getenv("MODEL_MAX_TOKENS", str(config.model.max_tokens))
+        config.model.max_tokens = _safe_parse_int(model_max_tokens_env, config.model.max_tokens, "MODEL_MAX_TOKENS")
         
         # Performance settings
         config.performance.performance_mode = os.getenv("PERFORMANCE_MODE", config.performance.performance_mode)
-        config.performance.enable_all_optimizations = os.getenv("ENABLE_OPTIMIZATIONS", str(config.performance.enable_all_optimizations)).lower() == "true"
+        
+        enable_opt_env = os.getenv("ENABLE_OPTIMIZATIONS", str(config.performance.enable_all_optimizations))
+        config.performance.enable_all_optimizations = _safe_parse_bool(enable_opt_env, config.performance.enable_all_optimizations, "ENABLE_OPTIMIZATIONS")
         
         # Server settings
         config.server.host = os.getenv("SERVER_HOST", config.server.host)
-        config.server.port = int(os.getenv("SERVER_PORT", str(config.server.port)))
+        
+        server_port_env = os.getenv("SERVER_PORT", str(config.server.port))
+        config.server.port = _safe_parse_int(server_port_env, config.server.port, "SERVER_PORT")
+        
         config.server.log_level = os.getenv("LOG_LEVEL", config.server.log_level)
         
         # Monitoring settings
-        config.monitoring.analytics_enabled = os.getenv("ANALYTICS_ENABLED", str(config.monitoring.analytics_enabled)).lower() == "true"
+        analytics_env = os.getenv("ANALYTICS_ENABLED", str(config.monitoring.analytics_enabled))
+        config.monitoring.analytics_enabled = _safe_parse_bool(analytics_env, config.monitoring.analytics_enabled, "ANALYTICS_ENABLED")
         
         return config
     

@@ -3,9 +3,12 @@ Inference Optimization - Lightweight Reasoning Enhancements
 Implements practical inference techniques without complex training
 """
 
+import logging
 import numpy as np
 from typing import List, Dict, Any, Optional
 import math
+
+logger = logging.getLogger(__name__)
 
 
 class InferenceActionMinimizer:
@@ -237,20 +240,18 @@ class InferenceOptimizer:
 
 # Utility functions for practical usage
 def create_reasoning_candidates(query: str, num_candidates: int = 3) -> List[Dict[str, float]]:
+    """Do not invent synthetic production candidates.
+
+    Production callers must pass actual model traces into
+    InferenceOptimizer.optimize_reasoning_step().
     """
-    Create dummy reasoning candidates for testing.
-    In practice, these would come from actual model outputs.
-    """
-    # In a real system, you'd generate multiple reasoning paths
-    # and estimate their accuracy, time, and uncertainty
-    candidates = []
-    for i in range(num_candidates):
-        candidates.append({
-            'accuracy': 0.8 + np.random.randn() * 0.1,  # Estimated accuracy
-            'time': 1.0 + np.random.randn() * 0.5,      # Estimated time
-            'uncertainty': 0.2 + np.random.randn() * 0.1  # Estimated uncertainty
-        })
-    return candidates
+    logger.warning(
+        "create_reasoning_candidates() does not generate model outputs; "
+        "returning no candidates for query_len=%s requested=%s",
+        len(query or ""),
+        num_candidates,
+    )
+    return []
 
 
 def estimate_trace_complexity(trace: str) -> int:

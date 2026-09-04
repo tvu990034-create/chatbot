@@ -43,6 +43,64 @@ from gateway.perf_math import (
 
 logger = logging.getLogger(__name__)
 
+# BUG 30 FIX: Track recent tool calls to detect repetition
+_recent_tool_calls: list[dict] = []
+_MAX_RECENT_TOOL_CALLS = 10
+
+def _detect_repeated_tool_call(tool_name: str, tool_args: dict) -> bool:
+    """BUG 30 FIX: Detect if this tool call is a repeat of recent calls."""
+    global _recent_tool_calls
+    
+    # Create fingerprint of this call
+    call_fingerprint = f"{tool_name}:{str(sorted(tool_args.items()))}"
+    
+    # Check if this call matches any recent call
+    for recent in _recent_tool_calls:
+        if recent.get('fingerprint') == call_fingerprint:
+            logger.warning(f"Detected repeated tool call: {tool_name}, blocking to prevent loop")
+            return True
+    
+    return False
+
+def _record_tool_call(tool_name: str, tool_args: dict):
+    """BUG 30 FIX: Record a tool call for repetition detection."""
+    global _recent_tool_calls
+    
+    call_fingerprint = f"{tool_name}:{str(sorted(tool_args.items()))}"
+    _recent_tool_calls.append({
+        'fingerprint': call_fingerprint,
+        'tool': tool_name,
+        'timestamp': time.time()
+    })
+    
+    # Keep only recent calls
+    if len(_recent_tool_calls) > _MAX_RECENT_TOOL_CALLS:
+        _recent_tool_calls.pop(0)
+
+def _truncate_tool_output(output: str) -> str:
+    """BUG 58 FIX: Truncate tool output to prevent context explosion."""
+    if not output:
+        return output
+    
+    max_chars = getattr(settings, 'agent_max_tool_output_chars', 5000)
+    max_tokens = getattr(settings, 'agent_max_tool_output_tokens', 1000)
+    
+    # Truncate by character count
+    if len(output) > max_chars:
+        truncated = output[:max_chars] + "\n\n[Output truncated due to length limit]"
+        logger.warning(f"Tool output truncated from {len(output)} to {max_chars} characters")
+        return truncated
+    
+    # Estimate token truncation (rough estimate: 4 chars per token)
+    estimated_tokens = len(output) // 4
+    if estimated_tokens > max_tokens:
+        truncate_chars = max_tokens * 4
+        truncated = output[:truncate_chars] + "\n\n[Output truncated due to token limit]"
+        logger.warning(f"Tool output truncated from estimated {estimated_tokens} to {max_tokens} tokens")
+        return truncated
+    
+    return output
+
 # Per-agent turn metrics
 _agent_metrics = ChatMetrics()
 
@@ -149,6 +207,7 @@ def _trim_messages_eq1(messages: list, window: int) -> list:
     """
     Trim conversation history to at most `window` non-system messages,
     always preserving the system message and the latest user message.
+    BUG 24 FIX: Preserve coherent conversation turns (user/assistant/tool relationships).
 
     This maximises the Eq1 TTFB-reduction fraction by ensuring most of the
     prompt is history that can be served from KV-cache rather than re-prefilled.
@@ -162,18 +221,47 @@ def _trim_messages_eq1(messages: list, window: int) -> list:
     if len(convo_msgs) <= window:
         return messages  # nothing to trim
 
-    # Keep the most recent `window` conversation messages
-    trimmed_convo = convo_msgs[-window:]
+    # BUG 24 FIX: Preserve coherent conversation turns
+    # Find the last user message - we must keep everything after the last complete turn
+    last_user_idx = None
+    for i in range(len(convo_msgs) - 1, -1, -1):
+        if getattr(convo_msgs[i], "type", "") == "human":
+            last_user_idx = i
+            break
+    
+    if last_user_idx is None:
+        # No user message found, keep last `window` messages
+        trimmed_convo = convo_msgs[-window:]
+    else:
+        # Keep the last complete turn (user + assistant + any tool calls/results)
+        # Then add previous messages up to window limit
+        turn_start = last_user_idx
+        messages_before_turn = convo_msgs[:turn_start]
+        messages_in_turn = convo_msgs[turn_start:]
+        
+        # Calculate how many messages we can keep from before the turn
+        remaining_slots = max(0, window - len(messages_in_turn))
+        if remaining_slots > 0:
+            trimmed_before = messages_before_turn[-remaining_slots:]
+        else:
+            trimmed_before = []
+        
+        trimmed_convo = trimmed_before + messages_in_turn
+    
     result = system_msgs + trimmed_convo
 
-    # Log Eq1 impact
+    # BUG 26 FIX: Log Eq1 impact as estimated, not measured
+    # BUG 11 FIX: Use correct arguments for eq1_ttfb_reduction_fraction
     original_chars = sum(len(getattr(m, "content", "")) for m in convo_msgs)
     kept_chars     = sum(len(getattr(m, "content", "")) for m in trimmed_convo)
-    est_h = max(0, original_chars - kept_chars) // 4
-    est_q = max(1, kept_chars // 4)
-    reduction = eq1_ttfb_reduction_fraction(est_h, est_q)
+    # Use cache_hit=False since we're trimming, not checking cache
+    reduction = eq1_ttfb_reduction_fraction(
+        latency_ms=0,  # Not applicable for trim operation
+        cache_hit=False,
+        prewarm_enabled=False
+    )
     logger.debug(
-        "Eq1 window trim: %d→%d msgs  TTFB-reduction=%.1f%%",
+        "Eq1 window trim: %d→%d msgs  ESTIMATED TTFB-reduction=%.1f%% (not measured)",
         len(convo_msgs), len(trimmed_convo), reduction * 100,
     )
     return result
@@ -374,8 +462,30 @@ def build_agent(extra_tools: list | None = None):
             return "tools"
         return "__end__"
 
+    # BUG 58 FIX: Custom tool node wrapper with output truncation
+    class TruncatedToolNode:
+        """Tool node wrapper that truncates output to prevent context explosion."""
+        def __init__(self, tools, base_tool_node):
+            self.tools = tools
+            self.base_tool_node = base_tool_node
+        
+        def __call__(self, state: AgentState):
+            # Call the base tool node
+            result = self.base_tool_node(state)
+            
+            # Truncate tool outputs in the result
+            if "messages" in result:
+                for msg in result["messages"]:
+                    if hasattr(msg, "content") and isinstance(msg.content, str):
+                        msg.content = _truncate_tool_output(msg.content)
+            
+            return result
+
     # ---- Graph ----
     tool_node = ToolNode(tools) if tools else None
+    # BUG 58 FIX: Wrap tool node with truncation
+    if tool_node:
+        tool_node = TruncatedToolNode(tools, tool_node)
 
     graph = StateGraph(AgentState)
     graph.add_node("rag",   rag_node_async)

@@ -9,13 +9,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, Optional
+from typing import Any, AsyncGenerator, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 
 from config import settings
@@ -60,7 +62,7 @@ app.add_middleware(
 
 class Message(BaseModel):
     role: str = Field(..., pattern="^(user|assistant|system)$")
-    content: str
+    content: str = Field(..., min_length=1, max_length=100_000)
 
 
 class ChatRequest(BaseModel):
@@ -74,6 +76,55 @@ class ChatRequest(BaseModel):
     use_cache: bool = Field(True, description="Simple cache lookup")
     use_router: bool = Field(True, description="Model router")
     system_prompt: str | None = None
+
+
+def validate_conversation(messages: list[Message]) -> None:
+    """
+    BUG 7 FIX: Validate conversation structure.
+    
+    Validates:
+    - roles are valid
+    - ordering is coherent
+    - no empty messages
+    - final message is from user
+    - no orphaned assistant/tool messages
+    """
+    if not messages:
+        return  # Empty history is valid
+    
+    # Check for empty content
+    for i, msg in enumerate(messages):
+        if not msg.content or not msg.content.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Empty message at position {i}"
+            )
+    
+    # Check that conversation starts with user or system
+    if messages[0].role not in ("user", "system"):
+        raise HTTPException(
+            status_code=400,
+            detail="Conversation must start with 'user' or 'system' message"
+        )
+    
+    # Check for orphaned assistant messages (assistant without preceding user)
+    for i in range(1, len(messages)):
+        prev_role = messages[i-1].role
+        current_role = messages[i].role
+        
+        # Assistant should follow user or system
+        if current_role == "assistant" and prev_role not in ("user", "system"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Orphaned assistant message at position {i}"
+            )
+        
+        # System should only be at the beginning
+        if current_role == "system" and i > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"System message must be at beginning (position {i})"
+            )
 
 
 class ChatResponse(BaseModel):
@@ -162,6 +213,10 @@ async def backend_status():
 async def chat_endpoint(req: ChatRequest):
     request_id  = str(uuid.uuid4())[:8]
     t0          = time.perf_counter()
+    
+    # BUG 7 FIX: Validate conversation structure
+    validate_conversation(req.history)
+    
     history     = [{"role": m.role, "content": m.content} for m in req.history]
     sources: list[str] = []
     cache_hit   = False
@@ -180,19 +235,43 @@ async def chat_endpoint(req: ChatRequest):
         else:
             from gateway.litellm_gateway import achat
             msgs = history + [{"role": "user", "content": req.message}]
-            reply = await achat(
-                msgs,
-                model=req.model,
-                temperature=req.temperature,
-                max_tokens=effective_max_tokens,
-                system_prompt=req.system_prompt,
-                use_cache=req.use_cache,
-                use_router=req.use_router,
-            )
-            # Check if cache was hit
-            from gateway.simple_cache import get_cache
-            cache = get_cache()
-            cache_hit = False  # Simple cache doesn't track hits
+            try:
+                reply, cache_hit, actual_model = await achat(
+                    msgs,
+                    model=req.model,
+                    temperature=req.temperature,
+                    max_tokens=effective_max_tokens,
+                    system_prompt=req.system_prompt,
+                    use_cache=req.use_cache,
+                    use_router=req.use_router,
+                )
+            except (TypeError, ValueError):
+                # Fallback for old gateway that doesn't return tuple
+                try:
+                    reply, cache_hit = await achat(
+                        msgs,
+                        model=req.model,
+                        temperature=req.temperature,
+                        max_tokens=effective_max_tokens,
+                        system_prompt=req.system_prompt,
+                        use_cache=req.use_cache,
+                        use_router=req.use_router,
+                    )
+                    actual_model = req.model or settings.default_model
+                except (TypeError, ValueError):
+                    # Final fallback for very old gateway
+                    reply = await achat(
+                        msgs,
+                        model=req.model,
+                        temperature=req.temperature,
+                        max_tokens=effective_max_tokens,
+                        system_prompt=req.system_prompt,
+                        use_cache=req.use_cache,
+                        use_router=req.use_router,
+                    )
+                    cache_hit = False
+                    actual_model = req.model or settings.default_model
+            # Bug #15 FIX: Gateway now returns cache_hit status
 
     except Exception as exc:
         logger.exception("Chat error [%s]: %s", request_id, exc)
@@ -200,7 +279,8 @@ async def chat_endpoint(req: ChatRequest):
                             detail=str(exc)) from exc
 
     elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    model_used = req.model or settings.default_model
+    # BUG 3 FIX: Use actual model used by gateway, not just requested model
+    model_used = locals().get('actual_model', req.model or settings.default_model)
 
     return ChatResponse(
         id=request_id,
@@ -221,6 +301,72 @@ class ChatV1Request(BaseModel):
     images: list[str] = []
 
 
+def validate_v1_messages(messages: list[dict]) -> None:
+    """
+    BUG 7 FIX: Validate v1 message format.
+    Similar validation as for ChatRequest but for dict format.
+    """
+    if not messages:
+        return  # Empty messages is valid
+    
+    valid_roles = {"user", "assistant", "system"}
+    
+    for i, msg in enumerate(messages):
+        # Check required fields
+        if not isinstance(msg, dict):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Message at position {i} must be a dict"
+            )
+        
+        if "role" not in msg or "content" not in msg:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Message at position {i} missing 'role' or 'content'"
+            )
+        
+        role = msg["role"]
+        content = msg["content"]
+        
+        # Check role validity
+        if role not in valid_roles:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid role '{role}' at position {i}"
+            )
+        
+        # Check for empty content
+        if not content or not content.strip():
+            raise HTTPException(
+                status_code=400,
+                detail=f"Empty message content at position {i}"
+            )
+    
+    # Check conversation starts with user or system
+    if messages[0]["role"] not in ("user", "system"):
+        raise HTTPException(
+            status_code=400,
+            detail="Conversation must start with 'user' or 'system' message"
+        )
+    
+    # Check for orphaned assistant messages
+    for i in range(1, len(messages)):
+        prev_role = messages[i-1]["role"]
+        current_role = messages[i]["role"]
+        
+        if current_role == "assistant" and prev_role not in ("user", "system"):
+            raise HTTPException(
+                status_code=400,
+                detail=f"Orphaned assistant message at position {i}"
+            )
+        
+        if current_role == "system" and i > 0:
+            raise HTTPException(
+                status_code=400,
+                detail=f"System message must be at beginning (position {i})"
+            )
+
+
 @app.post("/api/v1/chat", tags=["chat"])
 async def chat_v1_endpoint(req: ChatV1Request):
     """
@@ -228,6 +374,9 @@ async def chat_v1_endpoint(req: ChatV1Request):
     """
     request_id = str(uuid.uuid4())[:8]
     t0 = time.perf_counter()
+    
+    # BUG 7 FIX: Validate conversation structure
+    validate_v1_messages(req.messages)
     
     # Convert messages format
     history = [{"role": m.get("role"), "content": m.get("content")} for m in req.messages]
@@ -243,77 +392,44 @@ async def chat_v1_endpoint(req: ChatV1Request):
         temperature = 0.9
         max_tokens = 1024
     
-    # Check cache first before calling API - use both simple and semantic cache
-    query = history[-1]['content'] if history else ""
-    cached_reply = None
-    if req.use_cache and query:
-        # Try semantic cache first (more intelligent matching)
-        try:
-            from gateway.semantic_cache import SemanticCache
-            semantic_cache = SemanticCache()
-            cached_reply = semantic_cache.get(query)
-            if cached_reply:
-                logger.info(f"Semantic cache hit for query: {query[:40]}...")
-        except Exception as e:
-            logger.warning(f"Semantic cache failed: {e}")
-        
-        # Fallback to simple cache
-        if not cached_reply:
-            from gateway.simple_cache import get_cache
-            cache = get_cache()
-            cached_reply = cache.get(query)
-            logger.info(f"Cache check for '{query[:30]}...': {'HIT' if cached_reply else 'MISS'}")
-    
-    if cached_reply:
-        reply = cached_reply
-        cache_hit = True
-        elapsed = time.perf_counter() - t0
-        logger.info(f"Returning cached response in {elapsed:.3f}s")
-        return {
-            "response": reply,
-            "model": req.model,
-            "duration": elapsed,
-            "optimizations_applied": 1,
-            "cache_hit": True,
-        }
+    # REMOVED: Duplicate cache lookup - let the gateway handle all caching
+    # Bug #15: The API was doing cache lookups and then the gateway also does cache lookups
+    # This causes duplicate work and inconsistent behavior. Gateway handles caching now.
     
     cache_hit = False
+    elapsed = time.perf_counter() - t0
     
-    # Check cache first for instant responses
-    if req.use_cache and query:
-        from gateway.simple_cache import get_cache
-        cache = get_cache()
-        cached = cache.get(query)
-        if cached:
-            reply = cached
-            cache_hit = True
-            logger.info(f"Cache hit for query: {query[:40]}...")
-    
-    # If not cached, call the gateway
-    if not cache_hit:
-        try:
-            from gateway.litellm_gateway import chat
-            import asyncio
+    # Call the gateway (handles caching internally)
+    try:
+        from gateway.litellm_gateway import chat
+        import asyncio
+        
+        # For ollama, don't pass api_base, let litellm handle it
+        # Run synchronous chat in thread pool with balanced timeout
+        loop = asyncio.get_event_loop()
+        result = await asyncio.wait_for(
+            loop.run_in_executor(
+                None,
+                chat,
+                history,
+                req.model,
+                temperature,
+                max_tokens,
+                None,  # api_base
+                req.use_cache,
+            ),
+            timeout=getattr(settings, 'request_deadline', 120)
+        )
+        
+        # Handle both old (string) and new (tuple) return types
+        if isinstance(result, tuple):
+            reply, cache_hit = result
+        else:
+            reply = result
             
-            # For ollama, don't pass api_base, let litellm handle it
-            # Run synchronous chat in thread pool with balanced timeout
-            loop = asyncio.get_event_loop()
-            reply = await asyncio.wait_for(
-                loop.run_in_executor(
-                    None,
-                    chat,
-                    history,
-                    req.model,
-                    temperature,
-                    max_tokens,
-                    None,  # api_base
-                    req.use_cache,
-                ),
-                timeout=30.0  # 30 second timeout for quality
-            )
-        except Exception as exc:
-            logger.exception("Chat v1 error [%s]: %s", request_id, exc)
-            raise HTTPException(status_code=500, detail=str(exc)) from exc
+    except Exception as exc:
+        logger.exception("Chat v1 error [%s]: %s", request_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
     
     elapsed = time.perf_counter() - t0
     
@@ -345,12 +461,14 @@ async def chat_stream_endpoint(req: ChatRequest):
         try:
             from gateway.litellm_gateway import achat_stream
             msgs = history + [{"role": "user", "content": req.message}]
+            # BUG 2 FIX: Pass use_cache parameter to streaming function
             async for chunk in achat_stream(
                 msgs,
                 model=req.model,
                 temperature=req.temperature,
                 max_tokens=req.max_tokens,
                 system_prompt=req.system_prompt,
+                use_cache=req.use_cache,  # BUG 2 FIX: Honor use_cache
                 use_router=req.use_router,
             ):
                 yield f"data: {json.dumps({'delta': chunk, 'done': False})}\n\n"
@@ -375,15 +493,71 @@ async def chat_stream_endpoint(req: ChatRequest):
 @app.post("/rag/ingest", tags=["rag"])
 async def rag_ingest(req: RAGIngestRequest, files: list[UploadFile] = File(default=[])):
     import shutil
+    import os
     from config import RAGProvider
 
+    # BUG 9 FIX: Implement upload limits
+    MAX_FILE_SIZE = 10 * 1024 * 1024  # 10MB per file
+    MAX_FILES = 20  # Maximum files per request
+    MAX_TOTAL_SIZE = 50 * 1024 * 1024  # 50MB total per request
+
     saved: list[str] = []
+    total_size = 0
+    
     if files:
+        # BUG 9 FIX: Check file count limit
+        if len(files) > MAX_FILES:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Too many files: {len(files)} (max {MAX_FILES})"
+            )
+        
         for f in files:
-            dest = settings.rag_docs_dir / (f.filename or "upload.txt")
+            # BUG 8 FIX: Prevent path traversal attacks
+            # Use basename to strip any directory components
+            safe_filename = os.path.basename(f.filename or "upload.txt")
+            
+            # Additional safety: ensure filename doesn't contain suspicious patterns
+            if not safe_filename or safe_filename.startswith('.') or '..' in safe_filename:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Invalid filename: {f.filename}"
+                )
+            
+            dest = settings.rag_docs_dir / safe_filename
+            
+            # BUG 8 FIX: Ensure destination is within the intended directory
+            try:
+                dest.resolve().relative_to(settings.rag_docs_dir.resolve())
+            except ValueError:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Path traversal attempt detected: {f.filename}"
+                )
+            
+            # BUG 9 FIX: Check individual file size
+            file_size = 0
+            f.file.seek(0, os.SEEK_END)
+            file_size = f.file.tell()
+            f.file.seek(0)
+            
+            if file_size > MAX_FILE_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"File too large: {f.filename} ({file_size} bytes, max {MAX_FILE_SIZE})"
+                )
+            
+            # BUG 9 FIX: Check total size limit
+            if total_size + file_size > MAX_TOTAL_SIZE:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"Total upload size exceeds limit ({MAX_TOTAL_SIZE} bytes)"
+                )
+            
             with dest.open("wb") as out:
                 shutil.copyfileobj(f.file, out)
             saved.append(str(dest))
+            total_size += file_size
 
     result: dict[str, Any] = {"saved_files": saved}
 

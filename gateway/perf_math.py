@@ -28,11 +28,15 @@ def eq1_ttfb_reduction_fraction(
     cache_hit: bool = False,
     prewarm_enabled: bool = False,
 ) -> float:
-    """Eq1 – TTFB reduction fraction."""
+    """
+    Eq1 – ESTIMATED TTFB reduction fraction.
+    BUG 26 FIX: Clearly marked as estimated, not measured.
+    Actual performance should be measured with real benchmarks.
+    """
     if cache_hit:
-        return 0.8  # 80% reduction on cache hit
+        return 0.8  # ESTIMATED 80% reduction on cache hit
     if prewarm_enabled:
-        return 0.3  # 30% reduction with prewarming
+        return 0.3  # ESTIMATED 30% reduction with prewarming
     return 0.0
 
 

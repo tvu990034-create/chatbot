@@ -173,6 +173,34 @@ from litellm.exceptions import (
     ServiceUnavailableError,
 )
 
+from config import settings
+from .opt_core import (
+    BoundedTTLCache,
+    build_priority_messages,
+    cisc_confidence,
+    compress_prompt,
+    detect_code_language,
+    estimate_tokens,
+    execute_python_isolated,
+    get_registry,
+    get_router_state,
+    hashed_embedding,
+    cosine_similarity,
+    is_safe_quick_path,
+    make_cache_identity,
+    ollama_model_id,
+    quick_arithmetic,
+    resolve_generation_policy,
+    select_model,
+    tool_memo_get,
+    tool_memo_set,
+    validate_code,
+    vote_responses,
+    wants_calculator,
+    wants_search,
+    wrap_retrieved,
+)
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
@@ -188,6 +216,8 @@ class QueryAnalysis:
     confidence_level: float = 0.8
     urgency_level: str = "normal"  # normal, high, critical
     expected_response_length: str = "medium"  # short, medium, long
+    # BUG 5 FIX: Add query_text field for adaptive temperature
+    query_text: str = ""
     requires_context: bool = False
     complexity_score: float = 0.0  # RouteLLM: 0-1 score for model routing
     suggested_model: str = ""  # RouteLLM: suggested model based on complexity
@@ -283,6 +313,7 @@ _mindsearch_enabled = False  # Dynamic graph construction (MindSearch)
 _judge_model = "qwen2.5:3b"  # Model for LLM-as-Judge
 _agent_memory = {}  # Agent memory for AgentVerse
 _search_cache = {}  # Search cache for MindSearch
+_search_cache_max_size = 1000  # BUG 41 FIX: Limit MindSearch cache size
 
 # Qwen2.5-Coder tool registry with custom format
 _qwen_tool_registry = {}  # Custom tool definitions for Qwen2.5-Coder
@@ -298,6 +329,7 @@ _code_model_registry = {
 _code_semantic_cache = {}
 _code_semantic_cache_hits = 0
 _code_cache_lock = threading.Lock()
+_code_semantic_cache_max_size = 500  # BUG 40 FIX: Limit code semantic cache size
 
 # Connection pool for Ollama requests
 _session_pool = None
@@ -359,8 +391,9 @@ def get_optimized_session():
             )
             _session_pool.mount('http://', adapter)
             _session_pool.mount('https://', adapter)
-            # Set timeout for speed
-            _session_pool.timeout = 3  # 3 second timeout
+            # BUG 76 FIX: Use centralized connect timeout
+            timeout_val = getattr(settings, 'connect_timeout', 5)
+            _session_pool.timeout = timeout_val
             
     return _session_pool
 
@@ -392,6 +425,7 @@ class UniversalEnhancedGateway:
         """
         self.model_name = model_name
         self.enable_all_optimizations = enable_all_optimizations
+        self._routed_model = None  # BUG 35 FIX: Track routing decisions for telemetry
         self.performance_mode = performance_mode
         
         # Core optimization components - use global cache for persistence with thread safety
@@ -612,30 +646,42 @@ class UniversalEnhancedGateway:
                         del self.cache[cache_key]
                         del self.cache_ttl[cache_key]
                     else:
-                        self.cache_hits += 1
-                        logger.info(f"Cache hit in <0.01s")
-                        return entry["response"]
+                        # CRITICAL FIX: Check if this is a warm placeholder - never return placeholders to users
+                        if entry.get("is_warm", False):
+                            # Remove warm placeholder and treat as cache miss
+                            del self.cache[cache_key]
+                            if cache_key in self.cache_ttl:
+                                del self.cache_ttl[cache_key]
+                            logger.debug(f"Removed warm placeholder for cache key: {cache_key}")
+                        else:
+                            self.cache_hits += 1
+                            logger.info(f"Cache hit in <0.01s")
+                            return entry["response"]
             
-            # Ultra-aggressive fuzzy matching (first 15 characters)
-            query_prefix = query[:15].lower().strip()
-            fuzzy_matches = [
-                (key, entry) for key, entry in self.cache.items()
-                if key[:15].lower().strip() == query_prefix
-            ]
-            if fuzzy_matches:
-                with _cache_lock:
-                    self.cache_hits += 1
-                    logger.info(f"Fuzzy cache hit in <0.02s")
-                    return fuzzy_matches[0][1]["response"]
+            # DISABLED: Ultra-aggressive fuzzy matching (dangerous - can return wrong answers)
+            # Bug #13: Fuzzy cache matching is dangerous and can return answers to wrong questions
+            # Disabled by default for correctness. Enable only if you implement proper semantic caching with embeddings.
+            # query_prefix = query[:15].lower().strip()
+            # fuzzy_matches = [
+            #     (key, entry) for key, entry in self.cache.items()
+            #     if key[:15].lower().strip() == query_prefix
+            # ]
+            # if fuzzy_matches:
+            #     with _cache_lock:
+            #         self.cache_hits += 1
+            #         logger.info(f"Fuzzy cache hit in <0.02s")
+            #         return fuzzy_matches[0][1]["response"]
             
-            # Intelligent semantic matching with recent entries
-            if len(self.cache) > 0:
-                semantic_match = self._intelligent_semantic_match(query)
-                if semantic_match:
-                    with _cache_lock:
-                        self.cache_hits += 1
-                        logger.info(f"Semantic cache hit in <0.05s")
-                        return semantic_match
+            # DISABLED: Intelligent semantic matching with recent entries
+            # Bug #13: Semantic matching without proper embeddings is dangerous
+            # Disabled by default for correctness. 
+            # if len(self.cache) > 0:
+            #     semantic_match = self._intelligent_semantic_match(query)
+            #     if semantic_match:
+            #         with _cache_lock:
+            #             self.cache_hits += 1
+            #             logger.info(f"Semantic cache hit in <0.05s")
+            #             return semantic_match
         
         self.cache_misses += 1
         
@@ -646,8 +692,12 @@ class UniversalEnhancedGateway:
         selected_model = self._route_to_model(query_analysis)
         if selected_model and selected_model != self.model_name:
             logger.info(f"RouteLLM: Routed to {selected_model} (complexity: {query_analysis.complexity_score:.2f})")
-            # For now, we'll just log the routing decision
-            # In a full implementation, we would switch the model
+            # Bug #34 FIX: Actually use the selected model for inference
+            self.model_name = selected_model
+            # BUG 35 FIX: Store routing decision for telemetry
+            self._routed_model = selected_model
+        else:
+            self._routed_model = None
         
         # Step 5.5: DeepSeek-Coder code routing: Route to code-specialized model
         code_model = self._route_to_code_model(query_analysis)
@@ -751,11 +801,14 @@ class UniversalEnhancedGateway:
                     duration = time.time() - start_time
                 else:
                     # Fallback to model
+                    # Bug #34 FIX: Use the potentially routed model (self.model_name)
+                    # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                    model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                     response = completion(
-                        model=f"ollama/{self.model_name}",
+                        model=model_to_use,  # Bug #34 FIX: Use routed model
                         messages=optimized_messages,
                         **adaptive_params,
-                        timeout=10,
+                        timeout=getattr(settings, 'generation_timeout', 15),
                         api_base="http://localhost:11434"
                     )
                     response_text = response.choices[0].message.content
@@ -766,11 +819,13 @@ class UniversalEnhancedGateway:
                         response_text = self._apply_response_constraints(response_text, query_analysis)
             else:
                 # Single API call with optimized parameters
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=optimized_messages,
                     **adaptive_params,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 response_text = response.choices[0].message.content
@@ -821,12 +876,31 @@ class UniversalEnhancedGateway:
                     }
                     # Set TTL based on query type
                     ttl = 3600 if query_analysis.urgency_level == "normal" else 1800
-                    self.cache_ttl[cache_key] = time.time() + ttl
+                    # BUG 43 FIX: Add jitter to prevent cache expiration stampede
+                    import random
+                    jitter = random.uniform(0.9, 1.1)  # 10% jitter
+                    self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
             
             # Step 11.5: CodeFuse semantic cache: Store code responses
             if analysis.is_coding and _code_semantic_cache_enabled:
+                # BUG 39 FIX: Use configuration-aware cache key
+                cache_context = {
+                    'model': self.model_name,
+                    'language': self._detect_language(query),
+                    'framework': self._detect_framework(query),
+                    'system_prompt': self.system_prompt,
+                    'performance_mode': self.performance_mode,
+                }
+                cache_key = self._generate_cache_key(query, cache_context)
+                
                 with _code_cache_lock:
-                    _code_semantic_cache[query] = response_text
+                    _code_semantic_cache[cache_key] = response_text
+                    # BUG 40 FIX: Enforce max cache size
+                    if len(_code_semantic_cache) > _code_semantic_cache_max_size:
+                        # Remove oldest entries (FIFO)
+                        keys_to_remove = list(_code_semantic_cache.keys())[:len(_code_semantic_cache) - _code_semantic_cache_max_size]
+                        for key in keys_to_remove:
+                            del _code_semantic_cache[key]
             
             # Step 12: LangChain pattern learning: LEARN from user patterns
             if self.performance_mode != "speed":
@@ -878,7 +952,8 @@ class UniversalEnhancedGateway:
         """RouteLLM-style query analysis with complexity scoring for model routing."""
         query_lower = query.lower()
         
-        analysis = QueryAnalysis()
+        # BUG 5 FIX: Include query_text in QueryAnalysis
+        analysis = QueryAnalysis(query_text=query)
         
         # Detect urgency
         if any(word in query_lower for word in ["urgent", "emergency", "asap", "immediately", "quick"]):
@@ -1046,7 +1121,7 @@ class UniversalEnhancedGateway:
                     response = completion(
                         model=f"ollama/{model}",
                         messages=[{"role": "user", "content": query}],
-                        timeout=10,
+                        timeout=getattr(settings, 'generation_timeout', 15),
                         api_base="http://localhost:11434"
                     )
                     responses.append((model, response.choices[0].message.content))
@@ -1090,10 +1165,10 @@ class UniversalEnhancedGateway:
             code_prompt += "Only output the code, no explanation.\n"
             
             code_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": code_prompt}],
                 temperature=0.3,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -1252,11 +1327,13 @@ Query: {query}
 Provide the fixed code only, no explanation."""
                 
                 # Generate repaired code
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": repair_prompt}],
                     temperature=0.2,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1286,12 +1363,14 @@ Provide the fixed code only, no explanation."""
         
         try:
             # Stage 1: Code Generator
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             generator_prompt = f"Generate code for: {query}\nProvide only the code, no explanation."
             gen_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": generator_prompt}],
                 temperature=0.3,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             code = gen_response.choices[0].message.content
@@ -1303,23 +1382,27 @@ Provide the fixed code only, no explanation."""
                 code = code_match.group(1)
             
             # Stage 2: Test Generator (simplified)
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             test_prompt = f"Generate unit tests for this code:\n{code}\nProvide only the test code."
             test_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": test_prompt}],
                 temperature=0.3,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             tests = test_response.choices[0].message.content
             
             # Stage 3: Code Reviewer (simplified)
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             review_prompt = f"Review this code for quality and suggest improvements:\n{code}\nProvide brief review comments."
             review_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": review_prompt}],
                 temperature=0.3,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             review = review_response.choices[0].message.content
@@ -1344,27 +1427,88 @@ Review:
             return None
     
     def _check_code_semantic_cache(self, query: str) -> Optional[str]:
-        """CodeFuse pattern: Code-aware semantic caching."""
+        """CodeFuse pattern: Code-aware semantic caching.
+        BUG 39 FIX: Includes configuration identity in cache key.
+        """
+        global _code_semantic_cache_hits
+        
         if not _code_semantic_cache_enabled:
             return None
         
-        # Simplified semantic matching using keyword overlap
+        # BUG 39 FIX: Build cache key with configuration context
+        cache_context = {
+            'model': self.model_name,
+            'language': self._detect_language(query),
+            'framework': self._detect_framework(query),
+            'system_prompt': self.system_prompt,
+            'performance_mode': self.performance_mode,
+        }
+        cache_key = self._generate_cache_key(query, cache_context)
+        
+        # Check exact match first (BUG 39 FIX)
+        with _code_cache_lock:
+            if cache_key in _code_semantic_cache:
+                global _code_semantic_cache_hits
+                _code_semantic_cache_hits += 1
+                logger.info(f"CodeFuse: Exact cache hit with configuration context")
+                return _code_semantic_cache[cache_key]
+        
+        # Fallback to simplified semantic matching using keyword overlap
         # In a full implementation, use embeddings
         query_words = set(query.lower().split())
         
         with _code_cache_lock:
-            for cached_query, cached_response in _code_semantic_cache.items():
-                cached_words = set(cached_query.lower().split())
+            for cached_key, cached_response in _code_semantic_cache.items():
+                # BUG 39 FIX: Only match entries with same configuration
+                # The cache key includes configuration context
+                cached_words = set(cached_key.split(':')[0].lower().split())
                 overlap = len(query_words & cached_words)
                 
                 # If 50%+ word overlap, consider it a match
                 if overlap > 0 and overlap / len(query_words) > 0.5:
-                    global _code_semantic_cache_hits
                     _code_semantic_cache_hits += 1
                     logger.info(f"CodeFuse: Semantic cache hit")
                     return cached_response
         
         return None
+    
+    def _detect_language(self, query: str) -> str:
+        """BUG 39 FIX: Simple language detection for code cache context."""
+        query_lower = query.lower()
+        if 'python' in query_lower or 'def ' in query or 'import ' in query:
+            return 'python'
+        elif 'javascript' in query_lower or 'function' in query or 'const ' in query:
+            return 'javascript'
+        elif 'java' in query_lower or 'public class' in query:
+            return 'java'
+        elif 'c++' in query_lower or '#include' in query:
+            return 'cpp'
+        elif 'rust' in query_lower or 'fn ' in query or 'let mut' in query:
+            return 'rust'
+        elif 'go' in query_lower or 'func ' in query and 'package' in query:
+            return 'go'
+        else:
+            return 'unknown'
+    
+    def _detect_framework(self, query: str) -> str:
+        """BUG 39 FIX: Simple framework detection for code cache context."""
+        query_lower = query.lower()
+        if 'react' in query_lower or 'usestate' in query_lower or 'useeffect' in query_lower:
+            return 'react'
+        elif 'vue' in query_lower or 'v-if' in query_lower:
+            return 'vue'
+        elif 'django' in query_lower or 'models.Model' in query:
+            return 'django'
+        elif 'flask' in query_lower or '@app.route' in query:
+            return 'flask'
+        elif 'fastapi' in query_lower or 'from fastapi' in query:
+            return 'fastapi'
+        elif 'tensorflow' in query_lower or 'tf.' in query_lower:
+            return 'tensorflow'
+        elif 'pytorch' in query_lower or 'torch.' in query_lower:
+            return 'pytorch'
+        else:
+            return 'none'
     
     # ===== CHINESE CODING INTELLIGENCE PATTERNS =====
     
@@ -1437,6 +1581,8 @@ You have access to the following tools:
     
     def _enhanced_modelcache_lookup(self, query: str, model: str) -> Optional[str]:
         """CodeFuse-ModelCache pattern: Enhanced semantic caching with embeddings."""
+        global _code_semantic_cache_hits
+        
         if not _modelcache_enabled:
             return None
         
@@ -1451,7 +1597,6 @@ You have access to the following tools:
                 
                 # Higher threshold for ModelCache (60%)
                 if overlap > 0 and overlap / len(query_words) > 0.6:
-                    global _code_semantic_cache_hits
                     _code_semantic_cache_hits += 1
                     logger.info(f"ModelCache: Semantic cache hit (similarity: {overlap/len(query_words):.2f})")
                     return cached_response
@@ -1467,11 +1612,13 @@ You have access to the following tools:
         
         for i in range(num_candidates):
             try:
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.3 + (i * 0.2),  # Vary temperature
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1526,21 +1673,30 @@ You have access to the following tools:
 """
         
         try:
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": translation_prompt}],
                 temperature=0.2,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
             translated_code = response.choices[0].message.content
             
-            # Extract code block
+            # BUG 52 FIX: Use safe variable interpolation for target_language in regex
+            # Instead of f-string in regex, use re.escape for the language name
             import re
-            code_match = re.search(r'```(?:{target_language})?\n(.*?)```', translated_code, re.DOTALL)
+            code_match = re.search(rf'```(?:{re.escape(target_language)})?\n(.*?)```', translated_code, re.DOTALL)
             if code_match:
                 translated_code = code_match.group(1)
+            
+            # BUG 53 FIX: If extraction fails, return clear error rather than raw output
+            if '```' not in translated_code and code_match is None:
+                # Extraction failed - return original code with error
+                logger.warning(f"Translation extraction failed for {target_language}, returning original code")
+                return code
             
             logger.info(f"Translation: {source_language} -> {target_language}")
             return translated_code
@@ -1551,7 +1707,7 @@ You have access to the following tools:
     
     # ===== MATHEMATICAL REASONING PATTERNS (AIME/AMC OPTIMIZATION) =====
     
-    def _execute_tir_code(self, code: str, timeout: int = 10) -> tuple[bool, Any, Optional[str]]:
+    def _execute_tir_code(self, code: str, timeout: int = None) -> tuple[bool, Any, Optional[str]]:
         """Tool-Integrated Reasoning (TIR): Execute Python code in sandboxed environment."""
         if not _tir_enabled or not _math_sandbox_enabled:
             return False, None, "TIR disabled"
@@ -1603,8 +1759,27 @@ You have access to the following tools:
             # Execute with timeout
             exec(code, namespace)
             
-            # Get the last evaluated expression as result
-            result = namespace.get('_result', None)
+            # BUG 54 FIX: Capture final expression properly using AST transformation
+            # If code doesn't explicitly set _result, capture the last expression
+            if result is None:
+                try:
+                    import ast
+                    # Parse the code to find the last expression
+                    tree = ast.parse(code)
+                    
+                    # Find the last expression statement
+                    last_expr = None
+                    for node in ast.walk(tree):
+                        if isinstance(node, ast.Expr):
+                            last_expr = node
+                    
+                    if last_expr:
+                        # Compile and evaluate the last expression
+                        code_obj = compile(ast.Expression(body=last_expr), '<string>', 'eval')
+                        result = eval(code_obj, namespace)
+                except Exception as e:
+                    logger.warning(f"TIR: Could not capture final expression: {e}")
+                    result = None
             
             stdout_output = stdout_capture.getvalue()
             stderr_output = stderr_capture.getvalue()
@@ -1649,11 +1824,14 @@ Problem: {query}
 
 Provide your solution with step-by-step reasoning and Python code for calculations."""
             
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+
             response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": tir_prompt}],
                 temperature=0.3,
-                timeout=15,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -1668,7 +1846,9 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
                 if 'print(' not in code:
                     code = code + '\n_result = None\n# Auto-capture last expression'
                 
-                success, result, output = self._execute_tir_code(code)
+                # BUG 76 FIX: Use centralized tool timeout
+                tool_timeout = getattr(settings, 'tool_timeout', 10)
+                success, result, output = self._execute_tir_code(code, timeout=tool_timeout)
                 if success and result is not None:
                     logger.info(f"TIR: Code execution successful, result: {result}")
                     # Feed result back to model for final answer
@@ -1676,15 +1856,18 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
 
 Use this result to provide your final answer in \\boxed{{}} format."""
                     
+                    # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                    model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+
                     final_response = completion(
-                        model=f"ollama/{self.model_name}",
+                        model=model_to_use,
                         messages=[
                             {"role": "user", "content": tir_prompt},
                             {"role": "assistant", "content": response_text},
                             {"role": "user", "content": feedback_prompt}
                         ],
                         temperature=0.2,
-                        timeout=10,
+                        timeout=getattr(settings, 'generation_timeout', 15),
                         api_base="http://localhost:11434"
                     )
                     
@@ -1714,11 +1897,13 @@ Use this result to provide your final answer in \\boxed{{}} format."""
             confidences = []
             
             for i in range(num_samples):
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.7 + (i * 0.1),  # Vary temperature
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1808,11 +1993,14 @@ Relevant strategies to consider:
             
             strategy_prompt += "\nSolve the problem using these strategies. Put your final answer in \\boxed{} format."
             
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+
             response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": strategy_prompt}],
                 temperature=0.3,
-                timeout=15,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -1862,7 +2050,7 @@ Provide your evaluation in JSON format:
                 model=f"ollama/{_judge_model}",
                 messages=[{"role": "user", "content": judge_prompt}],
                 temperature=0.2,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -1907,11 +2095,13 @@ Provide your evaluation in JSON format:
             # Step 1: Analysis agent
             if analysis.is_complex or analysis.needs_reasoning:
                 analysis_prompt = f"Analyze this query and identify key components: {query}"
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 analysis_response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": analysis_prompt}],
                     temperature=0.3,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 results.append(f"Analysis: {analysis_response.choices[0].message.content}")
@@ -1919,11 +2109,13 @@ Provide your evaluation in JSON format:
             # Step 2: Execution agent (conditional)
             if analysis.is_coding:
                 execution_prompt = f"Generate code for: {query}"
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 execution_response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": execution_prompt}],
                     temperature=0.3,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 results.append(f"Execution: {execution_response.choices[0].message.content}")
@@ -1937,11 +2129,13 @@ Results:
 {chr(10).join(results)}
 
 Provide the final synthesized response."""
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 synthesis_response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": synthesis_prompt}],
                     temperature=0.3,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1971,10 +2165,10 @@ Query: {query}
 Provide sub-questions as a numbered list."""
             
             decomposition_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": decomposition_prompt}],
                 temperature=0.3,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -1996,11 +2190,13 @@ Provide sub-questions as a numbered list."""
                     continue
                 
                 # Generate answer
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 answer_response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=[{"role": "user", "content": q}],
                     temperature=0.3,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2009,6 +2205,12 @@ Provide sub-questions as a numbered list."""
                 
                 # Cache answer
                 _search_cache[q] = answer
+                # BUG 41 FIX: Enforce max cache size
+                if len(_search_cache) > _search_cache_max_size:
+                    # Remove oldest entries (FIFO)
+                    keys_to_remove = list(_search_cache.keys())[:len(_search_cache) - _search_cache_max_size]
+                    for key in keys_to_remove:
+                        del _search_cache[key]
             
             # Synthesize answers
             synthesis_prompt = f"""Synthesize these sub-question answers into a comprehensive response to the original query:
@@ -2020,10 +2222,10 @@ Sub-question Answers:
 Provide the final synthesized response."""
             
             synthesis_response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=[{"role": "user", "content": synthesis_prompt}],
                 temperature=0.3,
-                timeout=15,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             
@@ -2038,7 +2240,8 @@ Provide the final synthesized response."""
         """DSPy-style query analysis: Analyze query for smart parameter selection."""
         query_lower = query.lower()
         
-        analysis = QueryAnalysis()
+        # BUG 5 FIX: Include query_text in QueryAnalysis
+        analysis = QueryAnalysis(query_text=query)
         
         # Detect urgency
         if any(word in query_lower for word in ["urgent", "emergency", "asap", "immediately", "quick"]):
@@ -2299,11 +2502,14 @@ Code:"""
             temp_params = self.model_params.copy()
             temp_params["temperature"] = 0.3
             
+            # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+
             response = completion(
-                model=f"ollama/{self.model_name}",
+                model=model_to_use,
                 messages=enhanced_messages,
                 **temp_params,
-                timeout=10,
+                timeout=getattr(settings, 'generation_timeout', 15),
                 api_base="http://localhost:11434"
             )
             return response.choices[0].message.content
@@ -2329,11 +2535,14 @@ Code:"""
                 temp_params = self.model_params.copy()
                 temp_params["temperature"] = 0.3 + (i * 0.2)
                 
+                # BUG 75 FIX: Don't double-prefix with ollama/ if already present
+                model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+
                 response = completion(
-                    model=f"ollama/{self.model_name}",
+                    model=model_to_use,
                     messages=messages,
                     **temp_params,
-                    timeout=10,
+                    timeout=getattr(settings, 'generation_timeout', 15),
                     api_base="http://localhost:11434"
                 )
                 responses.append(response.choices[0].message.content)

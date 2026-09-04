@@ -65,7 +65,9 @@ BASE_DIR = Path(__file__).parent
 
 
 class Settings(BaseSettings):
-    """All runtime configuration, sourced from .env or environment."""
+    """All runtime configuration, sourced from .env or environment.
+    BUG 14 FIX: Added field validators for malformed environment variables.
+    """
 
     model_config = SettingsConfigDict(
         env_file=str(BASE_DIR / ".env"),
@@ -73,6 +75,30 @@ class Settings(BaseSettings):
         case_sensitive=False,
         extra="ignore",
     )
+    
+    @field_validator('api_port', 'ui_port', 'local_backend_port')
+    @classmethod
+    def validate_port(cls, v):
+        """Validate port numbers are in valid range."""
+        if not isinstance(v, int) or v < 1 or v > 65535:
+            raise ValueError(f"Invalid port number: {v}. Must be between 1 and 65535.")
+        return v
+    
+    @field_validator('litellm_temperature')
+    @classmethod
+    def validate_temperature(cls, v):
+        """Validate temperature is in valid range."""
+        if not isinstance(v, (int, float)) or v < 0 or v > 2:
+            raise ValueError(f"Invalid temperature: {v}. Must be between 0 and 2.")
+        return float(v)
+    
+    @field_validator('litellm_max_tokens')
+    @classmethod
+    def validate_max_tokens(cls, v):
+        """Validate max_tokens is positive."""
+        if not isinstance(v, int) or v < 1:
+            raise ValueError(f"Invalid max_tokens: {v}. Must be a positive integer.")
+        return v
 
     # ------------------------------------------------------------------
     # Application
@@ -119,17 +145,19 @@ class Settings(BaseSettings):
     # ------------------------------------------------------------------
     # LiteLLM gateway
     # ------------------------------------------------------------------
+    # CENTRALIZED MODEL CONFIGURATION - Single source of truth
     default_model: str = Field(
         "ollama/tinyllama:latest",  # Smallest model for reliability
-        description="LiteLLM model string used by default",
+        description="LiteLLM model string used by default - CENTRALIZED MODEL CONFIG",
     )
     litellm_api_base:    str | None = Field(None)
-    litellm_timeout:     int        = Field(8)  # Balanced timeout
-    litellm_max_tokens:  int        = Field(256)  # Balanced response length
-    litellm_temperature: float      = Field(0.3)  # Balanced determinism
+    litellm_timeout:     int        = Field(15)  # Increased timeout for quality responses
+    litellm_max_tokens:  int        = Field(1024)  # Increased for better quality answers
+    litellm_temperature: float      = Field(0.3)  # Balanced determinism - CENTRALIZED TEMP
     litellm_stream:      bool       = Field(True)
     fallback_models: list[str] = Field(
         default_factory=lambda: ["ollama/phi3:mini", "ollama/gemma2:2b"],
+        description="Fallback models when default model is unavailable",
     )
 
     # ------------------------------------------------------------------
@@ -176,13 +204,13 @@ class Settings(BaseSettings):
     # Local backend (vLLM / SGLang / Ollama)
     # ------------------------------------------------------------------
     local_backend:                    BackendType = Field(BackendType.OLLAMA)
-    local_model_name:                 str         = Field("phi3:mini")
+    local_model_name:                 str         = Field("tinyllama:latest")  # MATCHES DEFAULT_MODEL
     local_backend_host:               str         = Field("127.0.0.1")
     local_backend_port:               int         = Field(8081)
     local_backend_gpu_memory_utilization: float   = Field(0.90)
     local_backend_max_model_len:      int         = Field(8192)
     local_backend_dtype:              str         = Field("auto")
-    local_backend_quantization:       str | None  = Field("awq")
+    local_backend_quantization:       str | None  = Field(None)  # Disabled for reliability
     
     # vLLM-specific optimizations (from research papers) - ready for migration
     vllm_enable_prefix_caching: bool = Field(
@@ -246,8 +274,32 @@ class Settings(BaseSettings):
         20,
         description=(
             "Eq1 – last N messages kept in working memory. "
-            "Larger → more context; smaller → lower TTFB via KV-cache recycling."
+            "Larger → more context; smaller → lower TTFB via KV-cache recycling. "
+            "BUG 25 NOTE: Currently message-count based, not token-based. "
+            "Long messages may exceed actual token budget."
         ),
+    )
+    # BUG 29 FIX: Tool loop budgets
+    agent_max_tool_calls: int = Field(
+        10,
+        description="Maximum number of tool calls per agent turn (BUG 29 FIX)"
+    )
+    agent_max_tool_time: int = Field(
+        60,
+        description="Maximum time in seconds for tool execution per turn (BUG 29 FIX)"
+    )
+    agent_max_wall_time: int = Field(
+        120,
+        description="Maximum wall-clock time for entire agent execution (BUG 29 FIX)"
+    )
+    # BUG 58 FIX: Tool output limits
+    agent_max_tool_output_chars: int = Field(
+        5000,
+        description="Maximum characters for tool output to prevent context explosion (BUG 58 FIX)"
+    )
+    agent_max_tool_output_tokens: int = Field(
+        1000,
+        description="Maximum tokens for tool output to prevent context explosion (BUG 58 FIX)"
     )
     agent_system_prompt: str = Field(
         "You are a helpful, accurate, and concise AI assistant. "
@@ -268,12 +320,42 @@ class Settings(BaseSettings):
     cors_origins:        list[str] = Field(default_factory=lambda: ["*"])
     max_history_messages: int      = Field(50)
     request_timeout:     int       = Field(60)
+    # BUG 76 FIX: Centralized timeout configuration
+    # Connect timeout - for establishing connections
+    connect_timeout: int = Field(
+        5,
+        description="Connection timeout in seconds for HTTP requests"
+    )
+    # Generation timeout - for LLM generation
+    generation_timeout: int = Field(
+        15,
+        description="Timeout in seconds for LLM generation calls"
+    )
+    # Tool timeout - for tool execution
+    tool_timeout: int = Field(
+        10,
+        description="Timeout in seconds for tool execution"
+    )
+    # Request deadline - overall request deadline
+    request_deadline: int = Field(
+        120,
+        description="Overall request deadline in seconds"
+    )
     slack_webhook_url:   str | None = Field(
         None, description="Slack webhook for Eq9 anomaly alerts"
     )
     enable_performance_equations: bool = Field(
         True,
         description="Enable advanced performance equations (Eq1-Eq9) - ENABLED for maximum performance"
+    )
+    # BUG 33 FIX: Best-of-N resource budgeting
+    bon_max_n: int = Field(
+        3,
+        description="Maximum N for Best-of-N sampling (BUG 33 FIX)"
+    )
+    bon_max_wall_time: int = Field(
+        30,
+        description="Maximum wall-clock time for Best-of-N in seconds (BUG 33 FIX)"
     )
     
     # Legitimate Research Paper Optimizations
@@ -1671,10 +1753,8 @@ class Settings(BaseSettings):
         False,
         description="Enable sampling parameters optimization",
     )
-    temperature: float = Field(
-        0.7,
-        description="Sampling temperature (0-2)",
-    )
+    # REMOVED: General temperature field - use litellm_temperature for consistency
+    # temperature: float = Field(0.7, description="Sampling temperature (0-2)")
     top_k: int = Field(
         50,
         description="Top-k sampling parameter",

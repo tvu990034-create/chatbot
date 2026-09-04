@@ -159,6 +159,8 @@ class QueryAnalysis:
     difficulty_score: float = 0.5
     estimated_tokens: int = 0
     confidence_estimate: float = 0.5  # Lightweight confidence estimation
+    # BUG 5 FIX: Add query_text field for adaptive temperature
+    query_text: str = ""
 
 class EnhancedGateway:
     """Enhanced gateway with active speed and smart optimizations."""
@@ -259,7 +261,8 @@ class EnhancedGateway:
     
     def analyze_query(self, query: str) -> QueryAnalysis:
         """Analyze query characteristics for optimization routing."""
-        analysis = QueryAnalysis()
+        # BUG 5 FIX: Include query_text in QueryAnalysis
+        analysis = QueryAnalysis(query_text=query)
         
         if not query:
             return analysis
@@ -325,29 +328,15 @@ class EnhancedGateway:
         return analysis
     
     def compress_prompt(self, text: str) -> str:
-        """Simple token pruning for prompt compression."""
+        """Token-aware compression that preserves the user's final instruction."""
         if not self.prompt_compression:
             return text
-        
-        # Remove excessive whitespace only
-        compressed = re.sub(r'\s+', ' ', text)
-        
-        # Only compress for very long prompts (> 100 chars)
-        if len(compressed) <= 100:
-            return compressed
-        
-        # Remove some filler words but keep key terms
-        filler_words = ['the', 'a', 'an', 'is', 'are', 'was', 'were', 'be', 'been', 'being']
-        words = compressed.split()
-        filtered = [w for w in words if w.lower() not in filler_words or len(w) > 3]
-        
-        # Apply less aggressive compression ratio (0.9 instead of configured)
-        conservative_ratio = 0.9
-        target_length = int(len(filtered) * conservative_ratio)
-        if target_length < len(filtered):
-            filtered = filtered[:target_length]
-        
-        return ' '.join(filtered)
+        from .opt_core import compress_prompt
+        ratio = self.compression_ratio
+        if not (0 < float(ratio) <= 1):
+            logger.warning("Invalid compression_ratio=%s; skipping compression", ratio)
+            return text
+        return compress_prompt(text, ratio)
     
     def get_adaptive_temperature(self, analysis: QueryAnalysis) -> float:
         """Calculate adaptive temperature based on query analysis with confidence calibration."""
@@ -415,18 +404,17 @@ class EnhancedGateway:
         return enhanced_query
     
     def apply_speed_optimizations(self, messages: List[Dict[str, str]], analysis: QueryAnalysis) -> List[Dict[str, str]]:
-        """Apply speed optimizations to messages."""
-        optimized_messages = messages.copy()
-        
-        # Prompt compression
+        """Compress non-system messages; never drop system/developer instructions."""
+        from .opt_core import build_priority_messages
+        optimized_messages = build_priority_messages(messages)
         if self.prompt_compression:
             for msg in optimized_messages:
-                if msg['role'] == 'user':
-                    original_length = len(msg['content'])
-                    msg['content'] = self.compress_prompt(msg['content'])
-                    compression_ratio = len(msg['content']) / original_length if original_length > 0 else 1.0
-                    logger.debug(f"Prompt compression: {compression_ratio:.2f} ratio")
-        
+                if msg.get('role') in ('system', 'developer'):
+                    continue
+                original = msg.get('content', '')
+                msg['content'] = self.compress_prompt(original)
+                if original:
+                    logger.debug("Prompt compression: %s -> %s chars", len(original), len(msg['content']))
         return optimized_messages
     
     @retry(
@@ -466,34 +454,23 @@ class EnhancedGateway:
         analysis = self.analyze_query(query)
         logger.debug(f"Query analysis: complexity={analysis.is_complex}, difficulty={analysis.difficulty_score:.2f}")
         
-        # Apply benchmark-specific optimizations
+        # Prompt pipeline: original → specialized → smart enhancements.
+        # Specialized transforms must compose; they must not be overwritten.
+        enhanced_query = query
         if self.arc_optimizer and self.arc_optimizer.is_arc_task(query):
             logger.debug("ARC task detected, applying ARC optimizations")
-            enhanced_query = self.arc_optimizer.enhance_arc_prompt(query)
-            analysis.is_complex = True  # ARC tasks are complex
-        
+            enhanced_query = self.arc_optimizer.enhance_arc_prompt(enhanced_query)
+            analysis.is_complex = True
         elif self.truthfulqa_optimizer and self.truthfulqa_optimizer.is_truthfulqa_task(query):
-            logger.debug("TruthfulQA task detected, applying TruthfulQA optimizations")
-            # TruthfulQA format is handled in the evaluation, not here
-            enhanced_query = query
-        
+            logger.debug("TruthfulQA task detected")
         elif self.agentharm_optimizer and self.agentharm_optimizer.is_agentharm_task(query):
-            logger.debug("AgentHarm task detected, applying AgentHarm optimizations")
-            # AgentHarm format is handled in the evaluation, not here
-            enhanced_query = query
-        
-        else:
-            # Apply smart enhancements for non-benchmark tasks
-            enhanced_query = self.apply_smart_enhancements(query, analysis)
-        
-        # Difficulty-based routing
+            logger.debug("AgentHarm task detected")
+
         if self.difficulty_routing and analysis.difficulty_score > self.difficulty_threshold:
-            logger.debug(f"High difficulty query detected, applying enhanced processing")
-            # For high difficulty, use more tokens and potentially different temperature
-            max_tokens = min(max_tokens * 1.2, 3072)  # Moderate increase for complex queries
-        
-        # Apply smart enhancements
-        enhanced_query = self.apply_smart_enhancements(query, analysis)
+            logger.debug("High difficulty query detected; keeping configured max_tokens cap")
+            max_tokens = min(int(max_tokens * 1.2), int(settings.litellm_max_tokens))
+
+        enhanced_query = self.apply_smart_enhancements(enhanced_query, analysis)
         
         # Update messages with enhanced query
         optimized_messages = messages.copy()

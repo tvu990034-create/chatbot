@@ -159,6 +159,8 @@ class QueryAnalysis:
     difficulty_score: float = 0.5
     estimated_tokens: int = 0
     confidence_estimate: float = 0.5
+    # BUG 5 FIX: Add query_text field for adaptive temperature
+    query_text: str = ""
 
 class FixedEnhancedGateway:
     """Fixed enhanced gateway with effective speed and smart optimizations."""
@@ -247,7 +249,8 @@ class FixedEnhancedGateway:
     
     def analyze_query(self, query: str) -> QueryAnalysis:
         """Fast query analysis for optimization routing."""
-        analysis = QueryAnalysis()
+        # BUG 5 FIX: Include query_text in QueryAnalysis
+        analysis = QueryAnalysis(query_text=query)
         
         # Fast complexity check
         query_lower = query.lower()
