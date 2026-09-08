@@ -23,7 +23,7 @@ from config import settings
 
 logger = logging.getLogger(__name__)
 
-# Equation wiring is installed once per process (idempotent behind flags).
+# Optimization wiring is installed once per process (idempotent behind flags).
 _wiring_installed = False
 _wiring_lock = threading.Lock()
 
@@ -768,7 +768,7 @@ def chat(user_message: str, history: list[dict] | None = None, *,
 
 
 def _ensure_wiring() -> None:
-    """Install equation wiring (semantic cache, EWMA router) exactly once per
+    """Install optimization wiring (semantic cache, EWMA router) exactly once per
     process instead of re-importing and re-checking on every request."""
     global _wiring_installed
     if _wiring_installed:
@@ -785,7 +785,7 @@ def _ensure_wiring() -> None:
             install_semantic_cache(get_cache())
             install_ewma_router(get_router_state())
         except Exception:
-            logger.warning("equation wiring install failed", exc_info=True)
+            logger.warning("optimization wiring install failed", exc_info=True)
         finally:
             _wiring_installed = True
 
@@ -809,7 +809,7 @@ async def achat(user_message: str, history: list[dict] | None = None, *,
         quick_arithmetic, quick_word_problem, quick_word_arithmetic, estimate_tokens,
     )
 
-    # Install equation wiring once (semantic cache, EWMA router, Koopman RAG).
+    # Install optimization wiring once (semantic cache, EWMA router, Koopman RAG).
     _ensure_wiring()
 
     _req_ctx = {

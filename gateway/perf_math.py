@@ -3,7 +3,7 @@ gateway/perf_math.py
 ~~~~~~~~~~~~~~~~~~
 Placeholder for performance math functions (Eq1-Eq9).
 
-This file provides placeholder implementations for the performance equations
+This file provides placeholder implementations for the performance optimizations
 that are referenced throughout the codebase. In a full implementation, these would
 contain the actual mathematical formulations for the performance optimizations.
 """

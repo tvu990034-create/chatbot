@@ -10,7 +10,7 @@ from typing import Optional, Dict, List, Tuple
 import numpy as np
 
 # ==================================================================
-# 1. Cross-Modal Attention Synchronization (Equation #302) — S Tier
+# 1. Cross-Modal Attention Synchronization (Optimization #302) — S Tier
 # ==================================================================
 
 class CrossModalSyncLoss(nn.Module):
@@ -29,7 +29,7 @@ class CrossModalSyncLoss(nn.Module):
 
 
 # ==================================================================
-# 2. Visual Self-Supervised Contrastive Learning (Equation #332) — S Tier
+# 2. Visual Self-Supervised Contrastive Learning (Optimization #332) — S Tier
 # ==================================================================
 
 def info_nce_loss(z_i, z_j, temperature=0.07):
@@ -49,7 +49,7 @@ def info_nce_loss(z_i, z_j, temperature=0.07):
 
 
 # ==================================================================
-# 3. Slot-Based Object Binding via Iterative Attention (Equation #234) — S Tier
+# 3. Slot-Based Object Binding via Iterative Attention (Optimization #234) — S Tier
 # ==================================================================
 
 class SlotAttention(nn.Module):
@@ -106,7 +106,7 @@ class SlotAttention(nn.Module):
 
 
 # ==================================================================
-# 4. Visual Knowledge Graph Embedding (Equation #63) — S Tier
+# 4. Visual Knowledge Graph Embedding (Optimization #63) — S Tier
 # ==================================================================
 
 class SceneGraphGNN(nn.Module):
@@ -139,7 +139,7 @@ class SceneGraphGNN(nn.Module):
 
 
 # ==================================================================
-# 5. Monocular Depth via Multi-Cue Integration (Equation #23) — S Tier
+# 5. Monocular Depth via Multi-Cue Integration (Optimization #23) — S Tier
 # ==================================================================
 
 class MultiCueDepth(nn.Module):
@@ -170,7 +170,7 @@ class MultiCueDepth(nn.Module):
 
 
 # ==================================================================
-# 6. Visual Counterfactual Divergence for Explanation (Equation #111) — A Tier
+# 6. Visual Counterfactual Divergence for Explanation (Optimization #111) — A Tier
 # ==================================================================
 
 def counterfactual_divergence(model, image, object_mask, inpaint_fn):
@@ -188,7 +188,7 @@ def counterfactual_divergence(model, image, object_mask, inpaint_fn):
 
 
 # ==================================================================
-# 7. Visual Causal Intervention via Graph Do-Calculus (Equation #123) — A Tier
+# 7. Visual Causal Intervention via Graph Do-Calculus (Optimization #123) — A Tier
 # ==================================================================
 
 def causal_effect(model, graph, node_to_remove):
@@ -212,7 +212,7 @@ def causal_effect(model, graph, node_to_remove):
 
 
 # ==================================================================
-# 8. Visual Meta-Learning for Rapid Adaptation (Equation #358) — A Tier
+# 8. Visual Meta-Learning for Rapid Adaptation (Optimization #358) — A Tier
 # ==================================================================
 
 def maml_train(model, tasks, inner_lr=0.01, outer_lr=0.001, num_inner_steps=5):
@@ -241,7 +241,7 @@ def maml_train(model, tasks, inner_lr=0.01, outer_lr=0.001, num_inner_steps=5):
 
 
 # ==================================================================
-# 9. Visual Question Answering with External Knowledge Retrieval (Equation #422) — A Tier
+# 9. Visual Question Answering with External Knowledge Retrieval (Optimization #422) — A Tier
 # ==================================================================
 
 class KnowledgeVQA(nn.Module):
@@ -261,7 +261,7 @@ class KnowledgeVQA(nn.Module):
 
 
 # ==================================================================
-# 10. Visual Affordance-Action Compatibility Loss (Equation #139) — A Tier
+# 10. Visual Affordance-Action Compatibility Loss (Optimization #139) — A Tier
 # ==================================================================
 
 class AffordanceLoss(nn.Module):
@@ -284,7 +284,7 @@ class AffordanceLoss(nn.Module):
 
 
 # ==================================================================
-# 11. Visual Anomaly Detection via Multi-Scale Reconstruction (Equation #530) — S Tier
+# 11. Visual Anomaly Detection via Multi-Scale Reconstruction (Optimization #530) — S Tier
 # ==================================================================
 
 class MultiScaleAutoencoder(nn.Module):
@@ -329,7 +329,7 @@ class MultiScaleAutoencoder(nn.Module):
 
 
 # ==================================================================
-# 12. Visual Program Synthesis for Interpretable Reasoning (Equation #349) — S Tier
+# 12. Visual Program Synthesis for Interpretable Reasoning (Optimization #349) — S Tier
 # ==================================================================
 
 class ProgramGenerator(nn.Module):
@@ -372,7 +372,7 @@ class Executor(nn.Module):
 
 
 # ==================================================================
-# 13. Memory-Augmented Attention / Retrieval via Associative Addressing (Equation #334) — S Tier
+# 13. Memory-Augmented Attention / Retrieval via Associative Addressing (Optimization #334) — S Tier
 # ==================================================================
 
 class AssociativeMemory(nn.Module):
@@ -396,7 +396,7 @@ class AssociativeMemory(nn.Module):
 
 
 # ==================================================================
-# 14. Confidence Calibration / Uncertainty Estimation (Equation #438) — S Tier
+# 14. Confidence Calibration / Uncertainty Estimation (Optimization #438) — S Tier
 # ==================================================================
 
 def calibration_loss(logits, targets):
@@ -412,7 +412,7 @@ def calibration_loss(logits, targets):
 
 
 # ==================================================================
-# 15. Visual Haptic Imagination via Cross-Modal VAE (Equation #364) — A Tier
+# 15. Visual Haptic Imagination via Cross-Modal VAE (Optimization #364) — A Tier
 # ==================================================================
 
 class HapticVAE(nn.Module):
@@ -453,7 +453,7 @@ def haptic_vae_loss(haptic_pred, haptic_gt, mu, logvar, beta=1.0):
 
 
 # ==================================================================
-# 16. Visual Future Prediction via Autoregressive Transformer (Equation #427) — A Tier
+# 16. Visual Future Prediction via Autoregressive Transformer (Optimization #427) — A Tier
 # ==================================================================
 
 class FuturePredictor(nn.Module):
@@ -480,7 +480,7 @@ class FuturePredictor(nn.Module):
 
 
 # ==================================================================
-# 17. Visual Embodied Navigation via Differentiable Mapping (Equation #560) — A Tier
+# 17. Visual Embodied Navigation via Differentiable Mapping (Optimization #560) — A Tier
 # ==================================================================
 
 class DifferentiablePlanner(nn.Module):
@@ -513,7 +513,7 @@ class DifferentiablePlanner(nn.Module):
 
 
 # ==================================================================
-# 18. Common-Sense Physics via Stability Score Regularization (Equation #486) — A Tier
+# 18. Common-Sense Physics via Stability Score Regularization (Optimization #486) — A Tier
 # ==================================================================
 
 class StabilityPredictor(nn.Module):
@@ -540,7 +540,7 @@ class StabilityPredictor(nn.Module):
 # Extended Techniques 19-49
 # ==================================================================
 
-# 19. Self-Supervised Jigsaw Puzzle Solving (Equation #423) — S Tier
+# 19. Self-Supervised Jigsaw Puzzle Solving (Optimization #423) — S Tier
 
 class JigsawSolver(nn.Module):
     """Jigsaw puzzle solving for spatial understanding"""
@@ -567,7 +567,7 @@ class JigsawSolver(nn.Module):
         return logits
 
 
-# 20. Visual Counterfactual Scene Editing (Equation #420) — A Tier
+# 20. Visual Counterfactual Scene Editing (Optimization #420) — A Tier
 
 class CounterfactualEditor(nn.Module):
     """Counterfactual scene editing via latent manipulation"""
@@ -592,7 +592,7 @@ class CounterfactualEditor(nn.Module):
         return image
 
 
-# 21. Noun-Object Alignment (Equation #128) — S Tier
+# 21. Noun-Object Alignment (Optimization #128) — S Tier
 
 class NounAlignmentLoss(nn.Module):
     """Bidirectional attention matching for noun-object alignment"""
@@ -606,7 +606,7 @@ class NounAlignmentLoss(nn.Module):
         return loss / len(att_vis_list) if att_vis_list else loss
 
 
-# 22. Cross-Modal Shared Prototype Alignment (Equation #105) — S Tier
+# 22. Cross-Modal Shared Prototype Alignment (Optimization #105) — S Tier
 
 class PrototypeAlignmentLoss(nn.Module):
     """Align visual and textual prototypes for zero-shot"""
@@ -624,7 +624,7 @@ class PrototypeAlignmentLoss(nn.Module):
         return loss / len(self.visual_prototypes)
 
 
-# 23. Text-Only Saliency Prior Alignment (Equation #191) — A Tier
+# 23. Text-Only Saliency Prior Alignment (Optimization #191) — A Tier
 
 class TextSaliencyNet(nn.Module):
     """Predict saliency from text alone"""
@@ -644,7 +644,7 @@ def saliency_alignment_loss(vis_att, text_saliency):
     return F.mse_loss(vis_att, text_saliency)
 
 
-# 24. Visual Deductive Database Query (Equation #342) — S Tier
+# 24. Visual Deductive Database Query (Optimization #342) — S Tier
 
 class VisualDatabase:
     """Differentiable visual database for logical reasoning"""
@@ -668,7 +668,7 @@ class QueryExecutor(nn.Module):
         return state
 
 
-# 25. Visual Metaphor Detection (Equation #341) — A Tier
+# 25. Visual Metaphor Detection (Optimization #341) — A Tier
 
 class MetaphorDetector(nn.Module):
     """Detect visual metaphors via semantic alignment"""
@@ -691,7 +691,7 @@ class MetaphorDetector(nn.Module):
         return prob
 
 
-# 26. Memory-Augmented Future Frame Prediction (Equation #204) — A Tier
+# 26. Memory-Augmented Future Frame Prediction (Optimization #204) — A Tier
 
 class MemoryAugmentedPredictor(nn.Module):
     """Memory-augmented future frame prediction"""
@@ -716,7 +716,7 @@ class MemoryAugmentedPredictor(nn.Module):
         return f_next_pred
 
 
-# 27. Visual Curiosity Reward (Equation #213) — A Tier
+# 27. Visual Curiosity Reward (Optimization #213) — A Tier
 
 class CuriosityModule(nn.Module):
     """Curiosity-driven exploration via prediction error"""
@@ -734,7 +734,7 @@ class CuriosityModule(nn.Module):
         return reward
 
 
-# 28. Cross-Modal Resonance Amplification (Equation #388) — S Tier
+# 28. Cross-Modal Resonance Amplification (Optimization #388) — S Tier
 
 class CrossModalResonance(nn.Module):
     """Amplify aligned cross-modal features"""
@@ -751,7 +751,7 @@ class CrossModalResonance(nn.Module):
         return boosted_visual, boosted_text
 
 
-# 29. Affordance Landscape (Equation #260) — A Tier
+# 29. Affordance Landscape (Optimization #260) — A Tier
 
 class AffordanceLandscape(nn.Module):
     """Dense affordance map via segmentation"""
@@ -769,7 +769,7 @@ class AffordanceLandscape(nn.Module):
         return landscape
 
 
-# 30. Visual Perspective Taking (Equation #447) — A Tier
+# 30. Visual Perspective Taking (Optimization #447) — A Tier
 
 class PerspectiveTransformer(nn.Module):
     """Viewpoint transformation for perspective taking"""
@@ -781,7 +781,7 @@ class PerspectiveTransformer(nn.Module):
         return image
 
 
-# 31. Social Relation Inference (Equation #373) — A Tier
+# 31. Social Relation Inference (Optimization #373) — A Tier
 
 class SocialRelationNet(nn.Module):
     """Infer social relationships from visual cues"""
@@ -800,7 +800,7 @@ class SocialRelationNet(nn.Module):
         return F.softmax(logits, dim=-1)
 
 
-# 32. Time Passage Estimation (Equation #350) — A Tier
+# 32. Time Passage Estimation (Optimization #350) — A Tier
 
 class TimePassageEstimator(nn.Module):
     """Estimate time passage from object states"""
@@ -818,7 +818,7 @@ class TimePassageEstimator(nn.Module):
         return self.mlp(x)
 
 
-# 33. Force Predictor (Equation #305) — A Tier
+# 33. Force Predictor (Optimization #305) — A Tier
 
 class ForcePredictor(nn.Module):
     """Predict forces from contact geometry"""
@@ -836,7 +836,7 @@ class ForcePredictor(nn.Module):
         return self.mlp(x)
 
 
-# 34. Motion Streak Generator (Equation #566) — A Tier
+# 34. Motion Streak Generator (Optimization #566) — A Tier
 
 class MotionStreakGenerator(nn.Module):
     """Generate motion streaks from static images"""
@@ -856,7 +856,7 @@ class MotionStreakGenerator(nn.Module):
         return flow
 
 
-# 35. Escape Route Detection (Equation #594) — A Tier
+# 35. Escape Route Detection (Optimization #594) — A Tier
 
 class EscapeRouteNet(nn.Module):
     """Detect escape routes via path probability map"""
@@ -876,7 +876,7 @@ class EscapeRouteNet(nn.Module):
         return prob_map
 
 
-# 36. Normalizing Flow Anomaly (Equation #513) — A Tier
+# 36. Normalizing Flow Anomaly (Optimization #513) — A Tier
 
 class NormalizingFlowAnomaly(nn.Module):
     """Anomaly detection via normalizing flow likelihood"""
@@ -895,7 +895,7 @@ class NormalizingFlowAnomaly(nn.Module):
         return torch.norm(z, dim=-1)
 
 
-# 37. Graph Matching (Equation #589) — A Tier
+# 37. Graph Matching (Optimization #589) — A Tier
 
 class GraphMatchingLoss(nn.Module):
     """Match scene graphs for object correspondence"""
@@ -908,7 +908,7 @@ class GraphMatchingLoss(nn.Module):
         return loss
 
 
-# 38. Slot Predictive Coding (Equation #550) — A Tier
+# 38. Slot Predictive Coding (Optimization #550) — A Tier
 
 class SlotPredictiveCoder(nn.Module):
     """Predictive coding for object permanence"""
@@ -926,7 +926,7 @@ class SlotPredictiveCoder(nn.Module):
         return loss
 
 
-# 39. Info Bottleneck Attention (Equation #333) — S Tier
+# 39. Info Bottleneck Attention (Optimization #333) — S Tier
 
 class InfoBottleneckAttention(nn.Module):
     """Information bottleneck for attention"""
@@ -941,7 +941,7 @@ class InfoBottleneckAttention(nn.Module):
         return total_loss
 
 
-# 40. Adaptive Energy Model (Equation #593) — S Tier
+# 40. Adaptive Energy Model (Optimization #593) — S Tier
 
 class AdaptiveEnergyModel(nn.Module):
     """Adaptive temperature for anomaly detection"""
@@ -958,7 +958,7 @@ class AdaptiveEnergyModel(nn.Module):
         return energy
 
 
-# 41. Deep SVDD (Equation #558) — S Tier
+# 41. Deep SVDD (Optimization #558) — S Tier
 
 class DeepSVDD(nn.Module):
     """Deep Support Vector Data Description for anomaly detection"""
@@ -980,7 +980,7 @@ class DeepSVDD(nn.Module):
         return dist
 
 
-# 42. Defocus Depth (Equation #543) — S Tier
+# 42. Defocus Depth (Optimization #543) — S Tier
 
 class DefocusDepthNet(nn.Module):
     """Depth estimation from defocus blur"""
@@ -1001,14 +1001,14 @@ class DefocusDepthNet(nn.Module):
         return depth
 
 
-# 43. Affordance Energy (Equation #503) — A Tier
+# 43. Affordance Energy (Optimization #503) — A Tier
 
 def affordance_energy(affordance_map, eps=1e-6):
     """Convert affordance map to energy landscape"""
     return -torch.log(affordance_map + eps)
 
 
-# 44. Tactile Contrastive (Equation #582) — A Tier
+# 44. Tactile Contrastive (Optimization #582) — A Tier
 
 def tactile_contrastive_loss(vis_feat, hap_feat, temperature=0.07):
     """Align visual and haptic features"""
@@ -1021,7 +1021,7 @@ def tactile_contrastive_loss(vis_feat, hap_feat, temperature=0.07):
     return loss
 
 
-# 45. Differentiable Path Planning (Equation #446) — A Tier
+# 45. Differentiable Path Planning (Optimization #446) — A Tier
 
 class DifferentiablePathPlanner(nn.Module):
     """Differentiable path planning"""
@@ -1034,7 +1034,7 @@ class DifferentiablePathPlanner(nn.Module):
         return cost
 
 
-# 46. Physics Constraint Loss (Equation #546) — A Tier
+# 46. Physics Constraint Loss (Optimization #546) — A Tier
 
 class PhysicsConstraintLoss(nn.Module):
     """Enforce physical constraints"""
@@ -1050,7 +1050,7 @@ class PhysicsConstraintLoss(nn.Module):
         return loss
 
 
-# 47. Info Gain Question Generator (Equation #353) — A Tier
+# 47. Info Gain Question Generator (Optimization #353) — A Tier
 
 class InfoGainQuestionGenerator(nn.Module):
     """Generate questions that maximize information gain"""

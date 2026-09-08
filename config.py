@@ -1,6 +1,6 @@
 """
 config.py – Central configuration for local-chatbot.
-Now includes all tuning knobs for all 9 performance equations.
+Now includes all tuning knobs for all 9 performance optimizations.
 
 All settings are read from environment variables (or a .env file).
 Import the singleton `settings` everywhere else in the project:
@@ -346,7 +346,7 @@ class Settings(BaseSettings):
     )
     enable_performance_equations: bool = Field(
         True,
-        description="Enable advanced performance equations (Eq1-Eq9) - ENABLED for maximum performance"
+        description="Enable advanced performance optimizations - ENABLED for maximum performance"
     )
     # BUG 33 FIX: Best-of-N resource budgeting
     bon_max_n: int = Field(
@@ -1953,7 +1953,7 @@ class Settings(BaseSettings):
     )
 
     # ==================================================================
-    # REMOVED: Old Eq1-Eq9 and Eq19 (non-functional fake equations)
+    # REMOVED: Old Eq1-Eq9 and Eq19 (non-functional fake optimizations)
     # These have been replaced with legitimate research paper optimizations
     # See: ENABLE_LEGITIMATE_OPTIMIZATIONS, PROMPT_COMPRESSION_ENABLED, etc.
     # ==================================================================
@@ -2235,7 +2235,7 @@ class Settings(BaseSettings):
     # ==================================================================
 
     # ==================================================================
-    # chatbot-phase1 Excellent Equations (OPTIONAL - all disabled by default)
+    # chatbot-phase1 Excellent Optimizations (OPTIONAL - all disabled by default)
     # These are proven techniques from the old project that worked well.
     # The chatbot works perfectly without them. Enable based on your needs.
     # ==================================================================
@@ -2531,7 +2531,7 @@ class Settings(BaseSettings):
     )
     
     # ==================================================================
-    # Advanced Equation-Based Reasoning Techniques
+    # Advanced Optimization-Based Reasoning Techniques
     # ==================================================================
     
     # Reasoning Geodesic Flow Configuration

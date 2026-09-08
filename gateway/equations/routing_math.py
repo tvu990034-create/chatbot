@@ -1,7 +1,7 @@
 """
-gateway/equations/routing_math.py
+optimization module.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Model-routing / load-aware / budget / consensus-equations family ported from
+Model-routing / load-aware / budget / consensus-optimizations family ported from
 the user's documentation.
 
 This module covers:

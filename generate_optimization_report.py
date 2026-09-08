@@ -74,7 +74,7 @@ with open(report_file, "w") as f:
     f.write("="*80 + "\n")
     f.write("OPTIMIZATION TECHNIQUES APPLIED\n")
     f.write("="*80 + "\n")
-    f.write(f"Performance Equations: [X] Active\n")
+    f.write(f"Performance Optimizations: [X] Active\n")
     f.write(f"Human Intelligence: [X] Active\n")
     f.write(f"Long-term Memory: [X] Active\n")
     f.write(f"Safety Suite: [X] Active\n")

@@ -826,7 +826,7 @@ class UniversalEnhancedGateway:
             
             start_time = time.time()
             
-            # Try direct equation solving for math queries (LangChain Tool pattern)
+            # Try direct optimization solving for math queries (LangChain Tool pattern)
             if self.enable_all_optimizations and query_analysis.is_math:
                 direct_answer = self._solve_equation_directly(query)
                 if direct_answer:
@@ -2508,14 +2508,14 @@ Code:"""
         return response.strip()
     
     def _solve_equation_directly(self, query: str) -> str:
-        """LangChain-style tool use: Solve math equations directly using Python for accuracy."""
+        """LangChain-style tool use: Solve math directly using Python for accuracy."""
         if not self.enable_all_optimizations:
             return None
         
         try:
             import re
 
-            # Linear equation: [sign]a x [+|-] b = c  (a may be omitted => 1,
+            # Linear optimization: [sign]a x [+|-] b = c  (a may be omitted => 1,
             # or "-" => -1; supports "2x = 10", "x + 3 = 5", "10x = 50",
             # "-x + 3 = 5", "2*x + 5 = -7").
             if "=" in query and "x" in query.lower():

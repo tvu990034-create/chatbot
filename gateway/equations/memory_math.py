@@ -1,10 +1,7 @@
 """
-gateway/equations/memory_math.py
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Memory / context-window / attention-heuristic / token-budget equations ported
-from the user's documentation.  Corresponds to "Untitled document (9)" and
-"Tài liệu (29)" (memory & attention equations), "1.txt" (context-window
-compaction) and "Tài liệu (8)" (token-pruning / early-exit heuristics).
+Memory / context-window / attention-heuristic / token-budget optimization module.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Memory / context-window / attention-heuristic / token-budget optimizations from the user's optimization catalog.
 
 What is feasible in pure Python:
   * recency-weighted context priority and per-message pruning scores

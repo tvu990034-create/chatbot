@@ -1,16 +1,16 @@
 """
-gateway/equations/bandit_math.py
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Multi-armed bandit and Bayesian-optimization equations, in pure stdlib.
+Multi-armed bandit and Bayesian-optimization optimization module (pure stdlib).
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Multi-armed bandit and Bayesian-optimization optimizations, in pure stdlib.
 
-This module implements the exploration/exploitation family from the user's docs:
-Thompson sampling (#217), UCB / Thompson temperature (#227) in "Tài liệu"
-documents (15)-(18), and the EWMA/EXP3/UCB/EI/PI acquisition functions from the
+This module implements the exploration/exploitation family from the user's catalog:
+Thompson sampling (#217), UCB / Thompson temperature (#227), and the
+EWMA/EXP3/UCB/EI/PI acquisition functions from the
 a-tier / s-tier files.
 
 Everything here is deterministic-able via an injected ``random.Random`` (or the
 module-level ``random``) and never requires a training loop, GPU, or model
-weights. Equations that genuinely require those are declared as clearly-marked
+weights. Optimizations that genuinely require those are declared as clearly-marked
 ``NOT_IMPLEMENTABLE_*`` constants at the bottom.
 """
 

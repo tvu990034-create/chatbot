@@ -1,5 +1,5 @@
 """
-gateway/equations — pure-Python equation library.
+gateway/optimizations — pure-Python optimization library.
 
 One module per domain, stdlib only. See ``CONVENTIONS.md``.
 """

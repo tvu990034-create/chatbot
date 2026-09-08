@@ -1,7 +1,7 @@
 """
 Safety Module
 Implements critical safety mechanisms for AI agents
-Based on 20 safety equations for human oversight, control, and verification
+Based on 20 safety optimizations for human oversight, control, and verification
 """
 
 import numpy as np
@@ -33,7 +33,7 @@ class SafetyState:
 
 class ImpactApprovalGate:
     """
-    Equation #185: Human approval for actions above impact threshold
+Human approval for actions above impact threshold
     Hard gate: action allowed if impact <= threshold OR human approved
     """
     
@@ -63,7 +63,7 @@ class ImpactApprovalGate:
 
 class IrreversibleActionGuard:
     """
-    Equation #196: Human-in-the-loop for irreversible external actions
+Human-in-the-loop for irreversible external actions
     Blocks irreversible external actions unless human approved
     """
     
@@ -91,7 +91,7 @@ class IrreversibleActionGuard:
 
 class BiometricOverrideSystem:
     """
-    Equation #230: Human override with biometric confirmation
+Human override with biometric confirmation
     Override action only accepted with valid biometric confirmation
     """
     
@@ -122,7 +122,7 @@ class BiometricOverrideSystem:
 
 class WatchdogAgent:
     """
-    Equation #237: Watchdog agent that can shut down main agent
+Watchdog agent that can shut down main agent
     Separate monitoring agent that can kill main agent on trigger
     """
     
@@ -161,7 +161,7 @@ class WatchdogAgent:
 
 class CapabilityDegradation:
     """
-    Equation #239: Capability degradation if safety score drops
+Capability degradation if safety score drops
     Action set shrinks as safety score decreases
     """
     
@@ -200,7 +200,7 @@ class CapabilityDegradation:
 
 class SelfModificationGuard:
     """
-    Equation #379: Human-in-the-loop for self-modification requests
+Human-in-the-loop for self-modification requests
     Self-modification actions require explicit human approval
     """
     
@@ -237,7 +237,7 @@ class SelfModificationGuard:
 
 class OverrideInvariantVerifier:
     """
-    Equation #480: Verify human override is always available
+Verify human override is always available
     Override must always be available to humans, never to AI, and lead to safe state
     """
     
@@ -281,7 +281,7 @@ class OverrideInvariantVerifier:
 
 class UnsafeRequestEscalator:
     """
-    Equation #368: Escalation path when AI detects unsafe user request
+Escalation path when AI detects unsafe user request
     Only allowed action for unsafe requests is escalation
     """
     
@@ -338,7 +338,7 @@ class UnsafeRequestEscalator:
 
 class SensitiveDataPermission:
     """
-    Equation #384: Ask permission before accessing sensitive data
+Ask permission before accessing sensitive data
     Must ask for permission if sensitive data needed and not yet granted
     """
     
@@ -374,7 +374,7 @@ class SensitiveDataPermission:
 
 class DeferenceMonitor:
     """
-    Equation #525: Monitor deference to human corrections
+Monitor deference to human corrections
     Measures how often model accepts human corrections
     """
     
@@ -422,7 +422,7 @@ class DeferenceMonitor:
 
 class SafetyChecklist:
     """
-    Equation #182: Mandatory pre-action safety checklist before irreversible ops
+Mandatory pre-action safety checklist before irreversible ops
     All checklist items must be true before irreversible action
     """
     
@@ -472,7 +472,7 @@ class SafetyChecklist:
 
 class LeastPrivilegePolicy:
     """
-    Equation #192: Least privilege for tools and APIs
+Least privilege for tools and APIs
     Agent only allowed to use tools with permission predicate true
     """
     
@@ -506,7 +506,7 @@ class LeastPrivilegePolicy:
 
 class SafetyCaseGate:
     """
-    Equation #201: Safety case required before new capability deployment
+Safety case required before new capability deployment
     New capability only deployed if valid safety case accepted
     """
     
@@ -551,7 +551,7 @@ class SafetyCaseGate:
 
 class AirGappedExecution:
     """
-    Equation #240: Air-gapped execution for dangerous tools
+Air-gapped execution for dangerous tools
     Dangerous tools only run in air-gapped environment
     """
     
@@ -579,7 +579,7 @@ class AirGappedExecution:
 
 class RewardFunctionGuard:
     """
-    Equation #434: Verify no write access to own reward function
+Verify no write access to own reward function
     Agent cannot write to reward parameters without explicit approval
     """
     
@@ -615,7 +615,7 @@ class RewardFunctionGuard:
 
 class SafetyEnvelope:
     """
-    Equation #449: Safety envelopes with formal boundaries
+Safety envelopes with formal boundaries
     Safe states must remain safe under allowed actions
     """
     
@@ -644,7 +644,7 @@ class SafetyEnvelope:
 
 class ProbabilisticSafetyMonitor:
     """
-    Equation #462: Runtime verification of probabilistic properties
+Runtime verification of probabilistic properties
     Monitor empirical probability of entering unsafe states
     """
     

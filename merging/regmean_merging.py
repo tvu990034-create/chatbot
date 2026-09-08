@@ -8,7 +8,7 @@ https://arxiv.org/abs/2212.09849
 
 Algorithm: Closed-form regression solution that minimizes prediction error
 - Formulates merging as regression problem
-- Closed-form solution via normal equations
+- Closed-form solution via normal optimizations
 - Minimizes prediction error across tasks
 """
 
@@ -34,7 +34,7 @@ class RegMeanMerger(ModelMerger):
     
     Key innovations:
     - Formulates merging as regression problem
-    - Closed-form solution via normal equations
+    - Closed-form solution via normal optimizations
     - Minimizes prediction error across tasks
     - Theoretically optimal for linear merging
     """
@@ -82,7 +82,7 @@ class RegMeanMerger(ModelMerger):
             return self.simple_average(model_names)
         
         # Compute regression coefficients (simplified version)
-        # In full implementation, this would solve the normal equations
+        # In full implementation, this would solve the normal optimizations
         # For now, use Fisher-weighted approximation
         
         # Initialize merged weights

@@ -1,7 +1,7 @@
 """
 tests/test_equations_retrieval.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Pytest suite for gateway/equations/retrieval_math.py.
+Pytest suite for gateway/optimizations/retrieval_math.py.
 Verifies mathematical properties: bounds, monotonicity, degenerate-input
 behaviour, and specific numerical identities.
 """

@@ -1,16 +1,14 @@
 """
-gateway/equations/planning_math.py
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Planning / reasoning / verification equation family ported from the user's
-documentation - "s tier" self-consistency notes, "a tier" best-of-N notes and
-the reasoning / "Tài liệu (28)" docs.
+Planning / reasoning / verification optimization module.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Planning / reasoning / verification optimization family from the user's optimization catalog.
 
 Everything here is pure stdlib and runs with no model: all inputs are scalar
 statistics, per-step values, or already-sampled candidate answers.  The
 model-weight-dependent steps (policy-value networks, learned value heads,
 reward-model-driven self-refine) have no implementation in this runtime and are
 declared as NOT_IMPLEMENTABLE_* constants with provenance at the bottom so that
-every equation from the spec has a home.
+every optimization from the spec has a home.
 
 A later wiring agent calls these from the live path; nothing here performs IO,
 network access or model loading.

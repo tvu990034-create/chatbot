@@ -1,8 +1,8 @@
 """
 tests/test_equations_memory.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Tests for gateway/equations/memory_math.py — memory / context-window /
-attention-heuristic / token-budget equations.
+Tests for gateway/optimizations/memory_math.py — memory / context-window /
+attention-heuristic / token-budget optimizations.
 """
 
 import math

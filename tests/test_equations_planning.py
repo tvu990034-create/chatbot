@@ -1,6 +1,6 @@
 """
-Tests for gateway/equations/planning_math.py - MCTS/UCT, self-consistency,
-best-of-N, verification and lookahead equation family.
+Tests for gateway/optimizations/planning_math.py - MCTS/UCT, self-consistency,
+best-of-N, verification and lookahead optimization family.
 
 Verifies mathematical properties (bounds, monotonicity, degenerate inputs),
 not just "no exception".

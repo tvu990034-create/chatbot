@@ -29,7 +29,7 @@ def test_settings_defaults():
 
 
 def test_performance_equations_toggle():
-    """Test that performance equations can be disabled."""
+    """Test that the performance optimization switch can be disabled."""
     from config import settings
 
     # Enabled by default for maximum performance (see config.py).

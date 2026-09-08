@@ -1,5 +1,5 @@
 """
-Smoke tests for the equation-library wiring onto the live path.
+Smoke tests for the optimization-library wiring onto the live path.
 
 These tests must NOT require an Ollama backend. They exercise:
 
@@ -7,7 +7,7 @@ These tests must NOT require an Ollama backend. They exercise:
   * rag.llama_index_rag now imports with _koopman_available True
   * semantic cache fallback install
   * EWMA router install
-  * equation modules import (+ NOT_IMPLEMENTABLE catalog)
+  * optimization modules import (+ NOT_IMPLEMENTABLE catalog)
 """
 
 import pytest

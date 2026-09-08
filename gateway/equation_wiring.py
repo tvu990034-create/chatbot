@@ -1,12 +1,12 @@
 """
 gateway/equation_wiring.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~
-Defensive, opt-in wiring of the equation library onto live-path objects.
+Defensive, opt-in wiring of the optimization library onto live-path objects.
 
 Every `install_<domain>(target)` is idempotent, log-and-continue, and guarded by
 `getattr(settings, "enable_...", False)` so it can never raise in production.
-All heavy math lives in `gateway/equations/*`; this module only patches callers
-(SemanticCache, RouterState, RAG provider, agent policy).
+All heavy math lives in the gateway optimization modules; this module only patches
+callers (SemanticCache, RouterState, RAG provider, agent policy).
 """
 
 from __future__ import annotations
@@ -57,9 +57,8 @@ def install_semantic_cache(cache: Any) -> bool:
     Add a semantic (cosine) second stage to `SimpleCache.get()`.
 
     Augments the exact-match `get` so that a near-miss query returns the closest
-    stored answer instead of `None`, using the equation-library
-    `AdaptiveThreshold` + `SemanticCacheMath.rank` scoring (provenance:
-    Untitled document (2) cache equations).
+    stored answer instead of `None`, using the optimization-library
+    `AdaptiveThreshold` + `SemanticCacheMath.rank` scoring.
 
     Guarded by ``enable_performance_equations`` and ``semantic_cache_enabled``.
     If either setting is off, `get` keeps its exact-match behavior.
@@ -69,7 +68,7 @@ def install_semantic_cache(cache: Any) -> bool:
         and getattr(settings, "semantic_cache_enabled", False)
     )
     if not enabled:
-        logger.debug("equation_wiring: semantic cache disabled by settings")
+        logger.debug("optimization wiring: semantic cache disabled by settings")
         return False
     if cache is None or getattr(cache, "_semantic_installed", False):
         return False
@@ -167,10 +166,10 @@ def install_semantic_cache(cache: Any) -> bool:
         cache._semantic_stats = {
             "hits": 0, "misses": 0,
         } | getattr(cache, "_semantic_stats", {})
-        logger.info("equation_wiring: semantic cache installed on %s", type(cache).__name__)
+        logger.info("optimization wiring: semantic cache installed on %s", type(cache).__name__)
         return True
     except Exception as exc:  # noqa: BLE001 – must never break inference
-        logger.warning("equation_wiring: semantic cache install failed: %s", exc)
+        logger.warning("optimization wiring: semantic cache install failed: %s", exc)
         return False
 
 
@@ -213,10 +212,10 @@ def install_ewma_router(state: Any) -> bool:
         if orig_end is not None:
             state.record_end = _end
         state._ewma_installed = True
-        logger.info("equation_wiring: EWMA load tracker installed on router")
+        logger.info("optimization wiring: EWMA load tracker installed on router")
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("equation_wiring: EWMA router install failed: %s", exc)
+        logger.warning("optimization wiring: EWMA router install failed: %s", exc)
         return False
 
 
@@ -227,8 +226,8 @@ def install_ewma_router(state: Any) -> bool:
 def install_koopman_rag(rag: Any) -> bool:
     """
     If ``koopman_mixing_enabled`` is on and a ``retrieve()``-style method exists,
-    wrap it to blend the top retrieved chunk embeddings with the Koopman mixer
-    (provenance: (1)/(2) Koopman equations).  This makes the previously-import-
+    wrap it to blend the top retrieved chunk embeddings with the Koopman mixer.
+    This makes the previously-import-
     failing path both importable AND functional-in-pure-Python.
     """
     enabled = bool(getattr(settings, "koopman_mixing_enabled", False))
@@ -260,10 +259,10 @@ def install_koopman_rag(rag: Any) -> bool:
 
         rag.retrieve = _retrieve
         rag._koopman_wired = True
-        logger.info("equation_wiring: Koopman mixing wired onto RAG provider")
+        logger.info("optimization wiring: Koopman mixing wired onto RAG provider")
         return True
     except Exception as exc:  # noqa: BLE001
-        logger.warning("equation_wiring: Koopman RAG install failed: %s", exc)
+        logger.warning("optimization wiring: Koopman RAG install failed: %s", exc)
         return False
 
 
@@ -272,7 +271,7 @@ def install_koopman_rag(rag: Any) -> bool:
 # ---------------------------------------------------------------------------
 
 def install_all() -> dict:
-    """Install every enabled equation-wiring onto the live singletons.
+    """Install every enabled optimization-wiring onto the live singletons.
 
     Returns a dict of {component: installed_bool} for audit/logging.
     """

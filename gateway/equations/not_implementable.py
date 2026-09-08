@@ -1,7 +1,7 @@
 """
-gateway/equations/not_implementable.py
+optimization module.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Master catalog of every equation category that CANNOT run in this local/chatbot
+Master catalog of every optimization category that CANNOT run in this local/chatbot
 runtime (no training loop, no GPU kernels, no model weights, no hardware).
 
 These are REAL documentation entries the user asked about. Each entry is a
@@ -45,7 +45,7 @@ NOT_IMPLEMENTABLE_TRAINING_LR_SCHEDULE = (
 # ---------------------------------------------------------------------------
 # GPU kernel / model-internals  (Tài liệu (1)/(2) — 31 GPU-attention-quant entries)
 # ---------------------------------------------------------------------------
-# Source: "Tài liệu (1)" / "Tài liệu (2)" — GPU attention/quant/spec equations.
+# Source: "Tài liệu (1)" / "Tài liệu (2)" — GPU attention/quant/spec optimizations.
 
 NOT_IMPLEMENTABLE_GPU_KV_CACHE = "gpu:needs-kv-cache-budget-in-attn-runtime"
 NOT_IMPLEMENTABLE_GPU_QUANT = "gpu:needs-quantized-weights-and-kernel"
@@ -72,7 +72,7 @@ NOT_IMPLEMENTABLE_PERFORMER = "model:needs-kernel-feature-map-in-backbone"
 # ---------------------------------------------------------------------------
 # RL / agent-brain training  (Tài liệu (28),(29),(30),(33))
 # ---------------------------------------------------------------------------
-# Source: "Tài liệu (28)" — RL agent-brain equations. Would need an RL loop.
+# Source: "Tài liệu (28)" — RL agent-brain optimizations. Would need an RL loop.
 
 NOT_IMPLEMENTABLE_RL_POLICY_GRADIENT = "rl:needs-ppo-training-loop"
 NOT_IMPLEMENTABLE_RL_VALUE_FN = "rl:needs-learned-value-head"
@@ -81,7 +81,7 @@ NOT_IMPLEMENTABLE_RL_REWARD_MODEL = "rl:needs-rlhf-reward-model"
 # ---------------------------------------------------------------------------
 # Hardware / inference-engine  (Tài liệu (8),(9),(10))
 # ---------------------------------------------------------------------------
-# Source: "Tài liệu (8)" — inference speed-up equations.
+# Source: "Tài liệu (8)" — inference speed-up optimizations.
 
 NOT_IMPLEMENTABLE_HW_BATCHING = "hw:needs-continuous-batching-engine"
 NOT_IMPLEMENTABLE_HW_MEMORY_PROFILE = "hw:needs-device-memory-flops-profiler"

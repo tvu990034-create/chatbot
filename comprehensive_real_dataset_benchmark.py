@@ -436,7 +436,7 @@ def generate_comprehensive_report(results: List[Dict], overall_accuracy: float,
         f.write("="*80 + "\n")
         f.write("OPTIMIZATION TECHNIQUES (68 total)\n")
         f.write("="*80 + "\n")
-        f.write(f"Performance Equations: [X] Active\n")
+        f.write(f"Performance Optimizations: [X] Active\n")
         f.write(f"Human Intelligence: [X] Active\n")
         f.write(f"Long-term Memory: [X] Active\n")
         f.write(f"Safety Suite: [X] Active\n")

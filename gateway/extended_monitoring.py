@@ -138,7 +138,7 @@ class EvaluationLyapunovAnalyzer:
     
     def verify_convergence(self, A: np.ndarray, Q: np.ndarray = None) -> Tuple[bool, np.ndarray]:
         """
-        Verify convergence using Lyapunov equation.
+        Verify convergence using Lyapunov optimization.
         A: Dynamics matrix (should be stable)
         Q: Positive definite matrix (default: identity)
         Returns (is_stable, P) where P solves A^T P + P A = -Q
@@ -160,9 +160,9 @@ class EvaluationLyapunovAnalyzer:
             self.is_stable = is_stable
             
             if is_stable:
-                logger.info(f"Lyapunov equation satisfied, P positive definite: {is_stable}")
+                logger.info(f"Lyapunov condition satisfied, P positive definite: {is_stable}")
             else:
-                logger.warning(f"Lyapunov equation not satisfied, eigenvalues: {eigvals}")
+                logger.warning(f"Lyapunov condition not satisfied, eigenvalues: {eigvals}")
             
             return is_stable, P
             

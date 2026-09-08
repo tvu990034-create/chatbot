@@ -30,7 +30,7 @@ class SymbolicReasoner:
     - DeepProbLog: https://arxiv.org/abs/1805.10872
     
     Key features:
-    - Symbolic equation solving with SymPy
+    - Symbolic optimization solving with SymPy
     - Mathematical expression simplification
     - Logical inference
     - Integration with language models for natural language to symbolic conversion
@@ -45,20 +45,20 @@ class SymbolicReasoner:
         variable: str = "x",
     ) -> List[Dict[str, any]]:
         """
-        Solve a symbolic equation.
+        Solve a symbolic optimization.
         
         Args:
-            equation: Equation as string (e.g., "x**2 - 4 = 0")
+            optimization: Optimization as string (e.g., "x**2 - 4 = 0")
             variable: Variable to solve for
         
         Returns:
             List of solution dictionaries
         """
-        logger.info(f"Solving equation: {equation}")
+        logger.info(f"Solving symbolic expression: {equation}")
         
         try:
-            # Parse equation
-            # Handle different equation formats
+            # Parse optimization
+            # Handle different optimization formats
             if "=" in equation:
                 lhs, rhs = equation.split("=")
                 expr = sp.sympify(lhs) - sp.sympify(rhs)
@@ -68,7 +68,7 @@ class SymbolicReasoner:
             # Define variable
             var = sp.Symbol(variable)
             
-            # Solve equation
+            # Solve optimization
             solutions = sp.solve(expr, var)
             
             # Format solutions
@@ -85,7 +85,7 @@ class SymbolicReasoner:
             return result
         
         except Exception as e:
-            logger.error(f"Error solving equation: {e}")
+            logger.error(f"Error solving symbolic expression: {e}")
             return []
     
     def simplify_expression(
@@ -171,19 +171,19 @@ class SymbolicReasoner:
         variables: List[str],
     ) -> Dict[str, any]:
         """
-        Solve a system of equations.
+        Solve a system of optimizations.
         
         Args:
-            equations: List of equation strings
+            optimizations: List of optimization strings
             variables: List of variable names
         
         Returns:
             Dictionary with solution
         """
-        logger.info(f"Solving system of {len(equations)} equations")
+        logger.info(f"Solving system of {len(equations)} expressions")
         
         try:
-            # Parse equations
+            # Parse optimizations
             eqs = []
             for eq in equations:
                 if "=" in eq:
@@ -325,7 +325,7 @@ class SymbolicReasoner:
         
         try:
             # This is a simplified version
-            # In practice, you'd use an LLM to extract equations
+            # In practice, you'd use an LLM to extract optimizations
             
             # Placeholder implementation
             # Look for numbers and basic operations

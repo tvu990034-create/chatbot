@@ -239,7 +239,7 @@ report = f"""
 
 ## Optimization Status
 
-- **Performance Equations:** {opt_stats['performance_equations_enabled']}
+- **Performance Optimizations:** {opt_stats['performance_equations_enabled']}
 - **Prompt Compression:** {opt_stats['optimizations']['prompt_compression']['enabled']} (ratio: {opt_stats['optimizations']['prompt_compression']['ratio']})
 - **Difficulty Routing:** {opt_stats['optimizations']['difficulty_routing']['enabled']} (threshold: {opt_stats['optimizations']['difficulty_routing']['threshold']})
 - **Adaptive Temperature:** {opt_stats['optimizations']['adaptive_temperature']['enabled']} (base: {opt_stats['optimizations']['adaptive_temperature']['base_temp']})

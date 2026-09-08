@@ -1,8 +1,7 @@
 """
-gateway/equations/cache_math.py
-~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Cache-management equations ported from the user's documentation (file 1.txt and
-Untitled document (1..9)).
+Cache-management optimization module.
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+Cache-management optimizations ported from the user's optimization catalog.
 
 These replace the exact-match-only `SimpleCache` with learned/semantic scoring so
 a near-miss query can be served from the closest stored answer and entries are
@@ -46,7 +45,7 @@ def temporal_decay(now: float, created_at: float, half_life: float = 3600.0) -> 
 
 
 # ---------------------------------------------------------------------------
-# Adaptive similarity threshold  (Tài liệu (8): threshold equations)
+# Adaptive similarity threshold  (Tài liệu (8): threshold optimizations)
 # ---------------------------------------------------------------------------
 
 

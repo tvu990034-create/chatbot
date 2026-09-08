@@ -1,7 +1,7 @@
 """
 Academic Intelligence Module
 Implements advanced academic and research techniques
-Based on 17 academic equations for proof search, learning, verification, and uncertainty
+Based on 17 academic optimizations for proof search, learning, verification, and uncertainty
 """
 
 import torch
@@ -44,7 +44,7 @@ class MCTSNode:
 
 class PUCTMCTS:
     """
-    Equation #61: Monte Carlo Tree Search with Learned Priors (PUCT)
+Monte Carlo Tree Search with Learned Priors (PUCT)
     AlphaGo/AlphaZero-style MCTS with neural policy priors
     """
     
@@ -122,7 +122,7 @@ class PUCTMCTS:
 
 class AStarSearch:
     """
-    Equation #150: A* Search Priority
+A* Search Priority
     Best-first search with heuristic guidance
     """
     
@@ -167,7 +167,7 @@ class AStarSearch:
 
 class DQN(nn.Module):
     """
-    Equation #248: Deep Q-Learning / TD Loss
+Deep Q-Learning / TD Loss
     Deep Q-Network with target network for stability
     """
     
@@ -243,7 +243,7 @@ class DQNLearner:
 
 class PolicyNetwork(nn.Module):
     """
-    Equation #276: Policy Gradient / REINFORCE
+Policy Gradient / REINFORCE
     Stochastic policy network for REINFORCE
     """
     
@@ -297,7 +297,7 @@ class REINFORCE:
 
 class ProofSketchGenerator(nn.Module):
     """
-    Equation #65: Autoregressive Proof Sketch Probability
+Autoregressive Proof Sketch Probability
     Transformer-based proof sketch generator
     """
     
@@ -335,7 +335,7 @@ class ProofSketchGenerator(nn.Module):
 
 class ConfidenceEstimator:
     """
-    Equation #241: Maximum Softmax Confidence
+Maximum Softmax Confidence
     Confidence estimation using maximum softmax probability
     """
     
@@ -356,7 +356,7 @@ class ConfidenceEstimator:
 
 class PredictiveEntropy:
     """
-    Equation #242: Predictive Entropy
+Predictive Entropy
     Entropy-based uncertainty estimation
     """
     
@@ -377,7 +377,7 @@ class PredictiveEntropy:
 
 class ExpectedCalibrationError:
     """
-    Equation #261: Expected Calibration Error (ECE)
+Expected Calibration Error (ECE)
     Measures calibration of confidence predictions
     """
     
@@ -413,7 +413,7 @@ class ExpectedCalibrationError:
 
 class MaximumMarginalRelevance:
     """
-    Equation #30: Maximum Marginal Relevance (MMR)
+Maximum Marginal Relevance (MMR)
     Selects relevant but non-redundant documents
     """
     
@@ -460,7 +460,7 @@ class MaximumMarginalRelevance:
 
 class ExpectedInformationGain:
     """
-    Equation #282: Expected Information Gain Query
+Expected Information Gain Query
     Selects question that most reduces uncertainty
     """
     
@@ -500,7 +500,7 @@ class ExpectedInformationGain:
 
 class BayesianBeliefRevision:
     """
-    Equation #249: Bayesian Belief Revision
+Bayesian Belief Revision
     Bayes' rule for updating beliefs
     """
     
@@ -538,7 +538,7 @@ class BayesianBeliefRevision:
 
 class BayesFactor:
     """
-    Equation #222: Bayes Factor for Dispute Resolution
+Bayes Factor for Dispute Resolution
     Compares evidence for competing hypotheses
     """
     
@@ -579,7 +579,7 @@ class BayesFactor:
 
 class FormalVerificationKernel:
     """
-    Equation #86: Formal Verification Kernel
+Formal Verification Kernel
     Trusted kernel for proof verification
     """
     
@@ -625,7 +625,7 @@ class FormalVerificationKernel:
 
 class HoareTripleVerifier:
     """
-    Equation #578: Hoare Triple Correctness
+Hoare Triple Correctness
     Verify program correctness using Hoare logic
     """
     

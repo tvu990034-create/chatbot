@@ -2,7 +2,7 @@
 server/app.py
 ~~~~~~~~~~~~~
 FastAPI backend — streamlined for maximum speed.
-No performance equations, no overhead.
+No performance optimizations, no overhead.
 """
 
 from __future__ import annotations

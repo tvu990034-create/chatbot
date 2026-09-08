@@ -1,6 +1,6 @@
 """
-Tests for gateway/equations/bandit_math.py — multi-armed bandit and
-Bayesian-optimization equation family.
+Tests for gateway/optimizations/bandit_math.py — multi-armed bandit and
+Bayesian-optimization optimization family.
 
 Verifies mathematical properties (bounds, monotonicity, convergence,
 degenerate inputs), not just "no exception".

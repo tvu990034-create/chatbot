@@ -1,5 +1,5 @@
 """
-Tests for gateway/equations/not_implementable.py
+Tests for gateway/optimizations/not_implementable.py
 Ensure every NOT_IMPLEMENTABLE symbol exists and is enumerable (auditor-facing).
 """
 

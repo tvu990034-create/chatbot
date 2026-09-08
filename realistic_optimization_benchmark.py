@@ -34,7 +34,7 @@ def run_realistic_benchmarks():
     # Verify optimizations
     stats = gateway.get_optimization_stats()
     logger.info(f"\nOptimization Status:")
-    logger.info(f"  Performance Equations: {stats.get('performance_equations_enabled', False)}")
+    logger.info(f"  Performance Optimizations: {stats.get('performance_equations_enabled', False)}")
     logger.info(f"  Human Intelligence: {stats.get('optimizations', {}).get('human_intelligence', {}).get('enabled', False)}")
     logger.info(f"  Long-term Memory: {stats.get('optimizations', {}).get('long_term_memory', {}).get('enabled', False)}")
     logger.info(f"  Safety Suite: {stats.get('optimizations', {}).get('safety_suite', {}).get('enabled', False)}")
@@ -523,7 +523,7 @@ def generate_realistic_report(results: List[Dict], overall_accuracy: float,
         f.write("="*80 + "\n")
         f.write("OPTIMIZATION TECHNIQUES APPLIED\n")
         f.write("="*80 + "\n")
-        f.write(f"Performance Equations: [X] Active\n")
+        f.write(f"Performance Optimizations: [X] Active\n")
         f.write(f"Human Intelligence: [X] Active\n")
         f.write(f"Long-term Memory: [X] Active\n")
         f.write(f"Safety Suite: [X] Active\n")

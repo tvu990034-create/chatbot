@@ -1,8 +1,7 @@
 """
-gateway/equations/calibration_math.py
+optimization module.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Calibration / uncertainty / OOD equations ported from the user's documentation
-(Untitled document (6).txt and related temperature-scaling eqs).
+Calibration / uncertainty / OOD optimizations from the user's optimization catalog.
 
 This module is pure Python (stdlib `math` only, no numpy/scipy/sklearn). Every
 calibration transform here is a *post-hoc recalibration* or a *scoring* routine —
@@ -40,7 +39,7 @@ def _logsumexp(x: Sequence[float]) -> float:
 def _inv_normal_cdf(p: float) -> float:
     """Pure-stdlib inverse normal CDF (Beasley–Springer–Moro / Acklam).
 
-    Not actually used by any implemented equation here, but kept as a stdlib-only
+    Not actually used by any implemented optimization here, but kept as a stdlib-only
     primitive should a conformal/confidence-interval variant need it."""
     p = _clamp(p, 1e-15, 1.0 - 1e-15)
     a = (-3.969683028665376e+01, 2.209460984245205e+02,

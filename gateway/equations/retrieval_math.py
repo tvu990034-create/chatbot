@@ -1,8 +1,7 @@
 """
-gateway/equations/retrieval_math.py
+optimization module.
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Retrieval / RAG equation family ported from the user's documentation
-(boom1-4, Tài liệu (8), rag-score equations).
+Retrieval / RAG optimization family from the user's optimization catalog.
 
 Covers MMR variants, score normalization for fusion, reciprocal rank fusion,
 MI-gated retrieval, curiosity/novelty scoring, diversity-aware ranking,

@@ -1,8 +1,8 @@
 """
 tests/test_equations_routing.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
-Tests for gateway/equations/routing_math.py — model routing / load-aware /
-budget / consensus equations.
+Tests for gateway/optimizations/routing_math.py — model routing / load-aware /
+budget / consensus optimizations.
 """
 
 import math

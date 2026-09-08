@@ -31,7 +31,7 @@ def run_full_benchmark_suite():
     
     # Get optimization stats
     stats = gateway.get_optimization_stats()
-    logger.info(f"Performance Equations: {stats.get('performance_equations_enabled', False)}")
+    logger.info(f"Performance Optimizations: {stats.get('performance_equations_enabled', False)}")
     logger.info(f"Human Intelligence: {stats.get('optimizations', {}).get('human_intelligence', {}).get('enabled', False)}")
     logger.info(f"Long-term Memory: {stats.get('optimizations', {}).get('long_term_memory', {}).get('enabled', False)}")
     logger.info(f"Safety Suite: {stats.get('optimizations', {}).get('safety_suite', {}).get('enabled', False)}")
@@ -240,7 +240,7 @@ def generate_report(results: List[Dict], overall_accuracy: float,
         f.write("OPTIMIZATION TECHNIQUES APPLIED (68 total)\n")
         f.write("="*80 + "\n")
         f.write("Original Optimizations (16):\n")
-        f.write("  - Performance Equations (cache, compression, routing)\n")
+        f.write("  - Performance Optimizations (cache, compression, routing)\n")
         f.write("  - Meta-Reasoning (debate, budget, policy)\n")
         f.write("  - Calibration (metrics, diagnostics)\n")
         f.write("  - Advanced Reasoning (Bayesian, causal)\n")

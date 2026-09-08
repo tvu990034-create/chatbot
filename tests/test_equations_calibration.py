@@ -1,5 +1,5 @@
 """
-Tests for gateway/equations/calibration_math.py.
+Tests for gateway/optimizations/calibration_math.py.
 
 Verifies mathematical properties (bounds, monotonicity, degeneracy), not just
 "no exception".
@@ -299,7 +299,7 @@ def test_clamp_and_logsumexp():
 
 def test_calibrated_confidence():
     assert calibrated_confidence(0.8, temperature=1.0) == pytest.approx(0.8)
-    # Equation: conf ** (1/T).  T > 1 => exponent < 1 => raises a sub-1 conf.
+    # Optimization: conf ** (1/T).  T > 1 => exponent < 1 => raises a sub-1 conf.
     assert calibrated_confidence(0.8, temperature=2.0) == pytest.approx(0.8 ** 0.5)
     # T < 1 => exponent > 1 => lowers a sub-1 conf.
     assert calibrated_confidence(0.8, temperature=0.5) == pytest.approx(0.8 ** 2.0)
