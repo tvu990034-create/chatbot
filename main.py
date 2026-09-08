@@ -14,6 +14,11 @@ Provides a Typer CLI with three sub-commands:
   python main.py adapters  – manage LoRA adapters
   python main.py merge     – merge multiple models with TIES, DARE, SLERP, etc.
   python main.py advanced-benchmark – run enhanced MMLU-Pro benchmark with advanced reasoning
+  python main.py turbo chat      – fast + smart one-shot chat (optimizer stack)
+  python main.py turbo run       – interactive optimizer REPL
+  python main.py turbo check     – verify all optimization modules are working
+  python main.py turbo stats     – show live optimizer telemetry
+  python main.py turbo bench     – optimized vs. baseline timing comparison
 
 Usage examples
 --------------
@@ -28,6 +33,10 @@ Usage examples
 
   # One-shot terminal chat
   python main.py chat "What is RAG?"
+
+  # Fast + smart one-shot chat through the optimizer stack
+  python main.py turbo chat "What is RAG?" --baseline
+  python main.py turbo run
 
   # Check what is running
   python main.py status
@@ -76,6 +85,8 @@ if str(_ROOT) not in sys.path:
 
 from config import settings
 
+from optimizer_cli import app as turbo_app
+
 # ---------------------------------------------------------------------------
 # Logging setup
 # ---------------------------------------------------------------------------
@@ -97,6 +108,9 @@ app = typer.Typer(
     help="Local AI chatbot powered by vLLM/SGLang, LiteLLM, LangGraph, LlamaIndex, Haystack & Aider.",
     add_completion=False,
 )
+
+app.add_typer(turbo_app, name="turbo",
+              help="Make the local AI faster and smarter (optimizer-powered commands).")
 
 
 # ---------------------------------------------------------------------------
