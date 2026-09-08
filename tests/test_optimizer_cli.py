@@ -96,6 +96,20 @@ def test_chat_with_baseline_uses_raw_path(monkeypatch):
     assert calls[0][0]["role"] == "user"
 
 
+def test_chat_baseline_error_keeps_optimized_reply(monkeypatch):
+    monkeypatch.setattr(optimizer_cli, "make_optimized_gateway",
+                        lambda model=None, mode=optimizer_cli.DEFAULT_MODE: FakeGateway())
+
+    def broken_raw(messages, model=None, max_tokens=None):
+        raise TimeoutError("simulated timeout")
+
+    monkeypatch.setattr(optimizer_cli, "raw_chat", broken_raw)
+    result = optimizer_cli.run_chat("hi", gateway=None, baseline=True, show=False)
+    assert result["reply"] == "pong"
+    assert "baseline_error" in result
+    assert result.get("baseline_ms") is None
+
+
 def test_chat_typer_command_offline(monkeypatch):
     monkeypatch.setattr(optimizer_cli, "make_optimized_gateway",
                         lambda model=None, mode=optimizer_cli.DEFAULT_MODE: FakeGateway())
@@ -105,7 +119,7 @@ def test_chat_typer_command_offline(monkeypatch):
 
 
 def test_run_bench_hermetic():
-    def fake_raw(messages, model=None):
+    def fake_raw(messages, model=None, max_tokens=None):
         return ("base", False, model)
 
     summary = optimizer_cli.run_bench(n=2, gateway=FakeGateway(), raw=fake_raw,
@@ -117,7 +131,48 @@ def test_run_bench_hermetic():
         assert row["baseline_ms"] is not None
 
 
+def test_run_bench_raw_error_does_not_abort():
+    def broken_raw(messages, model=None, max_tokens=None):
+        raise TimeoutError("simulated timeout")
+
+    summary = optimizer_cli.run_bench(n=3, gateway=FakeGateway(), raw=broken_raw,
+                                      use_baseline=True, show=False)
+    assert len(summary["rows"]) == 3
+    for row in summary["rows"]:
+        assert "cold_ms" in row
+        assert "baseline_error" in row
+        assert "baseline_ms" not in row
+
+
 def test_stats_offline(monkeypatch):
     monkeypatch.setattr(optimizer_cli, "make_optimized_gateway", lambda *a, **k: FakeGateway())
     result = runner.invoke(optimizer_cli.app, ["stats", "--json"])
     assert result.exit_code == 0
+
+
+def _history(turns):
+    msgs = []
+    for i in range(turns):
+        msgs.append({"role": "user", "content": f"q{i}"})
+        msgs.append({"role": "assistant", "content": f"a{i}"})
+    return msgs
+
+
+def test_trim_context_keeps_window():
+    msgs = [{"role": "system", "content": "sys"}] + _history(30)
+    assert optimizer_cli._trim_context(msgs, max_turns=5) is True
+    assert msgs[0] == {"role": "system", "content": "sys"}
+    turns = sum(1 for m in msgs if m["role"] == "user")
+    assert turns == 5
+
+
+def test_trim_context_within_budget_noop():
+    msgs = _history(2)
+    assert optimizer_cli._trim_context(msgs, max_turns=5) is False
+    assert len(msgs) == 4
+
+
+def test_trim_context_no_system_prompt():
+    msgs = _history(30)
+    assert optimizer_cli._trim_context(msgs, max_turns=4) is True
+    assert len(msgs) == 8

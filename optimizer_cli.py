@@ -25,6 +25,7 @@ It also runs standalone:
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -33,10 +34,11 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from config import settings
-
 console = Console()
 DEFAULT_MODE = "speed"
+MAX_TURNS = 12
+
+logging.getLogger().setLevel(logging.WARNING)
 
 app = typer.Typer(
     name="turbo",
@@ -58,22 +60,52 @@ def _banner() -> None:
     ))
 
 
+def _quiet_library_logging() -> None:
+    for name in ("gateway", "LiteLLM", "urllib3", "httpx", "httpcore",
+                 "huggingface_hub", "openai"):
+        logging.getLogger(name).setLevel(logging.WARNING)
+
+
 def _resolve_model(model: Optional[str]) -> str:
     if model:
         return model
+    from config import settings
     return getattr(settings, "local_model_name", None) or settings.default_model
+
+
+def _trim_context(messages: List[Dict[str, str]],
+                  max_turns: int = MAX_TURNS) -> bool:
+    """Drop the oldest non-system turns once history exceeds max_turns.
+
+    Returns True if messages were trimmed (so callers can surface one notice).
+    """
+    system_msgs = 0
+    for msg in messages:
+        if msg.get("role") == "system":
+            system_msgs += 1
+        else:
+            break
+    history = messages[system_msgs:]
+    budget = max(2, max_turns * 2)
+    if len(history) > budget:
+        del messages[system_msgs:system_msgs + (len(history) - budget)]
+        return True
+    return False
 
 
 def make_optimized_gateway(model: Optional[str] = None, mode: str = DEFAULT_MODE):
     from gateway.universal_enhanced_gateway import get_universal_gateway
+    _quiet_library_logging()
     return get_universal_gateway(model_name=_resolve_model(model),
                                  enable_all_optimizations=True,
                                  performance_mode=mode)
 
 
-def raw_chat(messages: List[Dict[str, str]], model: Optional[str] = None) -> Tuple[str, bool, str]:
+def raw_chat(messages: List[Dict[str, str]], model: Optional[str] = None,
+             max_tokens: Optional[int] = None) -> Tuple[str, bool, str]:
     from gateway.litellm_gateway import chat
-    return chat(messages, model=_resolve_model(model), use_cache=False)
+    return chat(messages, model=_resolve_model(model), max_tokens=max_tokens,
+                use_cache=False)
 
 
 def _gateway_stats(gw) -> Dict[str, Any]:
@@ -123,13 +155,18 @@ def run_chat(query: str, model: Optional[str] = None, mode: str = DEFAULT_MODE,
     }
     if baseline:
         t0 = time.perf_counter()
-        response, hit, used_model = raw_chat(msgs, model=_resolve_model(model))
-        baseline_ms = (time.perf_counter() - t0) * 1000.0
-        rec["baseline_ms"] = baseline_ms
-        rec["baseline_hit"] = hit
+        try:
+            response, hit, used_model = raw_chat(msgs, model=_resolve_model(model))
+            baseline_ms = (time.perf_counter() - t0) * 1000.0
+            rec["baseline_ms"] = baseline_ms
+            rec["baseline_hit"] = hit
+        except Exception as exc:  # noqa: BLE001
+            rec["baseline_error"] = f"{type(exc).__name__}: {exc}"
     if show:
         console.print(f"[bold cyan]Assistant:[/bold cyan] {reply}")
-        if rec.get("baseline_ms") is not None:
+        if rec.get("baseline_error"):
+            console.print(f"[yellow]Baseline unavailable: {rec['baseline_error']}[/yellow]")
+        elif rec.get("baseline_ms") is not None:
             ratio = rec["optimized_ms"] / max(rec["baseline_ms"], 0.001)
             console.print(Panel.fit(
                 f"[green]optimized[/green] {rec['optimized_ms']:.0f} ms   "
@@ -151,30 +188,56 @@ CURATED_QUESTIONS = [
 
 def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
               use_baseline: bool = True, questions: Optional[str] = None,
-              gateway=None, raw=None, show: bool = True) -> Dict[str, Any]:
-    """Time optimized (cold + warm) vs. raw latency per question, no assertions."""
+              gateway=None, raw=None, show: bool = True,
+              raw_max_tokens: int = 128, warmup: bool = True) -> Dict[str, Any]:
+    """Time optimized (cold + warm) vs. raw latency per question.
+
+    Individual questions never abort the run: failures are recorded on the row
+    (cold_error / warm_error / baseline_error) so one timeout can't kill the
+    whole benchmark. A warmup pass (when enabled) moves the one-time model
+    load out of the measured rows.
+    """
     qs = ([q.strip() for q in questions.split("|") if q.strip()]
           if questions else list(CURATED_QUESTIONS))
     qs = qs[:max(1, n)] or CURATED_QUESTIONS[:max(1, n)]
     gw = gateway if gateway is not None else make_optimized_gateway(model, mode)
     raw_fn = raw if raw is not None else raw_chat
     model_name = _resolve_model(model)
+    if warmup:
+        probe = [{"role": "user", "content": "warmup"}]
+        try:
+            gw.chat(probe)
+        except Exception:  # noqa: BLE001
+            pass
+        if use_baseline:
+            try:
+                raw_fn(probe, model=model_name, max_tokens=raw_max_tokens)
+            except Exception:  # noqa: BLE001
+                pass
     rows: List[Dict[str, Any]] = []
     for question in qs:
         msgs = [{"role": "user", "content": question}]
-        t0 = time.perf_counter()
-        gw.chat(msgs)
-        cold_ms = (time.perf_counter() - t0) * 1000.0
-        t0 = time.perf_counter()
-        gw.chat(msgs)
-        warm_ms = (time.perf_counter() - t0) * 1000.0
-        baseline_ms = None
-        if use_baseline:
+        row: Dict[str, Any] = {"question": question}
+        try:
             t0 = time.perf_counter()
-            raw_fn(msgs, model=model_name)
-            baseline_ms = (time.perf_counter() - t0) * 1000.0
-        rows.append({"question": question, "cold_ms": cold_ms,
-                     "warm_ms": warm_ms, "baseline_ms": baseline_ms})
+            gw.chat(msgs)
+            row["cold_ms"] = (time.perf_counter() - t0) * 1000.0
+        except Exception as exc:  # noqa: BLE001
+            row["cold_error"] = f"{type(exc).__name__}: {exc}"
+        try:
+            t0 = time.perf_counter()
+            gw.chat(msgs)
+            row["warm_ms"] = (time.perf_counter() - t0) * 1000.0
+        except Exception as exc:  # noqa: BLE001
+            row["warm_error"] = f"{type(exc).__name__}: {exc}"
+        if use_baseline:
+            try:
+                t0 = time.perf_counter()
+                raw_fn(msgs, model=model_name, max_tokens=raw_max_tokens)
+                row["baseline_ms"] = (time.perf_counter() - t0) * 1000.0
+            except Exception as exc:  # noqa: BLE001
+                row["baseline_error"] = f"{type(exc).__name__}: {exc}"
+        rows.append(row)
     if show:
         table = Table(title="Optimized vs. baseline (local AI)",
                       show_header=True, border_style="dim")
@@ -185,15 +248,21 @@ def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
             table.add_column("Raw (ms)", justify="right", style="yellow")
             table.add_column("vs raw", justify="right", style="bold")
         for row in rows:
+            cold = f"{row['cold_ms']:.0f}" if "cold_ms" in row else "[red]err[/red]"
+            warm = f"{row['warm_ms']:.0f}" if "warm_ms" in row else "[red]err[/red]"
             if use_baseline:
-                ratio = row["cold_ms"] / max(row["baseline_ms"] or 0.001, 0.001)
-                table.add_row(row["question"],
-                              f"{row['cold_ms']:.0f}", f"{row['warm_ms']:.0f}",
-                              f"{row['baseline_ms']:.0f}", f"{ratio:.2f}x")
+                if "baseline_ms" in row:
+                    ratio = row["cold_ms"] / max(row["baseline_ms"], 0.001)
+                    base = f"{row['baseline_ms']:.0f}" if "baseline_ms" in row else "[red]err[/red]"
+                    table.add_row(row["question"], cold, warm, base,
+                                  (f"{ratio:.2f}x" if "cold_ms" in row else "[red]-[/red]"))
+                else:
+                    table.add_row(row["question"], cold, warm, "[red]err[/red]", "[red]-[/red]")
             else:
-                table.add_row(row["question"],
-                              f"{row['cold_ms']:.0f}", f"{row['warm_ms']:.0f}")
+                table.add_row(row["question"], cold, warm)
         console.print(table)
+        console.print("[dim]cold/raw: the ratio of optimized-cold to raw latency "
+                      "(lower = optimized faster). warm 0 ms = served from cache.[/dim]")
     return {"mode": mode, "model": model_name, "rows": rows}
 
 
@@ -268,6 +337,7 @@ _SMOKE_PROBES: List[Dict[str, Any]] = [
 def run_check(verbose: bool = True) -> Dict[str, Any]:
     """Verify every optimization module loads and its key routine runs (offline)."""
     import importlib
+    _quiet_library_logging()
     results: List[Dict[str, Any]] = []
     for probe in _SMOKE_PROBES:
         ok = False
@@ -318,9 +388,13 @@ def run_check(verbose: bool = True) -> Dict[str, Any]:
         wiring_table.add_column("Component", style="cyan")
         wiring_table.add_column("Installed", style="bold")
         for key, value in wiring.items():
-            label = "[green]yes[/green]" if value and not key.startswith("error") else (
-                "[red]no[/red]" if value is False else value)
-            wiring_table.add_row(key, str(label) if not isinstance(label, str) else label)
+            if value is True:
+                label = "[green]yes[/green]"
+            elif value is False:
+                label = "[red]no[/red]"
+            else:
+                label = str(value)
+            wiring_table.add_row(key, label)
         console.print(wiring_table)
         if success:
             console.print(Panel.fit(
@@ -368,6 +442,7 @@ def run(
     messages: List[Dict[str, str]] = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
+    trimmed_notice = False
     console.print("[dim]Type your message. Commands: /quit /reset /stats /help[/dim]")
     while True:
         try:
@@ -382,6 +457,7 @@ def run(
         if text == "/reset":
             messages = ([{"role": "system", "content": system_prompt}]
                         if system_prompt else [])
+            trimmed_notice = False
             console.print("[dim]Conversation reset.[/dim]")
             continue
         if text == "/stats":
@@ -402,6 +478,10 @@ def run(
         console.print(f"[bold cyan]Assistant:[/bold cyan] {reply}")
         console.print(f"[dim]{elapsed_ms:.0f} ms[/dim]")
         messages.append({"role": "assistant", "content": reply})
+        if _trim_context(messages, MAX_TURNS) and not trimmed_notice:
+            trimmed_notice = True
+            console.print(f"[dim]Context trimmed to the last {MAX_TURNS} turns "
+                          "to keep long sessions fast.[/dim]")
 
 
 @app.command()
@@ -440,11 +520,16 @@ def bench(
                                   help="Also time the raw path"),
     questions: Optional[str] = typer.Option(None, "--questions",
                                             help="Pipe-delimited custom questions"),
+    raw_max_tokens: int = typer.Option(128, "--raw-max-tokens",
+                                       help="Token cap for the raw path (avoids timeouts)"),
+    warmup: bool = typer.Option(True, "--warmup/--no-warmup",
+                                help="Warm the model first so rows measure true per-query cost"),
 ) -> None:
     """Time the optimized path (cold + warm) vs. the raw path per question."""
     _banner()
     run_bench(n=n, mode=mode, model=model, use_baseline=baseline,
-              questions=questions, show=True)
+              questions=questions, show=True, raw_max_tokens=raw_max_tokens,
+              warmup=warmup)
 
 
 if __name__ == "__main__":
