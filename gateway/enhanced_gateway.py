@@ -571,7 +571,7 @@ class EnhancedGateway:
         if self.reasoning_optimization_enabled:
             try:
                 # Periodically optimize reasoning actions
-                if len(prompt) > 20:  # Only for substantial queries
+                if len(enhanced_query) > 20:  # Only for substantial queries
                     actions = ["direct_answer", "step_by_step", "creative_approach", "analytical"]
                     action_values = self.reasoning_optimization_suite.optimize_reasoning_actions(
                         "current_query", actions, iterations=20
@@ -588,7 +588,7 @@ class EnhancedGateway:
                 logger.debug(f"Accepted arguments: {accepted_args}")
                 
                 # Assess if additional information would be valuable
-                if len(prompt) > 30:  # Only for complex queries
+                if len(enhanced_query) > 30:  # Only for complex queries
                     state_probs = np.array([0.4, 0.6])  # Simplified state probabilities
                     utility_matrix = np.array([[8, 2], [5, 6], [3, 9]])  # Simplified utilities
                     evpi = self.decision_argumentation_suite.assess_information_value(state_probs, utility_matrix)

@@ -17,6 +17,7 @@ folder in AI-Chatbot/llama_index directly.
 from __future__ import annotations
 
 import logging
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -103,6 +104,10 @@ class LlamaIndexRAG:
         self.top_k            = top_k or settings.rag_top_k
         self._index: Any      = None
         self._query_engine: Any = None
+        # Serializes mutation of the shared query-engine llm kwargs so
+        # concurrent aquery()/query() calls cannot overwrite each other's budget.
+        self._engine_kwargs_lock = threading.Lock()
+        self._engine_kwargs_async_lock: Any = None
 
     # ------------------------------------------------------------------
     # Setup
@@ -246,6 +251,32 @@ class LlamaIndexRAG:
         logger.debug("Eq8 confidence=%.3f → max_tokens=%s", confidence, budget)
         return confidence, budget
 
+    def retrieve(self, question: str) -> dict[str, Any]:
+        """
+        Retrieval-only: fetch top-k chunks WITHOUT running the LLM.
+
+        Used by the agent's RAG prefetch so a single request does not spawn an
+        extra full LLM generation just to feed context to the main agent call.
+
+        Returns dict with keys: answer (""), chunks (list[str]),
+                                sources (list[str]), retrieval_confidence (float)
+        """
+        if self._query_engine is None:
+            self.build_index()
+
+        retriever = self._index.as_retriever(similarity_top_k=self.top_k)
+        source_nodes = retriever.retrieve(question)
+        confidence, budget = self._eq8_gate(source_nodes)
+
+        return {
+            "answer": "",
+            "chunks": [n.get_content() for n in source_nodes],
+            "sources": [
+                n.metadata.get("file_name", "unknown") for n in source_nodes
+            ],
+            "retrieval_confidence": round(confidence, 4),
+        }
+
     def query(self, question: str) -> dict[str, Any]:
         """
         Retrieve context and generate an answer synchronously.
@@ -276,38 +307,48 @@ class LlamaIndexRAG:
         #     # Would mix results from multiple RAG sources
 
         if budget is None:
-            # Eq8 hard gate: confidence too low → skip LLM entirely
-            logger.info("Eq8 hard gate triggered (confidence=%.3f) – skipping LLM.", confidence)
-            sources = [
-                n.metadata.get("file_name", "unknown") for n in source_nodes
-            ]
-            return {
-                "answer": (
-                    "I could not find sufficiently relevant context to answer "
-                    "confidently. Please try rephrasing your question or uploading "
-                    "more relevant documents."
-                ),
-                "sources": sources,
-                "retrieval_confidence": round(confidence, 4),
-                "eq8_max_tokens": None,
-            }
+            # Eq8 hard gate: confidence too low to justify a full-generation
+            # budget.  If we have any retrieved nodes, still answer with the
+            # minimum budget instead of refusing outright (the LLM can decline
+            # or answer briefly).  Only refuse when retrieval returned nothing.
+            if not source_nodes:
+                logger.info(
+                    "Eq8 hard gate: no context retrieved (confidence=%.3f) – skipping LLM.",
+                    confidence,
+                )
+                return {
+                    "answer": (
+                        "I could not find sufficiently relevant context to answer "
+                        "confidently. Please try rephrasing your question or uploading "
+                        "more relevant documents."
+                    ),
+                    "sources": [],
+                    "retrieval_confidence": round(confidence, 4),
+                    "eq8_max_tokens": None,
+                }
+            logger.info(
+                "Eq8 low confidence (%.3f) – answering with minimum budget.", confidence)
+            budget = int(getattr(settings, "eq8_m_min", 20))
 
-        # Temporarily override max_tokens for this call
-        original_max = getattr(self._query_engine, "_llm_kwargs", {}).get("max_tokens")
-        try:
-            if hasattr(self._query_engine, "_llm_kwargs"):
-                self._query_engine._llm_kwargs["max_tokens"] = budget
-        except Exception:
-            pass
-
-        response = self._query_engine.query(question)
-
-        # Restore
-        try:
-            if original_max is not None and hasattr(self._query_engine, "_llm_kwargs"):
-                self._query_engine._llm_kwargs["max_tokens"] = original_max
-        except Exception:
-            pass
+        # Temporarily override max_tokens for this call.  Guarded by a lock and
+        # restored in a finally block so exceptions/concurrency can never leave
+        # a foreign budget in the shared engine kwargs.
+        with self._engine_kwargs_lock:
+            llm_kwargs = getattr(self._query_engine, "_llm_kwargs", None)
+            original_max = llm_kwargs.get("max_tokens", None) if llm_kwargs else None
+            had_key = bool(llm_kwargs and "max_tokens" in llm_kwargs)
+            try:
+                if llm_kwargs is not None:
+                    llm_kwargs["max_tokens"] = budget
+                response = self._query_engine.query(question)
+            except Exception:
+                raise
+            finally:
+                if llm_kwargs is not None:
+                    if had_key:
+                        llm_kwargs["max_tokens"] = original_max
+                    else:
+                        llm_kwargs.pop("max_tokens", None)
 
         sources = [
             node.metadata.get("file_name", "unknown")
@@ -331,33 +372,57 @@ class LlamaIndexRAG:
 
         # Async retrieval
         retriever = self._index.as_retriever(similarity_top_k=self.top_k)
-        source_nodes = await asyncio.get_event_loop().run_in_executor(
+        source_nodes = await asyncio.get_running_loop().run_in_executor(
             None, lambda: retriever.retrieve(question)
         )
 
         confidence, budget = self._eq8_gate(source_nodes)
 
         if budget is None:
-            logger.info("Eq8 hard gate triggered async (confidence=%.3f).", confidence)
-            sources = [n.metadata.get("file_name", "unknown") for n in source_nodes]
-            return {
-                "answer": (
-                    "I could not find sufficiently relevant context to answer "
-                    "confidently. Please try rephrasing your question or uploading "
-                    "more relevant documents."
-                ),
-                "sources": sources,
-                "retrieval_confidence": round(confidence, 4),
-                "eq8_max_tokens": None,
-            }
+            logger.info("Eq8 low confidence async (%.3f) – answering with minimum budget.", confidence)
+            source_nodes = source_nodes or []
+            if not source_nodes:
+                return {
+                    "answer": (
+                        "I could not find sufficiently relevant context to answer "
+                        "confidently. Please try rephrasing your question or uploading "
+                        "more relevant documents."
+                    ),
+                    "sources": [],
+                    "retrieval_confidence": round(confidence, 4),
+                    "eq8_max_tokens": None,
+                }
+            budget = int(getattr(settings, "eq8_m_min", 20))
 
-        try:
-            if hasattr(self._query_engine, "_llm_kwargs"):
-                self._query_engine._llm_kwargs["max_tokens"] = budget
-        except Exception:
-            pass
-
-        response = await self._query_engine.aquery(question)
+        if self._engine_kwargs_async_lock is None:
+            self._engine_kwargs_async_lock = asyncio.Lock()
+        lock = self._engine_kwargs_async_lock
+        async with lock:
+            llm_kwargs = getattr(self._query_engine, "_llm_kwargs", None)
+            original_max = llm_kwargs.get("max_tokens", None) if llm_kwargs else None
+            had_key = bool(llm_kwargs and "max_tokens" in llm_kwargs)
+            try:
+                if llm_kwargs is not None:
+                    llm_kwargs["max_tokens"] = budget
+                response = await self._query_engine.aquery(question)
+            except Exception:
+                raise
+            finally:
+                if llm_kwargs is not None:
+                    if had_key:
+                        llm_kwargs["max_tokens"] = original_max
+                    else:
+                        llm_kwargs.pop("max_tokens", None)
+        sources = [
+            node.metadata.get("file_name", "unknown")
+            for node in getattr(response, "source_nodes", source_nodes)
+        ]
+        return {
+            "answer": str(response),
+            "sources": sources,
+            "retrieval_confidence": round(confidence, 4),
+            "eq8_max_tokens": budget,
+        }
         sources = [
             node.metadata.get("file_name", "unknown")
             for node in getattr(response, "source_nodes", source_nodes)

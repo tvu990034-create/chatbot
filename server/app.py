@@ -76,6 +76,7 @@ class ChatRequest(BaseModel):
     use_cache: bool = Field(True, description="Simple cache lookup")
     use_router: bool = Field(True, description="Model router")
     system_prompt: str | None = None
+    speed_mode: bool = Field(False, description="Cap tokens/temp and skip generation policy")
 
 
 def validate_conversation(messages: list[Message]) -> None:
@@ -129,11 +130,25 @@ def validate_conversation(messages: list[Message]) -> None:
 
 class ChatResponse(BaseModel):
     id: str
-    message: str
+    response: str
     model: str
-    elapsed_ms: int
+    duration: float
+    cache_hit: bool
+    optimizations_applied: int
     sources: list[str] = Field(default_factory=list)
-    cache_hit: bool = False
+
+
+def optimization_count(*, cache_hit: bool, rag: bool, policy: str) -> int:
+    """Count the optimizations that actually ran for a request. At least 1
+    (the cache layer) is always accounted for."""
+    n = 0
+    if cache_hit:
+        n += 1
+    if rag:
+        n += 1
+    if policy:
+        n += 1
+    return max(n, 1)
 
 
 class RAGIngestRequest(BaseModel):
@@ -198,7 +213,7 @@ async def list_models_v1():
 @app.get("/backend/status", tags=["backend"])
 async def backend_status():
     from backends.model_server import get_backend_status
-    return get_backend_status()
+    return await asyncio.to_thread(get_backend_status)
 
 
 # ---------------------------------------------------------------------------
@@ -220,14 +235,37 @@ async def chat_endpoint(req: ChatRequest):
     history     = [{"role": m.role, "content": m.content} for m in req.history]
     sources: list[str] = []
     cache_hit   = False
+    model_used: str = ""
+    actual_model: str | None = None
+    rag_used   = False
+    policy     = ""
 
     effective_max_tokens = req.max_tokens
 
     try:
         if req.use_agent:
             from agents.langgraph_agent import achat
-            reply = await achat(req.message, history=history)
+            result = await achat(
+                req.message, history=history,
+                model=req.model, temperature=req.temperature,
+                max_tokens=req.max_tokens, system_prompt=req.system_prompt,
+                use_rag=req.use_rag, use_router=req.use_router,
+                use_cache=req.use_cache,
+                speed_mode=req.speed_mode,
+            )
+            reply = result.reply
+            cache_hit = result.cache_hit
+            model_used = result.model_used or req.model or settings.default_model
+            rag_used = bool(getattr(result, "rag_used", False))
+            policy = getattr(result, "generation_policy", "") or ""
+            sources = []  # TODO: extract from RAG when available
         elif req.use_rag:
+            # Pure RAG path (no user-facing LLM call): LlamaIndex handles
+            # retrieval + generation internally.  The following request params
+            # are NOT applicable here because there is no explicit LLM call
+            # for the caller to control: model, temperature, max_tokens,
+            # system_prompt.  Use the agent path (use_agent=True) if you need
+            # to control LLM generation parameters alongside RAG.
             from rag.llama_index_rag import get_rag
             result  = await get_rag().aquery(req.message)
             reply   = result["answer"]
@@ -235,60 +273,36 @@ async def chat_endpoint(req: ChatRequest):
         else:
             from gateway.litellm_gateway import achat
             msgs = history + [{"role": "user", "content": req.message}]
-            try:
-                reply, cache_hit, actual_model = await achat(
-                    msgs,
-                    model=req.model,
-                    temperature=req.temperature,
-                    max_tokens=effective_max_tokens,
-                    system_prompt=req.system_prompt,
-                    use_cache=req.use_cache,
-                    use_router=req.use_router,
-                )
-            except (TypeError, ValueError):
-                # Fallback for old gateway that doesn't return tuple
-                try:
-                    reply, cache_hit = await achat(
-                        msgs,
-                        model=req.model,
-                        temperature=req.temperature,
-                        max_tokens=effective_max_tokens,
-                        system_prompt=req.system_prompt,
-                        use_cache=req.use_cache,
-                        use_router=req.use_router,
-                    )
-                    actual_model = req.model or settings.default_model
-                except (TypeError, ValueError):
-                    # Final fallback for very old gateway
-                    reply = await achat(
-                        msgs,
-                        model=req.model,
-                        temperature=req.temperature,
-                        max_tokens=effective_max_tokens,
-                        system_prompt=req.system_prompt,
-                        use_cache=req.use_cache,
-                        use_router=req.use_router,
-                    )
-                    cache_hit = False
-                    actual_model = req.model or settings.default_model
-            # Bug #15 FIX: Gateway now returns cache_hit status
+            reply, cache_hit, actual_model = await achat(
+                msgs,
+                model=req.model,
+                temperature=req.temperature,
+                max_tokens=effective_max_tokens,
+                system_prompt=req.system_prompt,
+                use_cache=req.use_cache,
+                use_router=req.use_router,
+                speed_mode=req.speed_mode,
+            )
 
     except Exception as exc:
         logger.exception("Chat error [%s]: %s", request_id, exc)
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
                             detail=str(exc)) from exc
 
-    elapsed_ms = int((time.perf_counter() - t0) * 1000)
-    # BUG 3 FIX: Use actual model used by gateway, not just requested model
-    model_used = locals().get('actual_model', req.model or settings.default_model)
+    elapsed = time.perf_counter() - t0
+    # model_used set in agent path; fallback for direct gateway path
+    if not model_used:
+        model_used = actual_model or req.model or settings.default_model
 
     return ChatResponse(
         id=request_id,
-        message=reply,
+        response=reply,
         model=model_used,
-        elapsed_ms=elapsed_ms,
-        sources=sources,
+        duration=elapsed,
         cache_hit=cache_hit,
+        optimizations_applied=optimization_count(
+            cache_hit=cache_hit, rag=rag_used or bool(sources), policy=policy),
+        sources=sources,
     )
 
 
@@ -296,6 +310,11 @@ class ChatV1Request(BaseModel):
     messages: list[dict]
     model: str = "ollama/phi3:mini"
     provider: str = "ollama"
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(None, ge=1, le=32_000)
+    system_prompt: str | None = None
+    use_rag: bool = Field(True)
+    use_router: bool = Field(True)
     use_cache: bool = True
     performance_mode: str = "balanced"
     images: list[str] = []
@@ -371,75 +390,73 @@ def validate_v1_messages(messages: list[dict]) -> None:
 async def chat_v1_endpoint(req: ChatV1Request):
     """
     React UI compatible chat endpoint.
+    Routes through the agent path so all request params are honoured.
     """
     request_id = str(uuid.uuid4())[:8]
     t0 = time.perf_counter()
-    
+
     # BUG 7 FIX: Validate conversation structure
     validate_v1_messages(req.messages)
-    
+
     # Convert messages format
     history = [{"role": m.get("role"), "content": m.get("content")} for m in req.messages]
-    
-    # Apply performance mode settings
-    temperature = 0.7
-    max_tokens = 512
-    
-    if req.performance_mode == "speed":
-        temperature = 0.5
-        max_tokens = 256
-    elif req.performance_mode == "quality":
-        temperature = 0.9
-        max_tokens = 1024
-    
-    # REMOVED: Duplicate cache lookup - let the gateway handle all caching
-    # Bug #15: The API was doing cache lookups and then the gateway also does cache lookups
-    # This causes duplicate work and inconsistent behavior. Gateway handles caching now.
-    
-    cache_hit = False
-    elapsed = time.perf_counter() - t0
-    
-    # Call the gateway (handles caching internally)
-    try:
-        from gateway.litellm_gateway import chat
-        import asyncio
-        
-        # For ollama, don't pass api_base, let litellm handle it
-        # Run synchronous chat in thread pool with balanced timeout
-        loop = asyncio.get_event_loop()
-        result = await asyncio.wait_for(
-            loop.run_in_executor(
-                None,
-                chat,
-                history,
-                req.model,
-                temperature,
-                max_tokens,
-                None,  # api_base
-                req.use_cache,
-            ),
-            timeout=getattr(settings, 'request_deadline', 120)
+
+    # Use caller-provided values; fall back to performance-mode defaults.
+    temperature = req.temperature
+    max_tokens = req.max_tokens
+    if temperature is None:
+        temperature = 0.7 if req.performance_mode == "balanced" else (
+            0.5 if req.performance_mode == "speed" else 0.9
         )
-        
-        # Handle both old (string) and new (tuple) return types
-        if isinstance(result, tuple):
-            reply, cache_hit = result
-        else:
-            reply = result
-            
+    if max_tokens is None:
+        max_tokens = 512 if req.performance_mode == "balanced" else (
+            256 if req.performance_mode == "speed" else 1024
+        )
+
+    cache_hit = False
+    model_used = ""
+
+    try:
+        # Route through the agent path so temperature/max_tokens/system_prompt
+        # /use_rag/use_router are all propagated correctly.
+        from agents.langgraph_agent import achat
+        # Extract the last user message; the rest is history.
+        last_user = ""
+        if history and history[-1].get("role") == "user":
+            last_user = history[-1]["content"]
+            history = history[:-1]
+        if not last_user:
+            # Fallback: use the last message content
+            last_user = history[-1]["content"] if history else ""
+
+        result = await achat(
+            last_user, history=history,
+            model=req.model, temperature=temperature,
+            max_tokens=max_tokens, system_prompt=req.system_prompt,
+            use_rag=req.use_rag, use_router=req.use_router,
+            use_cache=req.use_cache,
+            speed_mode=(req.performance_mode == "speed"),
+        )
+        reply = result.reply
+        cache_hit = result.cache_hit
+        model_used = result.model_used or req.model
+        rag_used = bool(getattr(result, "rag_used", False))
+        policy = getattr(result, "generation_policy", "") or ""
     except Exception as exc:
         logger.exception("Chat v1 error [%s]: %s", request_id, exc)
         raise HTTPException(status_code=500, detail=str(exc)) from exc
-    
+
     elapsed = time.perf_counter() - t0
-    
-    return {
-        "response": reply,
-        "model": req.model,
-        "duration": elapsed,
-        "cache_hit": cache_hit,
-        "optimizations_applied": 1,  # Response caching
-    }
+
+    return ChatResponse(
+        id=request_id,
+        response=reply,
+        model=model_used,
+        duration=elapsed,
+        cache_hit=cache_hit,
+        optimizations_applied=optimization_count(
+            cache_hit=cache_hit, rag=rag_used, policy=policy),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -452,6 +469,10 @@ async def chat_stream_endpoint(req: ChatRequest):
     Server-Sent Events stream.
     Each event: {"delta": "...", "done": false}
     Final:       {"delta": "",    "done": true, "metrics": {...}}
+
+    Routes through agents.langgraph_agent.achat_stream so all optimizations
+    apply: cache, quick-path, RAG injection, Eq1 context trimming/compression,
+    generation policy and model routing.
     """
     history = [{"role": m.role, "content": m.content} for m in req.history]
 
@@ -459,17 +480,17 @@ async def chat_stream_endpoint(req: ChatRequest):
         import json
         t0 = time.perf_counter()
         try:
-            from gateway.litellm_gateway import achat_stream
-            msgs = history + [{"role": "user", "content": req.message}]
-            # BUG 2 FIX: Pass use_cache parameter to streaming function
+            from agents.langgraph_agent import achat_stream
             async for chunk in achat_stream(
-                msgs,
+                req.message, history=history,
                 model=req.model,
                 temperature=req.temperature,
                 max_tokens=req.max_tokens,
                 system_prompt=req.system_prompt,
-                use_cache=req.use_cache,  # BUG 2 FIX: Honor use_cache
+                use_rag=req.use_rag,
                 use_router=req.use_router,
+                use_cache=req.use_cache,
+                speed_mode=req.speed_mode,
             ):
                 yield f"data: {json.dumps({'delta': chunk, 'done': False})}\n\n"
         except Exception as exc:
@@ -603,7 +624,8 @@ async def rag_query(req: RAGQueryRequest):
     if use_hs:
         try:
             from rag.haystack_pipeline import get_haystack_rag
-            out["haystack"] = get_haystack_rag().query(req.question)
+            out["haystack"] = await asyncio.to_thread(
+                lambda: get_haystack_rag().query(req.question))
         except Exception as exc:
             out["haystack_error"] = str(exc)
 

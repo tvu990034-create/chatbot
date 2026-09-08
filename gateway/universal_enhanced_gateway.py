@@ -11,11 +11,10 @@ Core Libraries:
 - Outlines: Deterministic generation for small models
 
 Inference Optimization:
-- vLLM: PagedAttention for efficient KV cache management
-- SGLang: RadixAttention for prefix caching and reuse
-- TensorRT-LLM: INT8/INT4 KV cache quantization
-- LMDeploy: Efficient inference serving
-- TEI/TGI: Dynamic token-based batching for throughput optimization
+- vLLM: Sampling/temperature scheduling heuristics (no actual KV-cache control)
+- SGLang: Prefix-keyed full-RESPONSE caching (NOT backend RadixAttention KV reuse)
+- TensorRT-LLM / LMDeploy / TEI/TGI: architectural references only — the live
+  server does not drive these backends; token batching is a no-op placeholder
 
 Model Serving:
 - FastChat: OpenAI-compatible API interface
@@ -147,7 +146,6 @@ MAXIMUM SPEED AND INTELLIGENCE OPTIMIZATION
 import logging
 import time
 import hashlib
-import requests
 import re
 import random
 import json
@@ -176,7 +174,9 @@ from litellm.exceptions import (
 from config import settings
 from .opt_core import (
     BoundedTTLCache,
+    adaptive_generation_timeout,
     build_priority_messages,
+    check_model_available,
     cisc_confidence,
     compress_prompt,
     detect_code_language,
@@ -188,8 +188,10 @@ from .opt_core import (
     cosine_similarity,
     is_safe_quick_path,
     make_cache_identity,
+    normalize_math_answer,
     ollama_model_id,
     quick_arithmetic,
+    quick_word_problem,
     resolve_generation_policy,
     select_model,
     tool_memo_get,
@@ -228,10 +230,27 @@ _global_cache_hits = 0
 _global_cache_misses = 0
 _cache_lock = threading.Lock()
 
-# RadixAttention-inspired prefix cache for common prompts (SGLang pattern)
-_prefix_cache = {}
-_prefix_cache_hits = 0
-_prefix_cache_lock = threading.Lock()
+# ---------------------------------------------------------------------------
+# Prefix-keyed RESPONSE cache.
+#
+# This dictionary maps a hash of a prompt/system-prefix to a map of
+# {full_query -> full response}.  A lookup returns a previously generated
+# response verbatim.  This is NOT a backend KV cache: it does not store or
+# restore transformer KV tensors, does not reuse hidden states, does not
+# eliminate model prefill, and does not touch Ollama/llama.cpp/vLLM/SGLang
+# KV-cache APIs.  The name deliberately avoids "KV cache" to keep this
+# distinction explicit.
+# ---------------------------------------------------------------------------
+_prefix_response_cache = {}
+_prefix_response_cache_hits = 0
+_prefix_response_cache_lock = threading.Lock()
+
+# Backwards-compatible aliases (deprecated; kept so existing callers/tests
+# referencing the old names keep working).  New code must use the *_response_*
+# names.
+_prefix_cache = _prefix_response_cache
+_prefix_cache_hits = _prefix_response_cache_hits
+_prefix_cache_lock = _prefix_response_cache_lock
 
 # RouteLLM-inspired model registry for intelligent routing
 _model_registry = {
@@ -309,6 +328,11 @@ _llm_judge_enabled = False  # LLM-as-Judge with generic post-processor (OpenComp
 _agentverse_enabled = False  # Modular multi-agent framework (AgentVerse-AI)
 _mindsearch_enabled = False  # Dynamic graph construction (MindSearch)
 
+# OptimizationController (BUG 24): the controller's default policy rewrites
+# every query with a chain-of-thought prompt, so rewriting is opt-in. Its
+# analyze_query() output is always wired into per-request telemetry.
+_optimization_controller_rewrite = False
+
 # Multimodal-specific components
 _judge_model = "qwen2.5:3b"  # Model for LLM-as-Judge
 _agent_memory = {}  # Agent memory for AgentVerse
@@ -330,10 +354,6 @@ _code_semantic_cache = {}
 _code_semantic_cache_hits = 0
 _code_cache_lock = threading.Lock()
 _code_semantic_cache_max_size = 500  # BUG 40 FIX: Limit code semantic cache size
-
-# Connection pool for Ollama requests
-_session_pool = None
-_session_lock = threading.Lock()
 
 # Pre-computed response templates for instant responses
 _quick_response_templates = {
@@ -375,28 +395,6 @@ _SMART_MODE_PARAMS = {
 _global_cache.clear()
 logger.info("Global cache cleared on module load")
 
-def get_optimized_session():
-    """Get or create optimized HTTP session with connection pooling."""
-    global _session_pool, _session_lock
-    
-    with _session_lock:
-        if _session_pool is None:
-            _session_pool = requests.Session()
-            # Configure connection pooling for maximum speed
-            adapter = requests.adapters.HTTPAdapter(
-                pool_connections=10,  # Number of connection pools
-                pool_maxsize=50,      # Maximum connections per pool
-                max_retries=0,        # No retries for speed
-                pool_block=False      # Don't block when pool is full
-            )
-            _session_pool.mount('http://', adapter)
-            _session_pool.mount('https://', adapter)
-            # BUG 76 FIX: Use centralized connect timeout
-            timeout_val = getattr(settings, 'connect_timeout', 5)
-            _session_pool.timeout = timeout_val
-            
-    return _session_pool
-
 class UniversalEnhancedGateway:
     """Universal gateway integrating patterns from 180+ AI/ML repositories."""
     
@@ -407,8 +405,8 @@ class UniversalEnhancedGateway:
         Integrates techniques from:
         - DSPy: Minimal function signatures for small models
         - LangChain: Prompt templates, chain composition, tool use, RAG
-        - vLLM: Optimized sampling, PagedAttention-inspired batching
-        - SGLang: RadixAttention-inspired prefix caching
+        - vLLM: Optimized sampling heuristics
+        - SGLang: Prefix-keyed full-response caching (no backend KV reuse)
         - RouteLLM: Intelligent model routing by complexity
         - Qwen-Agent: Function calling with tool registry
         - AgentLego: Modular tool system
@@ -426,11 +424,17 @@ class UniversalEnhancedGateway:
         self.model_name = model_name
         self.enable_all_optimizations = enable_all_optimizations
         self._routed_model = None  # BUG 35 FIX: Track routing decisions for telemetry
+        self._last_request_telemetry = None  # BUG 36 FIX: per-request telemetry
         self.performance_mode = performance_mode
+        self.system_prompt = None  # BUG: initialize to prevent AttributeError
         
         # Core optimization components - use global cache for persistence with thread safety
         self.cache = _global_cache if enable_all_optimizations else None
-        self.prefix_cache = _prefix_cache if enable_all_optimizations else None  # SGLang pattern
+        # Prefix-keyed RESPONSE cache (not a backend KV cache).  See the
+        # module-level declaration for the explicit distinction.
+        self.prefix_response_cache = _prefix_response_cache if enable_all_optimizations else None
+        # Backwards-compatible alias (deprecated).
+        self.prefix_cache = self.prefix_response_cache
         self.response_history = []
         self.calibration_window = []
         self.cache_hits = 0
@@ -507,7 +511,14 @@ class UniversalEnhancedGateway:
         logger.info(f"Tool system enabled: {self.enable_tool_system}")
     
     def _ultra_aggressive_cache_warming(self):
-        """LangChain-style cache warming: Pre-populate cache with common queries for hit rate."""
+        """Pre-populate the RESPONSE cache with placeholder entries.
+
+        NOTE: these are placeholder ("is_warm": True) entries that are
+        explicitly discarded on lookup (they are never served to users — the
+        chat() path removes them and treats the request as a cache miss).
+        This warms an in-process response cache only; it does not warm any
+        backend model or KV cache.
+        """
         # Essential query library for fast cache warming
         predictive_queries = [
             # Greetings (instant responses)
@@ -559,13 +570,11 @@ class UniversalEnhancedGateway:
             import random
             return random.choice(_quick_response_templates["confirmation"])
         
-        # Instant math for simple calculations
-        if re.match(r'^\d+[\+\-\*\/]\d+$', query_lower):
-            try:
-                result = eval(query_lower)
-                return f"The answer is {result}"
-            except:
-                pass
+        # Instant math for simple calculations (safe arithmetic, no eval)
+        from .opt_core import quick_arithmetic as _safe_math
+        math_result = _safe_math(query_lower)
+        if math_result is not None:
+            return f"The answer is {math_result}"
         
         return None
     
@@ -575,7 +584,7 @@ class UniversalEnhancedGateway:
         
         Pipeline:
         1. Quick response templates (LangChain pattern)
-        2. Prefix cache checking (SGLang RadixAttention pattern)
+        2. Prefix-keyed response cache lookup (NOT backend KV cache)
         3. Cache checking with semantic matching (LangChain memory pattern)
         4. Query analysis with complexity scoring (RouteLLM pattern)
         5. Model routing based on complexity (RouteLLM pattern)
@@ -626,11 +635,13 @@ class UniversalEnhancedGateway:
             logger.info(f"Quick response returned in <0.01s")
             return quick_response
         
-        # Step 2: SGLang RadixAttention: Prefix cache for common system prompts
-        if self.enable_all_optimizations and self.prefix_cache is not None:
-            prefix_match = self._check_prefix_cache(messages)
+        # Step 2: Prefix-keyed response cache lookup (NOT a backend KV cache).
+        # Returns a previously generated response verbatim when a matching
+        # prefix + full-query identity already exists in this process.
+        if self.enable_all_optimizations and self.prefix_response_cache is not None:
+            prefix_match = self._check_prefix_cache(messages, self._current_gen_identity())
             if prefix_match:
-                logger.info(f"Prefix cache hit in <0.01s")
+                logger.info(f"Prefix response cache hit in <0.01s")
                 return prefix_match
         
         # Step 3: LangChain memory: AGGRESSIVE cache checking with semantic matching
@@ -685,10 +696,34 @@ class UniversalEnhancedGateway:
         
         self.cache_misses += 1
         
+        # BUG 24 FIX: OptimizationController wired into the live request path.
+        #  * analyze_query() always contributes to per-request telemetry.
+        #  * apply_optimizations() (query rewriting) is OFF by default because
+        #    the controller's default policy rewrites EVERY query with a
+        #    chain-of-thought prompt; flip the flag to enable it.
+        controller_analysis = None
+        if self.enable_all_optimizations and self.performance_mode != "speed":
+            try:
+                from .optimization_controller import get_optimization_controller
+                controller = get_optimization_controller()
+                if controller is not None:
+                    controller_analysis = controller.analyze_query(query)
+                    if _optimization_controller_rewrite:
+                        rewritten, meta = controller.apply_optimizations(
+                            query, controller_analysis or {})
+                        if rewritten and rewritten != query:
+                            logger.info(
+                                "OptimizationController: rewrote query (%s)",
+                                meta.get("applied_optimizations", []))
+                            query = rewritten
+            except Exception as e:
+                logger.debug("OptimizationController analysis unavailable: %s", e)
+        
         # Step 4: RouteLLM query analysis: INTELLIGENT query analysis with complexity scoring
         query_analysis = self._intelligent_query_analysis_with_complexity(query)
         
         # Step 5: RouteLLM model routing: Route to appropriate model based on complexity
+        original_model_name = self.model_name
         selected_model = self._route_to_model(query_analysis)
         if selected_model and selected_model != self.model_name:
             logger.info(f"RouteLLM: Routed to {selected_model} (complexity: {query_analysis.complexity_score:.2f})")
@@ -780,9 +815,8 @@ class UniversalEnhancedGateway:
         # Step 8: vLLM adaptive parameters: ADAPTIVE model parameters based on query intelligence
         adaptive_params = self._get_adaptive_model_params(query_analysis)
         
-        # Step 9: LangChain tool use: OPTIMIZED API call with connection pooling
+        # Step 9: LangChain tool use: OPTIMIZED API call
         try:
-            session = get_optimized_session()
             
             # Build optimized messages with DSPy/LangChain prompt templates
             optimized_messages = self._build_optimized_messages(messages, query_analysis)
@@ -808,7 +842,7 @@ class UniversalEnhancedGateway:
                         model=model_to_use,  # Bug #34 FIX: Use routed model
                         messages=optimized_messages,
                         **adaptive_params,
-                        timeout=getattr(settings, 'generation_timeout', 15),
+                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                         api_base="http://localhost:11434"
                     )
                     response_text = response.choices[0].message.content
@@ -825,7 +859,7 @@ class UniversalEnhancedGateway:
                     model=model_to_use,
                     messages=optimized_messages,
                     **adaptive_params,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 response_text = response.choices[0].message.content
@@ -840,7 +874,7 @@ class UniversalEnhancedGateway:
                 response_text = self._apply_safety_filter(response_text)
             
             # Step 10.6: CodeBLEU syntax validation: Validate code syntax
-            if analysis.is_coding and _code_syntax_validation_enabled:
+            if query_analysis.is_coding and _code_syntax_validation_enabled:
                 is_valid, error = self._validate_code_syntax(response_text)
                 if not is_valid:
                     logger.warning(f"CodeBLEU: Syntax validation failed: {error}")
@@ -849,7 +883,7 @@ class UniversalEnhancedGateway:
                         response_text = self._iterative_code_repair(response_text, error, query)
             
             # Step 10.8: CodeGeeX/ERNIE-Code translation: Cross-lingual code translation
-            if analysis.is_coding and _translation_mode_enabled:
+            if query_analysis.is_coding and _translation_mode_enabled:
                 # Check if translation is requested (e.g., "translate to java")
                 if "translate" in query.lower():
                     target_lang = "java" if "java" in query.lower() else "python"
@@ -880,9 +914,33 @@ class UniversalEnhancedGateway:
                     import random
                     jitter = random.uniform(0.9, 1.1)  # 10% jitter
                     self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
+
+                # Step 11.1: Prefix-keyed response cache write — store the full
+                # response keyed by the prompt prefix.  The stored payload is
+                # tagged with the generation identity (model + generation
+                # settings) so a cached entry is only reused when that identity
+                # still matches on lookup (see _check_prefix_cache).  This is a
+                # RESPONSE cache; it does not reuse backend KV tensors.
+                if self.enable_all_optimizations and self.prefix_response_cache is not None:
+                    prefix = ""
+                    if len(messages) > 0 and messages[0].get("role") == "system":
+                        prefix = messages[0]["content"][:200]
+                    elif len(messages) > 0:
+                        prefix = messages[0]["content"][:100]
+                    if prefix:
+                        prefix_key = hashlib.md5(prefix.encode()).hexdigest()
+                        full_query = messages[-1]["content"]
+                        gen_id = self._current_gen_identity()
+                        with _prefix_response_cache_lock:
+                            if prefix_key not in self.prefix_response_cache:
+                                self.prefix_response_cache[prefix_key] = {}
+                            self.prefix_response_cache[prefix_key][full_query] = {
+                                "response": response_text,
+                                "gen_identity": gen_id,
+                            }
             
             # Step 11.5: CodeFuse semantic cache: Store code responses
-            if analysis.is_coding and _code_semantic_cache_enabled:
+            if query_analysis.is_coding and _code_semantic_cache_enabled:
                 # BUG 39 FIX: Use configuration-aware cache key
                 cache_context = {
                     'model': self.model_name,
@@ -913,41 +971,97 @@ class UniversalEnhancedGateway:
             # Step 14: Update performance metrics
             self._update_performance_metrics(duration, query_analysis)
             
+            # Step 15: Per-request telemetry (BUG 36 FIX) — records which
+            # optimizations actually executed for this request.
+            self._last_request_telemetry = {
+                "query": query[:120],
+                "duration_sec": round(duration, 4),
+                "cache": {"enabled": bool(use_cache)},
+                "routing": {
+                    "selected_model": selected_model,
+                    "used_model": self.model_name,
+                },
+                "analysis": {
+                    "is_math": query_analysis.is_math,
+                    "is_coding": query_analysis.is_coding,
+                    "is_complex": query_analysis.is_complex,
+                    "needs_reasoning": query_analysis.needs_reasoning,
+                    "complexity_score": round(query_analysis.complexity_score, 3),
+                },
+                "generation": {
+                    "temperature": adaptive_params.get("temperature"),
+                    "max_tokens": adaptive_params.get("max_tokens"),
+                },
+                "controller_analysis": controller_analysis,
+                "performance_mode": self.performance_mode,
+            }
+            logger.info("Telemetry: %s", json.dumps(self._last_request_telemetry))
+            
             logger.info(f"Response generated in {duration:.2f}s")
             return response_text
             
         except Exception as e:
             logger.error(f"Error in chat: {e}")
             return self._generate_fallback_response(query, query_analysis)
+        finally:
+            # Restore original model name to prevent cross-request contamination
+            self.model_name = original_model_name
     
-    def _check_prefix_cache(self, messages: List[Dict[str, str]]) -> Optional[str]:
-        """SGLang RadixAttention pattern: Check prefix cache for common system prompts."""
-        if not self.prefix_cache:
-            return None
-        
+    def _current_gen_identity(self) -> Dict[str, Any]:
+        """Build the identity of the current inference semantics.
+
+        A response cache must only be reused when every input that can change
+        the generated response still matches.  The returned dict captures the
+        model and the generation settings that affect the output, so a cached
+        entry is never served for a different model/temperature/etc.
+        """
+        ident: Dict[str, Any] = {
+            "model": self.model_name,
+            "system_prompt": getattr(self, "system_prompt", ""),
+        }
+        params = getattr(self, "model_params", None) or {}
+        for k in ("temperature", "top_p", "top_k", "max_tokens", "max_length"):
+            if k in params:
+                ident[k] = params[k]
+        return ident
+
+    def _check_prefix_cache(self, messages: List[Dict[str, str]],
+                            gen_identity: Optional[Dict[str, Any]] = None) -> Optional[str]:
+        """Prefix-keyed RESPONSE cache lookup (NOT a backend KV cache).
+
+        Returns a previously generated response only when BOTH the prefix
+        bucket and the full-query identity match, AND the generation identity
+        (model + generation settings) still matches.  This avoids serving a
+        stale response when the model or sampling settings have changed.
+        """
         # Extract system prompt or first message as prefix
         prefix = ""
         if len(messages) > 0 and messages[0].get("role") == "system":
             prefix = messages[0]["content"][:200]  # First 200 chars
         elif len(messages) > 0:
             prefix = messages[0]["content"][:100]
-        
+
         if not prefix:
             return None
-        
+
         prefix_key = hashlib.md5(prefix.encode()).hexdigest()
-        
-        with _prefix_cache_lock:
-            if prefix_key in self.prefix_cache:
-                global _prefix_cache_hits
-                _prefix_cache_hits += 1
-                # Return cached response if the full query matches
-                full_query = messages[-1]["content"]
-                if full_query in self.prefix_cache[prefix_key]:
-                    return self.prefix_cache[prefix_key][full_query]
-        
-        return None
-    
+        full_query = messages[-1]["content"]
+        expected_id = gen_identity or self._current_gen_identity()
+
+        with _prefix_response_cache_lock:
+            if not self.prefix_response_cache:
+                return None
+            bucket = self.prefix_response_cache.get(prefix_key)
+            entry = bucket.get(full_query) if bucket else None
+            if entry is None:
+                return None
+            # Second validation step: the generation identity must still match.
+            if entry.get("gen_identity") != expected_id:
+                return None
+            # A real response-cache hit.  This is NOT a KV-cache hit.
+            global _prefix_response_cache_hits
+            _prefix_response_cache_hits += 1
+            return entry["response"]
     def _intelligent_query_analysis_with_complexity(self, query: str) -> QueryAnalysis:
         """RouteLLM-style query analysis with complexity scoring for model routing."""
         query_lower = query.lower()
@@ -982,6 +1096,8 @@ class UniversalEnhancedGateway:
         math_patterns = [r'\d+[x-z]', r'[x-z]\s*[+\-*/=]', r'\d+\s*[+\-*/]\s*\d+', r'\w+\s*=\s*\d+', r'\^', r'\d+%', r'\d+\.\d+']
         if any(word in query_lower for word in math_keywords) or any(re.search(pattern, query) for pattern in math_patterns):
             analysis.is_math = True
+        if quick_word_problem(query) is not None:
+            analysis.is_math = True
         
         if any(word in query_lower for word in ["why", "how", "explain", "reason", "because"]):
             analysis.needs_reasoning = True
@@ -1012,7 +1128,13 @@ class UniversalEnhancedGateway:
         return analysis
     
     def _route_to_model(self, analysis: QueryAnalysis) -> Optional[str]:
-        """RouteLLM pattern: Route to appropriate model based on complexity."""
+        """RouteLLM pattern: Route to appropriate model based on complexity.
+
+        Only routes to a model that actually exists on the backend; a registry
+        entry that isn't installed can never be selected (otherwise inference
+        raises APIConnectionError and the user gets an apology).  Falls back to
+        the first available candidate in the tier, else the default model.
+        """
         if not self.enable_model_routing:
             return None
         
@@ -1022,9 +1144,21 @@ class UniversalEnhancedGateway:
         tier = analysis.suggested_model
         available = self.available_models.get(tier, [])
         
-        if available and len(available) > 0:
-            # Return first available model from the tier
-            return available[0]
+        if available:
+            # Pick the first candidate that is actually present on the backend.
+            # check_model_available is TTL-cached so this is cheap after the
+            # first call per (api_base, model).
+            for candidate in available:
+                try:
+                    if check_model_available(ollama_model_id(candidate)):
+                        return candidate
+                except Exception:
+                    continue
+            # None of the tier candidates are installed -> keep the default model
+            # instead of crashing inference.
+            logger.warning(
+                "RouteLLM: tier '%s' candidates unavailable (%s); using default model",
+                tier, ", ".join(available))
         
         return None
     
@@ -1037,7 +1171,7 @@ class UniversalEnhancedGateway:
         # In a full implementation, this would parse JSON Schema from model output
         
         # Calculator tool
-        if analysis.is_math and "=" in query:
+        if analysis.is_math:
             result = self._tool_calculator(query)
             if result:
                 return f"Calculated: {result}"
@@ -1051,22 +1185,15 @@ class UniversalEnhancedGateway:
         return None
     
     def _tool_calculator(self, query: str) -> Optional[str]:
-        """Tool: Perform mathematical calculations."""
+        """Tool: Perform mathematical calculations.
+
+        Delegates to the safe recursive-descent evaluator in ``opt_core``
+        which handles multi-operator expressions with correct precedence
+        (e.g. ``2 + 3 * 4 == 14``) without using ``eval()``.
+        """
         try:
-            # Extract and evaluate math expression
-            import re
-            match = re.search(r'(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)', query)
-            if match:
-                a, op, b = match.groups()
-                a, b = float(a), float(b)
-                if op == '+':
-                    return f"{a + b}"
-                elif op == '-':
-                    return f"{a - b}"
-                elif op == '*':
-                    return f"{a * b}"
-                elif op == '/':
-                    return f"{a / b}"
+            from gateway.opt_core import quick_arithmetic, quick_word_problem
+            return quick_arithmetic(query) or quick_word_problem(query)
         except Exception as e:
             logger.warning(f"Calculator tool failed: {e}")
         return None
@@ -1109,6 +1236,10 @@ class UniversalEnhancedGateway:
         """UltraFeedback pattern: Preference-based multi-model response selection."""
         if not _preference_selector_enabled:
             return None
+        # BUG 32 FIX: never burn multiple model calls in speed mode — the extra
+        # latency defeats the whole point of the performance mode.
+        if self.performance_mode == "speed":
+            return None
         
         # Only apply for complex queries where quality matters
         if analysis.complexity_score < 0.5:
@@ -1121,7 +1252,7 @@ class UniversalEnhancedGateway:
                     response = completion(
                         model=f"ollama/{model}",
                         messages=[{"role": "user", "content": query}],
-                        timeout=getattr(settings, 'generation_timeout', 15),
+                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                         api_base="http://localhost:11434"
                     )
                     responses.append((model, response.choices[0].message.content))
@@ -1131,10 +1262,12 @@ class UniversalEnhancedGateway:
             if len(responses) < 2:
                 return None
             
-            # Simple preference scoring based on response length and structure
+            # Preference scoring: prefer concise, informative responses over
+            # naive length (BUG 32: length was not a quality signal).
+            from gateway.opt_core import _response_quality
             scored_responses = []
             for model, resp in responses:
-                score = len(resp) * 0.5  # Prefer longer responses
+                score = _response_quality(resp)
                 if "```" in resp:  # Bonus for code blocks
                     score += 20
                 if resp.count('.') > 2:  # Bonus for complete sentences
@@ -1165,10 +1298,10 @@ class UniversalEnhancedGateway:
             code_prompt += "Only output the code, no explanation.\n"
             
             code_response = completion(
-                model=model_to_use,
+                model=self.model_name,
                 messages=[{"role": "user", "content": code_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -1213,19 +1346,6 @@ class UniversalEnhancedGateway:
             "results": "Benchmarking not yet implemented"
         }
     
-    def _schedule_token_batch(self, query: str) -> bool:
-        """TEI/TGI pattern: Dynamic token-based batching scheduler."""
-        # Placeholder for token-based batching
-        # In a full implementation, this would:
-        # 1. Estimate token count for the query
-        # 2. Add to pending requests queue
-        # 3. Batch requests based on token limits
-        # 4. Send batched requests to Ollama
-        
-        return False  # Not yet implemented
-    
-    # ===== CODE-SPECIFIC PATTERNS FROM CODE EVALUATION REPOSITORIES =====
-    
     def _detect_code_intent(self, query: str) -> bool:
         """DeepSeek-Coder pattern: Intent-based code detection."""
         if not _code_routing_enabled:
@@ -1265,7 +1385,7 @@ class UniversalEnhancedGateway:
         if not _code_routing_enabled:
             return None
         
-        if not analysis.is_coding and not self._detect_code_intent(analysis.suggested_model):
+        if not analysis.is_coding and not self._detect_code_intent(analysis.query_text):
             return None
         
         # Select model based on complexity
@@ -1333,7 +1453,7 @@ Provide the fixed code only, no explanation."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": repair_prompt}],
                     temperature=0.2,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1370,7 +1490,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": generator_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             code = gen_response.choices[0].message.content
@@ -1389,7 +1509,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": test_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             tests = test_response.choices[0].message.content
@@ -1402,7 +1522,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": review_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             review = review_response.choices[0].message.content
@@ -1452,24 +1572,12 @@ Review:
                 _code_semantic_cache_hits += 1
                 logger.info(f"CodeFuse: Exact cache hit with configuration context")
                 return _code_semantic_cache[cache_key]
-        
-        # Fallback to simplified semantic matching using keyword overlap
-        # In a full implementation, use embeddings
-        query_words = set(query.lower().split())
-        
-        with _code_cache_lock:
-            for cached_key, cached_response in _code_semantic_cache.items():
-                # BUG 39 FIX: Only match entries with same configuration
-                # The cache key includes configuration context
-                cached_words = set(cached_key.split(':')[0].lower().split())
-                overlap = len(query_words & cached_words)
-                
-                # If 50%+ word overlap, consider it a match
-                if overlap > 0 and overlap / len(query_words) > 0.5:
-                    _code_semantic_cache_hits += 1
-                    logger.info(f"CodeFuse: Semantic cache hit")
-                    return cached_response
-        
+
+        # Fallback removed: cache keys are config-aware md5 digests, so there is
+        # no retained query text to do word-overlap matching against.  The old
+        # loop split an md5 hex digest on ':' (always a single token), so it
+        # could never match a stored entry.  Rely on the exact config-aware key,
+        # which the read/write paths build identically.
         return None
     
     def _detect_language(self, query: str) -> str:
@@ -1618,7 +1726,7 @@ You have access to the following tools:
                     model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.3 + (i * 0.2),  # Vary temperature
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1679,7 +1787,7 @@ You have access to the following tools:
                 model=model_to_use,
                 messages=[{"role": "user", "content": translation_prompt}],
                 temperature=0.2,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -1708,87 +1816,24 @@ You have access to the following tools:
     # ===== MATHEMATICAL REASONING PATTERNS (AIME/AMC OPTIMIZATION) =====
     
     def _execute_tir_code(self, code: str, timeout: int = None) -> tuple[bool, Any, Optional[str]]:
-        """Tool-Integrated Reasoning (TIR): Execute Python code in sandboxed environment."""
+        """Tool-Integrated Reasoning (TIR): Execute Python code in a sandboxed
+        subprocess with a real wall-clock timeout.
+
+        Delegates to ``execute_python_isolated`` which runs the code in a
+        separate Python process.  This gives us:
+        * A genuine ``subprocess.TimeoutExpired`` (in-process ``exec()`` cannot
+          be interrupted by a timeout).
+        * stdout / stderr capture via the subprocess pipe.
+        * Last-expression extraction via AST in the runner script (deterministic
+          body-order, not ``ast.walk()``).
+        """
         if not _tir_enabled or not _math_sandbox_enabled:
             return False, None, "TIR disabled"
-        
+
         try:
-            import subprocess
-            import sys
-            import io
-            from contextlib import redirect_stdout, redirect_stderr
-            
-            # Create isolated execution environment
-            namespace = {
-                '__builtins__': {
-                    'print': print,
-                    'range': range,
-                    'len': len,
-                    'int': int,
-                    'float': float,
-                    'str': str,
-                    'list': list,
-                    'dict': dict,
-                    'set': set,
-                    'tuple': tuple,
-                    'abs': abs,
-                    'min': min,
-                    'max': max,
-                    'sum': sum,
-                    'sorted': sorted,
-                    'pow': pow,
-                    'round': round,
-                    'divmod': divmod,
-                    'enumerate': enumerate,
-                    'zip': zip,
-                    'map': map,
-                    'filter': filter,
-                    'all': all,
-                    'any': any,
-                    'math': __import__('math'),
-                    'itertools': __import__('itertools'),
-                    'collections': __import__('collections'),
-                    'random': __import__('random'),
-                }
-            }
-            
-            # Capture output
-            stdout_capture = io.StringIO()
-            stderr_capture = io.StringIO()
-            
-            # Execute with timeout
-            exec(code, namespace)
-            
-            # BUG 54 FIX: Capture final expression properly using AST transformation
-            # If code doesn't explicitly set _result, capture the last expression
-            if result is None:
-                try:
-                    import ast
-                    # Parse the code to find the last expression
-                    tree = ast.parse(code)
-                    
-                    # Find the last expression statement
-                    last_expr = None
-                    for node in ast.walk(tree):
-                        if isinstance(node, ast.Expr):
-                            last_expr = node
-                    
-                    if last_expr:
-                        # Compile and evaluate the last expression
-                        code_obj = compile(ast.Expression(body=last_expr), '<string>', 'eval')
-                        result = eval(code_obj, namespace)
-                except Exception as e:
-                    logger.warning(f"TIR: Could not capture final expression: {e}")
-                    result = None
-            
-            stdout_output = stdout_capture.getvalue()
-            stderr_output = stderr_capture.getvalue()
-            
-            if stderr_output:
-                return False, None, f"Execution error: {stderr_output}"
-            
-            return True, result, stdout_output
-            
+            from gateway.opt_core import execute_python_isolated
+            _timeout = timeout or getattr(settings, 'tool_timeout', 10)
+            return execute_python_isolated(code, timeout=float(_timeout))
         except subprocess.TimeoutExpired:
             return False, None, "Code execution timeout"
         except Exception as e:
@@ -1801,6 +1846,10 @@ You have access to the following tools:
         boxed_match = re.search(r'\\boxed\{([^}]+)\}', response)
         if boxed_match:
             return boxed_match.group(1)
+
+        dollar_match = re.search(r'\$([^$]+)\$', response)
+        if dollar_match:
+            return dollar_match.group(1).strip()
         
         # Fallback: Look for numeric answers at end
         lines = response.strip().split('\n')
@@ -1814,6 +1863,12 @@ You have access to the following tools:
     def _apply_tir_reasoning(self, query: str, analysis: QueryAnalysis) -> Optional[str]:
         """Tool-Integrated Reasoning (TIR): Interleave reasoning with code execution."""
         if not _tir_enabled or not analysis.is_math:
+            return None
+
+        # BUG 33 FIX (TIR parity): never spend one or more LLM generations on a
+        # problem the deterministic calculator already answers exactly.
+        if (quick_arithmetic(query) is not None or quick_word_problem(query) is not None):
+            logger.info("TIR: deterministic answer available; skipping reasoning generation")
             return None
         
         try:
@@ -1831,7 +1886,7 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
                 model=model_to_use,
                 messages=[{"role": "user", "content": tir_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -1867,7 +1922,7 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                             {"role": "user", "content": feedback_prompt}
                         ],
                         temperature=0.2,
-                        timeout=getattr(settings, 'generation_timeout', 15),
+                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                         api_base="http://localhost:11434"
                     )
                     
@@ -1903,22 +1958,32 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.7 + (i * 0.1),  # Vary temperature
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 
                 response_text = response.choices[0].message.content
                 responses.append(response_text)
                 
-                # Extract confidence (simple heuristic: answer presence and clarity)
-                boxed_answer = self._extract_boxed_answer(response_text)
-                if boxed_answer:
-                    # Higher confidence if answer is clearly boxed
-                    confidence = 0.9
-                elif len(response_text) > 50:  # Reasonable length
-                    confidence = 0.6
+                # Extract confidence (BUG 28: prefer verifiable correctness over
+                # formatting signals such as \boxed / response length).
+                expected_answer = None
+                try:
+                    expected_answer = quick_arithmetic(query) or quick_word_problem(query)
+                except Exception:
+                    expected_answer = None
+                if (expected_answer is not None
+                        and normalize_math_answer(response_text) == expected_answer):
+                    confidence = 1.0
                 else:
-                    confidence = 0.3
+                    boxed_answer = self._extract_boxed_answer(response_text)
+                    if boxed_answer:
+                        # Higher confidence if answer is clearly boxed
+                        confidence = 0.9
+                    elif len(response_text) > 50:  # Reasonable length
+                        confidence = 0.6
+                    else:
+                        confidence = 0.3
                 
                 confidences.append(confidence)
             
@@ -1973,6 +2038,13 @@ Use this result to provide your final answer in \\boxed{{}} format."""
         if not _ssr_enabled or not analysis.is_math:
             return None
         
+        # BUG 33 FIX: when the answer is computable deterministically, never
+        # spend an additional LLM generation on strategy retrieval — the
+        # calculator/direct-solve paths already handle these.
+        if (quick_arithmetic(query) is not None or quick_word_problem(query) is not None):
+            logger.info("SSR: deterministic answer available; skipping strategy generation")
+            return None
+        
         try:
             # Retrieve relevant strategies
             strategies = self._retrieve_math_strategies(query)
@@ -2000,7 +2072,7 @@ Relevant strategies to consider:
                 model=model_to_use,
                 messages=[{"role": "user", "content": strategy_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -2050,7 +2122,7 @@ Provide your evaluation in JSON format:
                 model=f"ollama/{_judge_model}",
                 messages=[{"role": "user", "content": judge_prompt}],
                 temperature=0.2,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -2101,7 +2173,7 @@ Provide your evaluation in JSON format:
                     model=model_to_use,
                     messages=[{"role": "user", "content": analysis_prompt}],
                     temperature=0.3,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 results.append(f"Analysis: {analysis_response.choices[0].message.content}")
@@ -2115,7 +2187,7 @@ Provide your evaluation in JSON format:
                     model=model_to_use,
                     messages=[{"role": "user", "content": execution_prompt}],
                     temperature=0.3,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 results.append(f"Execution: {execution_response.choices[0].message.content}")
@@ -2135,7 +2207,7 @@ Provide the final synthesized response."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": synthesis_prompt}],
                     temperature=0.3,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2164,11 +2236,12 @@ Query: {query}
 
 Provide sub-questions as a numbered list."""
             
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             decomposition_response = completion(
                 model=model_to_use,
                 messages=[{"role": "user", "content": decomposition_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -2196,7 +2269,7 @@ Provide sub-questions as a numbered list."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": q}],
                     temperature=0.3,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2225,7 +2298,7 @@ Provide the final synthesized response."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": synthesis_prompt}],
                 temperature=0.3,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             
@@ -2270,6 +2343,8 @@ Provide the final synthesized response."""
         math_patterns = [r'\d+[x-z]', r'[x-z]\s*[+\-*/=]', r'\d+\s*[+\-*/]\s*\d+', r'\w+\s*=\s*\d+', r'\^', r'\d+%', r'\d+\.\d+']
         if any(word in query_lower for word in math_keywords) or any(re.search(pattern, query) for pattern in math_patterns):
             analysis.is_math = True
+        if quick_word_problem(query) is not None:
+            analysis.is_math = True
         
         if any(word in query_lower for word in ["why", "how", "explain", "reason", "because"]):
             analysis.needs_reasoning = True
@@ -2301,11 +2376,29 @@ Provide the final synthesized response."""
         elif analysis.expected_response_length == "long":
             params["max_tokens"] = max(params["max_tokens"], 200)
         
+        # Performance-mode precedence: 'speed' must keep the configured short cap,
+        # regardless of content-length classification (BUG: long-response bump
+        # previously defeated speed mode).
+        if self.performance_mode == "speed":
+            params["max_tokens"] = min(
+                params["max_tokens"], self.model_params.get("max_tokens", 50))
+        
         # Outlines-style: Use deterministic sampling for small models
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():
             params["temperature"] = 0.0  # Maximum determinism for small models
             params["top_p"] = 1.0
             params["top_k"] = 1
+        
+        # BUG 29 FIX: wire the online-adaptive temperature module into actual
+        # generation (non-speed modes only — speed keeps its own low temp).
+        if self.performance_mode != "speed" and self.enable_all_optimizations:
+            try:
+                from gateway.adaptive_temperature import get_adaptive_temperature
+                adaptive_temp = get_adaptive_temperature().get_temperature()
+                if adaptive_temp and adaptive_temp > 0:
+                    params["temperature"] = adaptive_temp
+            except Exception as e:
+                logger.debug("Adaptive temperature unavailable: %s", e)
         
         return params
     
@@ -2421,24 +2514,57 @@ Code:"""
         
         try:
             import re
-            
-            # Pattern 1: Simple linear equations "2x + 7 = 22"
+
+            # Linear equation: [sign]a x [+|-] b = c  (a may be omitted => 1,
+            # or "-" => -1; supports "2x = 10", "x + 3 = 5", "10x = 50",
+            # "-x + 3 = 5", "2*x + 5 = -7").
             if "=" in query and "x" in query.lower():
-                numbers = re.findall(r'\d+\.?\d*', query)
-                if len(numbers) >= 2:
-                    if "x +" in query or "x+" in query:
-                        match = re.search(r'(\d+)x\s*[+\-]\s*(\d+)\s*=\s*(\d+)', query)
-                        if match:
-                            a, b, c = map(float, match.groups())
-                            x = (c - b) / a
-                            return f"x = {x}"
-                    
-                    if "x - " in query or "x-" in query:
-                        match = re.search(r'(\d+)x\s*-\s*(\d+)\s*=\s*(\d+)', query)
-                        if match:
-                            a, b, c = map(float, match.groups())
-                            x = (c + b) / a
-                            return f"x = {x}"
+                # Strip trailing ? and collapse tabs -> spaces. Also tolerate a
+                # small set of leading solve-verbs ("solve 2x+5=-7").
+                q = re.sub(r"\s+", " ", query.strip()).rstrip("?").strip()
+                q = re.sub(
+                    r"^(?:what is x if|solve for x|solve for|what is x|what's x|give me x|calculate x|compute x|solve|find x|calculate|compute|find)\s*[:]?\s*",
+                    "", q, flags=re.IGNORECASE).strip()
+                m = re.fullmatch(
+                    r"([+-]?(?:\d+\.?\d*)?)\*?\s?x\s*([+-])\s*(\d+\.?\d*)\s*=\s*([+-]?\d+\.?\d*)",
+                    q, re.IGNORECASE)
+                if m:
+                    a_str, sign, b_str, c_str = m.groups()
+                    a = 1.0 if a_str in ("", "+") else (-1.0 if a_str == "-" else float(a_str))
+                    b, c = float(b_str), float(c_str)
+                    if a == 0.0:
+                        return None
+                    x = (c - b) / a if sign == "+" else (c + b) / a
+                    if float(x).is_integer():
+                        x = int(x)
+                    return f"x = {x}"
+                # "ax = c" and "x/a = c" (no +/- term).
+                m2 = re.fullmatch(
+                    r"([+-]?(?:\d+\.?\d*)?)\*?\s?x\s*/\s*(\d+\.?\d*)\s*=\s*([+-]?\d+\.?\d*)",
+                    q, re.IGNORECASE)
+                if m2:
+                    a_str, a2_str, c_str = m2.groups()
+                    a = 1.0 if a_str in ("", "+") else (-1.0 if a_str == "-" else float(a_str))
+                    a2, c = float(a2_str), float(c_str)
+                    if a2 == 0.0:
+                        return None
+                    x = (c * a2) / a
+                    if float(x).is_integer():
+                        x = int(x)
+                    return f"x = {x}"
+                m3 = re.fullmatch(
+                    r"([+-]?(?:\d+\.?\d*)?)\*?\s?x\s*=\s*([+-]?\d+\.?\d*)",
+                    q, re.IGNORECASE)
+                if m3:
+                    a_str, c_str = m3.groups()
+                    a = 1.0 if a_str in ("", "+") else (-1.0 if a_str == "-" else float(a_str))
+                    c = float(c_str)
+                    if a == 0.0:
+                        return None
+                    x = c / a
+                    if float(x).is_integer():
+                        x = int(x)
+                    return f"x = {x}"
             
             # Pattern 2: Simple arithmetic "15% of 200"
             if "%" in query:
@@ -2509,7 +2635,7 @@ Code:"""
                 model=model_to_use,
                 messages=enhanced_messages,
                 **temp_params,
-                timeout=getattr(settings, 'generation_timeout', 15),
+                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                 api_base="http://localhost:11434"
             )
             return response.choices[0].message.content
@@ -2542,7 +2668,7 @@ Code:"""
                     model=model_to_use,
                     messages=messages,
                     **temp_params,
-                    timeout=getattr(settings, 'generation_timeout', 15),
+                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
                 responses.append(response.choices[0].message.content)
@@ -2748,14 +2874,28 @@ Code:"""
                 self.performance_metrics["query_type_distribution"].get("general", 0) + 1
             )
     
-    def _generate_cache_key(self, query: str) -> str:
-        """Generate ultra-fast cache key with aggressive normalization."""
-        # Normalize query for maximum cache hits
+    def _generate_cache_key(self, query: str, cache_context: Optional[Dict[str, Any]] = None) -> str:
+        """Generate ultra-fast cache key with aggressive normalization.
+
+        When ``cache_context`` is provided (configuration identity for the
+        code-semantic cache), its relevant fields are folded into the key so an
+        answer cached under one model/mode is never served to another.  The
+        context is lower-cased and normalized the same way as the query so the
+        key is deterministic.
+        """
         normalized = query.lower().strip()
-        # Remove extra whitespace
         normalized = ' '.join(normalized.split())
-        # Remove common punctuation for better matching
         normalized = normalized.replace('?', '').replace('!', '').replace('.', '')
+
+        if cache_context:
+            ctx_parts = [
+                str(cache_context.get('model', '')),
+                str(cache_context.get('language', '')),
+                str(cache_context.get('framework', '')),
+                str(cache_context.get('performance_mode', '')),
+            ]
+            normalized = normalized + '::' + '::'.join(p.lower().strip() for p in ctx_parts)
+
         # Create hash for fast lookup
         return hashlib.md5(normalized.encode()).hexdigest()
     
@@ -2764,17 +2904,24 @@ Code:"""
         total_cache_attempts = self.cache_hits + self.cache_misses
         cache_hit_rate = self.cache_hits / total_cache_attempts if total_cache_attempts > 0 else 0
         
-        global _prefix_cache_hits, _code_semantic_cache_hits
-        
+        global _prefix_response_cache_hits, _code_semantic_cache_hits
+
         return {
             "model": self.model_name,
             "performance_mode": self.performance_mode,
             "cache_size": len(self.cache) if self.cache else 0,
-            "prefix_cache_size": len(self.prefix_cache) if self.prefix_cache else 0,
+            # Prefix-keyed RESPONSE cache stats (NOT a backend KV cache).
+            "prefix_response_cache_size": len(self.prefix_response_cache) if self.prefix_response_cache else 0,
+            "prefix_response_cache_hits": _prefix_response_cache_hits,
+            # Backwards-compatible aliases (deprecated).
+            "prefix_cache_size": len(self.prefix_response_cache) if self.prefix_response_cache else 0,
+            "prefix_cache_hits": _prefix_response_cache_hits,
+            # This gateway performs no backend KV-cache reuse; do not report
+            # KV-token/prefill savings that are not actually measured.
+            "kv_cache_reuse_implemented": False,
             "code_semantic_cache_size": len(_code_semantic_cache) if _code_semantic_cache_enabled else 0,
             "cache_hits": self.cache_hits,
             "cache_misses": self.cache_misses,
-            "prefix_cache_hits": _prefix_cache_hits,
             "code_semantic_cache_hits": _code_semantic_cache_hits,
             "cache_hit_rate": cache_hit_rate,
             "model_routing_enabled": self.enable_model_routing,
@@ -2835,6 +2982,26 @@ Code:"""
             }
         }
 
+_gateway_instance = None
+
 def get_universal_gateway(model_name: str = "phi3:mini", enable_all_optimizations: bool = True, performance_mode: str = "speed") -> UniversalEnhancedGateway:
-    """Get or create a universal gateway instance with maximum speed and intelligence."""
-    return UniversalEnhancedGateway(model_name, enable_all_optimizations, performance_mode)
+    """Get or create a singleton universal gateway instance.
+
+    If the singleton already exists but was created with different parameters,
+    log a warning and return the existing instance (re-creating it would lose
+    accumulated metrics, cache state, and warming data).
+    """
+    global _gateway_instance
+    if _gateway_instance is None:
+        _gateway_instance = UniversalEnhancedGateway(model_name, enable_all_optimizations, performance_mode)
+    else:
+        if (_gateway_instance.model_name != model_name
+                or _gateway_instance.performance_mode != performance_mode):
+            logger.warning(
+                "get_universal_gateway called with different parameters "
+                "(model=%s, mode=%s) than the existing singleton "
+                "(model=%s, mode=%s). Returning existing instance.",
+                model_name, performance_mode,
+                _gateway_instance.model_name, _gateway_instance.performance_mode,
+            )
+    return _gateway_instance

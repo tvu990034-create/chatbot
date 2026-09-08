@@ -226,6 +226,33 @@ class HaystackRAG:
     # Query
     # ------------------------------------------------------------------
 
+    def retrieve(self, question: str) -> dict[str, Any]:
+        """
+        Retrieval-only: embed the query and fetch top-k documents WITHOUT
+        calling the LLM generator (OpenAIGenerator).
+
+        Used by the agent's RAG prefetch so a single request does not spawn an
+        extra full LLM generation just to feed context to the main agent call.
+
+        Returns dict with keys: answer (""), chunks (list[str]), sources (list[str])
+        """
+        if not self._is_built:
+            self.build_pipeline()
+            self.ingest()
+
+        embedder  = self._query_pipeline.get_component("embedder")
+        retriever = self._query_pipeline.get_component("retriever")
+
+        emb_out   = embedder.run({"text": question})
+        query_emb = emb_out["embedding"]
+        docs      = retriever.run({"query_embedding": query_emb})["documents"]
+
+        return {
+            "answer": "",
+            "chunks": [d.content for d in docs],
+            "sources": [d.meta.get("file_path", "unknown") for d in docs],
+        }
+
     def query(self, question: str) -> dict[str, Any]:
         """
         Retrieve relevant context and generate an answer.

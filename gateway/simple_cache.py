@@ -1,12 +1,17 @@
 """
 Simple Response Cache
 In-memory LRU/TTL cache with batched, non-blocking persistence.
+
+All public methods are safe to call from multiple threads.  Counter updates
+use ``threading.Lock`` to avoid lost writes.  JSON persistence writes to a
+temporary file and atomically replaces the original via ``os.replace``.
 """
 
 import hashlib
 import json
 import logging
 import os
+import tempfile
 import threading
 from typing import Dict, Optional
 from pathlib import Path
@@ -19,15 +24,19 @@ logger = logging.getLogger(__name__)
 class SimpleCache:
     """Bounded in-memory cache with optional async JSON persistence."""
 
-    def __init__(self, cache_dir: str = "cache", max_size: int = 1000, default_ttl: float = 3600.0, persist: bool = True):
+    def __init__(self, cache_dir: str = "cache", max_size: int = 1000,
+                 default_ttl: float = 3600.0, persist: bool = True):
         self.cache_dir = Path(cache_dir)
         self.cache_file = self.cache_dir / "response_cache.json"
         self._max_size = max_size
         self._store = BoundedTTLCache(max_size=max_size, default_ttl=default_ttl)
         self._lock = threading.Lock()
+        self._counter_lock = threading.Lock()  # protects _hits, _misses, _writes
         self._hits = 0
         self._misses = 0
         self._writes = 0
+        self._evictions = 0
+        self._errors = 0
         self._dirty = False
         self._pending_save = False
         self._persist = persist
@@ -63,19 +72,43 @@ class SimpleCache:
                 self._store.set(key, {"response": entry, "metadata": {}})
 
     def _save_cache(self) -> None:
+        """Persist the cache to disk atomically.
+
+        Writes to a temporary file in the same directory, flushes to disk,
+        then uses ``os.replace`` to atomically swap it into place.  On
+        Windows ``os.replace`` is **not** truly atomic, but it is the best
+        available primitive and prevents truncated JSON from partial writes.
+        """
         if not self._persist:
             return
         try:
             self.cache_dir.mkdir(exist_ok=True)
             snapshot = {k: v["value"] for k, v in self._store.items_snapshot()}
-            tmp = self.cache_file.with_suffix(".json.tmp")
-            with open(tmp, "w", encoding="utf-8") as f:
-                json.dump(snapshot, f)
-            os.replace(tmp, self.cache_file)
-            self._dirty = False
-            self._pending_save = False
+            # Write to a temporary file in the same directory (same filesystem
+            # so os.replace can work).
+            fd, tmp_path = tempfile.mkstemp(
+                dir=str(self.cache_dir), suffix=".json.tmp"
+            )
+            try:
+                with os.fdopen(fd, "w", encoding="utf-8") as f:
+                    json.dump(snapshot, f)
+                    f.flush()
+                    os.fsync(f.fileno())
+            except Exception:
+                # Clean up the temp file on failure
+                try:
+                    os.unlink(tmp_path)
+                except OSError:
+                    pass
+                raise
+            os.replace(tmp_path, self.cache_file)
+            with self._counter_lock:
+                self._dirty = False
+                self._pending_save = False
         except Exception as e:
             logger.warning("Failed to persist response cache to %s: %s", self.cache_file, e)
+            with self._counter_lock:
+                self._errors += 1
 
     def _schedule_save(self) -> None:
         if not self._persist:
@@ -113,13 +146,30 @@ class SimpleCache:
             language=ctx.get("language", ""),
         )
 
-    def get(self, query: str, context: Optional[Dict] = None) -> Optional[str]:
-        key = self._get_key(query, context)
+    def get(self, query: str = "", context: Optional[Dict] = None, *,
+            _key: Optional[str] = None) -> Optional[str]:
+        """Look up a cached response.
+
+        Parameters
+        ----------
+        query:
+            The user query text.
+        context:
+            Optional dict whose fields (model, temperature, …) feed into the
+            cache identity.  Ignored when ``_key`` is provided.
+        _key:
+            Pre-computed cache identity hash (from ``make_cache_identity``).
+            When provided the internal key derivation is **bypassed** — the
+            caller takes responsibility for key correctness.
+        """
+        key = _key if _key is not None else self._get_key(query, context)
         entry = self._store.get(key)
         if entry is None:
-            self._misses += 1
+            with self._counter_lock:
+                self._misses += 1
             return None
-        self._hits += 1
+        with self._counter_lock:
+            self._hits += 1
         if isinstance(entry, dict):
             return entry.get("response")
         return entry
@@ -163,16 +213,23 @@ class SimpleCache:
             return False
         return True
 
-    def set(self, query: str, response: str, metadata: Optional[Dict] = None, context: Optional[Dict] = None):
+    def set(self, query: str, response: str, metadata: Optional[Dict] = None,
+            context: Optional[Dict] = None, *, _key: Optional[str] = None):
+        """Store a response in the cache.
+
+        Parameters follow :meth:`get`.  ``_key`` bypasses internal key
+        derivation when a pre-computed identity hash is available.
+        """
         if not self._is_valid_response(response):
             logger.warning("Invalid response not cached")
             return
-        key = self._get_key(query, context)
+        key = _key if _key is not None else self._get_key(query, context)
         self._store.set(key, {"response": response, "metadata": metadata or {}})
-        self._writes += 1
-        self._dirty = True
-        if self._writes % 10 == 0:
-            self._schedule_save()
+        with self._counter_lock:
+            self._writes += 1
+            self._dirty = True
+            if self._writes % 10 == 0:
+                self._schedule_save()
 
     def save_now(self):
         if self._dirty:
@@ -180,9 +237,20 @@ class SimpleCache:
 
     def clear(self):
         self._store.clear()
-        self._hits = 0
-        self._misses = 0
-        self._writes = 0
+        with self._counter_lock:
+            self._hits = 0
+            self._misses = 0
+            self._writes = 0
+            self._evictions = 0
+            self._errors = 0
+        # Unblock any waiters parked on in-flight keys and drop their results so
+        # a clear() can never leave stale state behind (stale waiter + stale
+        # result = 30s hang followed by an old answer).
+        with self._lock:
+            for ev in self._in_flight.values():
+                ev.set()
+            self._in_flight.clear()
+            self._in_flight_results.clear()
         self._save_cache()
 
     def clear_benchmark_data(self):
@@ -193,14 +261,20 @@ class SimpleCache:
         logger.info("Cleared all cache data for benchmark mode")
 
     def stats(self) -> Dict:
-        total = self._hits + self._misses
+        with self._counter_lock:
+            hits = self._hits
+            misses = self._misses
+            writes = self._writes
+            errors = self._errors
+        total = hits + misses
         return {
-            "hits": self._hits,
-            "misses": self._misses,
-            "writes": self._writes,
+            "hits": hits,
+            "misses": misses,
+            "writes": writes,
             "size": len(self._store),
-            "hit_rate": self._hits / total if total else 0,
+            "hit_rate": hits / total if total else 0,
             "dirty": self._dirty,
+            "errors": errors,
         }
 
 

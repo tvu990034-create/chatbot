@@ -182,3 +182,64 @@ class Eq9AnomalyDetector:
         variance = sum((x - avg) ** 2 for x in self.samples) / len(self.samples)
         std = variance ** 0.5
         return {"mean": avg, "stdev": std, "samples": len(self.samples)}
+
+
+def eq18_query_complexity(query: str) -> float:
+    """
+    Eq18 – Query complexity score (0.0 simple … 1.0 very complex).
+
+    Heuristic: length + keyword density + question marks.
+    """
+    q = query.lower()
+    length_score = min(len(q) / 300.0, 1.0)
+    kw = ("explain", "compare", "why", "how does", "derive", "proof",
+          "optimize", "analyze", "reason about", "step by step")
+    kw_hits = sum(1 for w in kw if w in q)
+    kw_score = min(kw_hits / 4.0, 1.0)
+    qmarks = q.count("?")
+    qmark_score = min(qmarks / 3.0, 1.0)
+    return 0.4 * length_score + 0.4 * kw_score + 0.2 * qmark_score
+
+
+def eq19_should_use_bon(complexity: float, cost_per_sample: float) -> bool:
+    """Eq19 – Whether to use Best-of-N for this query."""
+    return complexity > 0.6 and cost_per_sample < 0.02
+
+
+def eq19_optimal_n(
+    mu_reward: float = 0.6,
+    sigma_reward: float = 0.2,
+    cost_per_sample: float = 0.005,
+    max_n: int = 3,
+) -> int:
+    """Eq19 – Optimal sample count for Best-of-N."""
+    # Simplified: more samples when sigma is high
+    if sigma_reward < 0.1:
+        return 1
+    n = int(min(1 + sigma_reward * 10, max_n))
+    return max(1, n)
+
+
+def eq19_best_of_n_expected_quality(
+    n: int, mu: float, sigma: float
+) -> float:
+    """Eq19 – Expected max quality across N samples (normal order stats)."""
+    if n <= 0:
+        return mu
+    # Simplified approximation using E[max] ≈ mu + sigma * Phi_inv((n-0.375)/(n+0.25))
+    from math import erf, sqrt
+    p = (n - 0.375) / (n + 0.25)
+    # Inverse normal CDF approximation (Beasley-Springer-Moro)
+    if p <= 0:
+        return mu
+    if p >= 1:
+        return mu + sigma * 2.5
+    t = sqrt(-2 * (1 - p) if p < 0.5 else -2 * p)
+    if t == 0:
+        return mu
+    c0, c1, c2 = 2.515517, 0.802853, 0.010328
+    d1, d2, d3 = 1.432788, 0.189269, 0.001308
+    inv = t - (c0 + c1 * t + c2 * t * t) / (1 + d1 * t + d2 * t * t + d3 * t * t * t)
+    if p < 0.5:
+        inv = -inv
+    return mu + sigma * inv

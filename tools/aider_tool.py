@@ -178,7 +178,7 @@ class RepoMapTool(_get_langchain_tools()):  # type: ignore[misc]
 
     async def _arun(self, **kwargs: Any) -> str:
         import asyncio
-        return await asyncio.get_event_loop().run_in_executor(None, self._run, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, self._run, **kwargs)
 
 
 class FileReadTool(_get_langchain_tools()):  # type: ignore[misc]
@@ -215,7 +215,7 @@ class FileReadTool(_get_langchain_tools()):  # type: ignore[misc]
 
     async def _arun(self, **kwargs: Any) -> str:
         import asyncio
-        return await asyncio.get_event_loop().run_in_executor(None, self._run, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, self._run, **kwargs)
 
 
 class CodeSearchTool(_get_langchain_tools()):  # type: ignore[misc]
@@ -258,7 +258,7 @@ class CodeSearchTool(_get_langchain_tools()):  # type: ignore[misc]
 
     async def _arun(self, **kwargs: Any) -> str:
         import asyncio
-        return await asyncio.get_event_loop().run_in_executor(None, self._run, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, self._run, **kwargs)
 
 
 class AiderEditTool(_get_langchain_tools()):  # type: ignore[misc]
@@ -323,7 +323,7 @@ class AiderEditTool(_get_langchain_tools()):  # type: ignore[misc]
 
     async def _arun(self, **kwargs: Any) -> str:
         import asyncio
-        return await asyncio.get_event_loop().run_in_executor(None, self._run, **kwargs)
+        return await asyncio.get_running_loop().run_in_executor(None, self._run, **kwargs)
 
 
 # ---------------------------------------------------------------------------

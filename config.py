@@ -397,6 +397,14 @@ class Settings(BaseSettings):
         3600,
         description="Time-to-live for cached responses (seconds)"
     )
+    semantic_cache_enabled: bool = Field(
+        True,
+        description="Enable semantic (second-stage cosine) cache fallback beside exact-match"
+    )
+    semantic_cache_threshold: float = Field(
+        0.70,
+        description="Similarity threshold for semantic cache fallback (0.0-1.0)"
+    )
 
     # ------------------------------------------------------------------
     # LoRA/QLoRA Fine-Tuning Configuration
@@ -1744,6 +1752,10 @@ class Settings(BaseSettings):
     token_budget: int = Field(
         4096,
         description="Token budget for history",
+    )
+    rag_token_budget: int = Field(
+        2000,
+        description="Token budget for RAG-retrieved context",
     )
     sliding_window_overlap: int = Field(
         512,

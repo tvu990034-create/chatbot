@@ -96,7 +96,7 @@ class SelfRAGProcessor:
             docs.append(RetrievedDocument(
                 content=content,
                 source=f"{category}_kb_{i}",
-                score=0.9 - (i * 0.1)  # Decreasing scores
+                score=0.9 - (i * 0.1),  # Decreasing scores
                 reflections=[]
             ))
         
@@ -170,7 +170,7 @@ Answer with YES or NO, then briefly explain."""
                 confidence=0.0
             )
     
-    def generate_with_rag(self, query: str, choices: List[str]) -> Tuple[str, List[Reflection]]:
+    def generate_with_rag(self, query: str, choices: list[str]) -> tuple[str, list[Reflection]]:
         """Generate answer with RAG and self-reflection."""
         # Retrieve documents
         docs = self.retrieve_with_reflection(query)
@@ -197,7 +197,7 @@ Answer with YES or NO, then briefly explain."""
         
         return answer, [overall_reflection]
     
-    def _generate_rag_answer(self, query: str, choices: List[str], context: str) -> str:
+    def _generate_rag_answer(self, query: str, choices: list[str], context: str) -> str:
         """Generate answer using retrieved context."""
         from litellm import completion
         
@@ -286,7 +286,7 @@ class HybridRAGReasoning:
         self.model = model
         self.self_rag = SelfRAGProcessor(model)
         
-    def answer_with_rag_reasoning(self, question: str, choices: List[str]) -> Dict[str, Any]:
+    def answer_with_rag_reasoning(self, question: str, choices: list[str]) -> dict[str, Any]:
         """Answer using combined RAG and reasoning."""
         # Try RAG first
         rag_answer, reflections = self.self_rag.generate_with_rag(question, choices)
@@ -312,7 +312,7 @@ class HybridRAGReasoning:
             "reflections": [r.content for r in reflections]
         }
     
-    def _enhanced_reasoning(self, question: str, choices: List[str]) -> str:
+    def _enhanced_reasoning(self, question: str, choices: list[str]) -> str:
         """Enhanced reasoning fallback."""
         from litellm import completion
         

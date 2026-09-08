@@ -31,9 +31,9 @@ def test_settings_defaults():
 def test_performance_equations_toggle():
     """Test that performance equations can be disabled."""
     from config import settings
-    
-    # Should be disabled by default for safety
-    assert settings.enable_performance_equations is False
+
+    # Enabled by default for maximum performance (see config.py).
+    assert settings.enable_performance_equations is True
 
 
 def test_paths_exist():

@@ -1,126 +1,79 @@
 """
 agents/langgraph_agent.py
 ~~~~~~~~~~~~~~~~~~~~~~~~~
-LangGraph stateful agent — enhanced with:
+LangGraph stateful agent with a single canonical request path:
 
-  Eq1  KV-cache recycling via smart memory window trimming.
-       history tokens are tracked and the window is cut to the Eq1-optimal
-       size before each LLM call to maximise TTFB reduction.
-
-  Eq2  Async RAG prefetch-and-overlap.
-       RAG retrieval is fired as an asyncio.Task *before* the LLM call
-       starts, so retrieval runs concurrently with LLM prefill.
-       visible_latency is logged each turn.
-
-  Advanced Reasoning Integration
-       Automatic use of cutting-edge reasoning techniques including:
-       - Geodesic Flow for optimal reasoning paths
-       - Abductive Leap for insight-based reasoning
-       - Quantum Superposition for uncertainty handling
-       - Active Inference for principled step selection
-       - Constitutional Alignment for value alignment
-       - Causal Pruning for efficient reasoning
+  1. Cache check (context-aware key via make_cache_identity)
+  2. Quick-path bypass for greetings / simple arithmetic
+  3. LangGraph: rag_node_async -> agent_node -> tools
+  4. agent_node always uses resolve_generation_policy for temperature/max_tokens
+  5. Results cached and metadata returned to caller
 """
 
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import logging
+import threading
 import time
-from typing import Annotated, Any, Literal, Optional
+from typing import Annotated, Any, Literal, Optional, TypedDict
 
 from config import settings
-from gateway.perf_math import (
-    ChatMetrics,
-    eq1_ttfb_reduction_fraction,
-    eq2_visible_latency,
-    eq2_speedup_prefetch,
-    eq18_query_complexity,
-    eq19_best_of_n_expected_quality,
-    eq19_optimal_n,
-    eq19_should_use_bon,
-)
 
 logger = logging.getLogger(__name__)
 
-# BUG 30 FIX: Track recent tool calls to detect repetition
-_recent_tool_calls: list[dict] = []
-_MAX_RECENT_TOOL_CALLS = 10
+# Equation wiring is installed once per process (idempotent behind flags).
+_wiring_installed = False
+_wiring_lock = threading.Lock()
 
-def _detect_repeated_tool_call(tool_name: str, tool_args: dict) -> bool:
-    """BUG 30 FIX: Detect if this tool call is a repeat of recent calls."""
-    global _recent_tool_calls
-    
-    # Create fingerprint of this call
-    call_fingerprint = f"{tool_name}:{str(sorted(tool_args.items()))}"
-    
-    # Check if this call matches any recent call
-    for recent in _recent_tool_calls:
-        if recent.get('fingerprint') == call_fingerprint:
-            logger.warning(f"Detected repeated tool call: {tool_name}, blocking to prevent loop")
-            return True
-    
-    return False
 
-def _record_tool_call(tool_name: str, tool_args: dict):
-    """BUG 30 FIX: Record a tool call for repetition detection."""
-    global _recent_tool_calls
-    
-    call_fingerprint = f"{tool_name}:{str(sorted(tool_args.items()))}"
-    _recent_tool_calls.append({
-        'fingerprint': call_fingerprint,
-        'tool': tool_name,
-        'timestamp': time.time()
-    })
-    
-    # Keep only recent calls
-    if len(_recent_tool_calls) > _MAX_RECENT_TOOL_CALLS:
-        _recent_tool_calls.pop(0)
+@dataclasses.dataclass
+class ChatResult:
+    """Structured response from achat/chat with full optimization metadata."""
+    reply: str = ""
+    cache_hit: bool = False
+    model_used: str = ""
+    rag_used: bool = False
+    rag_chunks: int = 0
+    input_tokens: int = 0
+    output_tokens: int = 0
+    reasoning_used: bool = False
+    generation_policy: str = ""
+
+
+class AgentState(TypedDict):
+    """State schema for the LangGraph agent (kept at module level so the lazy
+    langchain/litellm type names resolve via module globals in LangGraph's
+    runtime get_type_hints).  BaseMessage/add_messages are injected into
+    module globals by build_agent() before the graph is constructed."""
+    messages: "Annotated[list[Any], add_messages]"
+    rag_context: str
+    rag_fetch_time: float
+    _req_ctx: "dict[str, Any]"
+    rag_task: Any  # Eq2: pre-launched asyncio.Task returned by _rag_prefetch
+    advanced_reasoning_used: bool
+    reasoning_metadata: "dict[str, Any]"
+    model_used: str
+    generation_policy: str
+    input_tokens: int
+    output_tokens: int
+    _tool_call_counts: "dict[str, int]"  # request-scoped repeated-call detector
+
+
 
 def _truncate_tool_output(output: str) -> str:
-    """BUG 58 FIX: Truncate tool output to prevent context explosion."""
+    """BUG 58 FIX: Reduce huge tool outputs before they reach the model context.
+    Uses structured truncation (JSON / code / logs) that preserves the most
+    important head/tail sections."""
     if not output:
         return output
-    
+
+    from gateway.opt_core import structured_truncate
+
     max_chars = getattr(settings, 'agent_max_tool_output_chars', 5000)
     max_tokens = getattr(settings, 'agent_max_tool_output_tokens', 1000)
-    
-    # Truncate by character count
-    if len(output) > max_chars:
-        truncated = output[:max_chars] + "\n\n[Output truncated due to length limit]"
-        logger.warning(f"Tool output truncated from {len(output)} to {max_chars} characters")
-        return truncated
-    
-    # Estimate token truncation (rough estimate: 4 chars per token)
-    estimated_tokens = len(output) // 4
-    if estimated_tokens > max_tokens:
-        truncate_chars = max_tokens * 4
-        truncated = output[:truncate_chars] + "\n\n[Output truncated due to token limit]"
-        logger.warning(f"Tool output truncated from estimated {estimated_tokens} to {max_tokens} tokens")
-        return truncated
-    
-    return output
-
-# Per-agent turn metrics
-_agent_metrics = ChatMetrics()
-
-# Optional advanced optimizations
-_ode_agent = None
-try:
-    from gateway.advanced_optimizations import get_ode_agent
-    _ode_available = True
-except ImportError as exc:
-    logger.warning(
-        "Neural ODE agent not available (ImportError: %s). "
-        "Advanced optimizations disabled.", exc
-    )
-    _ode_available = False
-except Exception as exc:
-    logger.error(
-        "Unexpected error loading Neural ODE agent: %s. "
-        "Advanced optimizations disabled.", exc
-    )
-    _ode_available = False
+    return structured_truncate(output, max_chars=max_chars, max_tokens=max_tokens)
 
 
 # ---------------------------------------------------------------------------
@@ -154,7 +107,12 @@ def _get_langgraph():
 async def _rag_prefetch(question: str) -> str:
     """
     Start RAG retrieval immediately and return a formatted context string.
-    Called as an asyncio.Task so it overlaps with LLM prefill (Eq2).
+    Called as an asyncio.Task to start retrieval early (no LLM overlap with current backend).
+
+    Performance: uses retrieval-ONLY providers (embed + fetch top-k chunks,
+    no LLM generation).  The main agent call does the synthesising, so a
+    RAG request triggers exactly ONE LLM call instead of three (0 redundant
+    RAG generations).
     """
     from config import RAGProvider
     provider = settings.rag_provider
@@ -163,27 +121,39 @@ async def _rag_prefetch(question: str) -> str:
 
     snippets: list[str] = []
 
+    def _format_chunks(result: dict) -> str | None:
+        chunks = result.get("chunks") or []
+        if not chunks:
+            return None
+        sources = result.get("sources") or []
+        lines = []
+        for i, chunk in enumerate(chunks, start=1):
+            src = sources[i - 1] if i - 1 < len(sources) else "unknown"
+            text = chunk if isinstance(chunk, str) else str(chunk)
+            lines.append(f"[chunk {i}] ({src})\n{text[:2000]}")
+        return "\n\n".join(lines)
+
     async def _fetch_llama():
         try:
             from rag.llama_index_rag import get_rag
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: get_rag().query(question)
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: get_rag().retrieve(question)
             )
-            if result.get("answer"):
-                sources = ", ".join(result.get("sources", []))
-                snippets.append(f"[LlamaIndex]\n{result['answer']}\nSources: {sources}")
+            body = _format_chunks(result) if isinstance(result, dict) else None
+            if body:
+                snippets.append(f"[LlamaIndex context]\n{body}")
         except Exception as exc:
             logger.warning("Eq2 LlamaIndex prefetch failed: %s", exc)
 
     async def _fetch_haystack():
         try:
             from rag.haystack_pipeline import get_haystack_rag
-            result = await asyncio.get_event_loop().run_in_executor(
-                None, lambda: get_haystack_rag().query(question)
+            result = await asyncio.get_running_loop().run_in_executor(
+                None, lambda: get_haystack_rag().retrieve(question)
             )
-            if result.get("answer"):
-                sources = ", ".join(result.get("sources", []))
-                snippets.append(f"[Haystack]\n{result['answer']}\nSources: {sources}")
+            body = _format_chunks(result) if isinstance(result, dict) else None
+            if body:
+                snippets.append(f"[Haystack context]\n{body}")
         except Exception as exc:
             logger.warning("Eq2 Haystack prefetch failed: %s", exc)
 
@@ -203,108 +173,60 @@ async def _rag_prefetch(question: str) -> str:
 # Eq1 – smart memory window
 # ---------------------------------------------------------------------------
 
-def _trim_messages_eq1(messages: list, window: int) -> list:
+def _trim_messages_eq1(messages: list, token_budget: int = 8192) -> list:
     """
-    Trim conversation history to at most `window` non-system messages,
-    always preserving the system message and the latest user message.
-    BUG 24 FIX: Preserve coherent conversation turns (user/assistant/tool relationships).
+    Token-based context trimming (preserves system prompt and recent conversation).
 
-    This maximises the Eq1 TTFB-reduction fraction by ensuring most of the
-    prompt is history that can be served from KV-cache rather than re-prefilled.
+    Priority order:
+      1. System messages (always kept)
+      2. Current user message (always kept)
+      3. Most recent conversation turns (newest first)
+      4. Older conversation (added until budget exhausted)
     """
     if not messages:
         return messages
 
-    system_msgs  = [m for m in messages if getattr(m, "type", "") == "system"]
-    convo_msgs   = [m for m in messages if getattr(m, "type", "") != "system"]
+    from gateway.opt_core import estimate_tokens
 
-    if len(convo_msgs) <= window:
-        return messages  # nothing to trim
+    system_msgs = [m for m in messages if getattr(m, "type", "") == "system"]
+    convo_msgs  = [m for m in messages if getattr(m, "type", "") != "system"]
 
-    # BUG 24 FIX: Preserve coherent conversation turns
-    # Find the last user message - we must keep everything after the last complete turn
-    last_user_idx = None
-    for i in range(len(convo_msgs) - 1, -1, -1):
-        if getattr(convo_msgs[i], "type", "") == "human":
-            last_user_idx = i
+    if not convo_msgs:
+        return messages
+
+    # Budget consumed by system messages
+    system_tokens = sum(estimate_tokens(m.content) for m in system_msgs)
+    remaining = token_budget - system_tokens
+
+    if remaining <= 0:
+        return system_msgs + convo_msgs[-1:]
+
+    # Always keep the last message (current user message)
+    last_msg = convo_msgs[-1]
+    remaining -= estimate_tokens(last_msg.content)
+
+    if len(convo_msgs) <= 1:
+        return system_msgs + convo_msgs
+
+    # Fill from newest backward (excluding the last message already accounted for)
+    older = convo_msgs[:-1]
+    kept: list = []
+    for msg in reversed(older):
+        cost = estimate_tokens(msg.content)
+        if remaining - cost < 0:
             break
-    
-    if last_user_idx is None:
-        # No user message found, keep last `window` messages
-        trimmed_convo = convo_msgs[-window:]
-    else:
-        # Keep the last complete turn (user + assistant + any tool calls/results)
-        # Then add previous messages up to window limit
-        turn_start = last_user_idx
-        messages_before_turn = convo_msgs[:turn_start]
-        messages_in_turn = convo_msgs[turn_start:]
-        
-        # Calculate how many messages we can keep from before the turn
-        remaining_slots = max(0, window - len(messages_in_turn))
-        if remaining_slots > 0:
-            trimmed_before = messages_before_turn[-remaining_slots:]
-        else:
-            trimmed_before = []
-        
-        trimmed_convo = trimmed_before + messages_in_turn
-    
-    result = system_msgs + trimmed_convo
+        kept.append(msg)
+        remaining -= cost
 
-    # BUG 26 FIX: Log Eq1 impact as estimated, not measured
-    # BUG 11 FIX: Use correct arguments for eq1_ttfb_reduction_fraction
-    original_chars = sum(len(getattr(m, "content", "")) for m in convo_msgs)
-    kept_chars     = sum(len(getattr(m, "content", "")) for m in trimmed_convo)
-    # Use cache_hit=False since we're trimming, not checking cache
-    reduction = eq1_ttfb_reduction_fraction(
-        latency_ms=0,  # Not applicable for trim operation
-        cache_hit=False,
-        prewarm_enabled=False
-    )
+    kept.reverse()
+    result = system_msgs + kept + [last_msg]
+
     logger.debug(
-        "Eq1 window trim: %d→%d msgs  ESTIMATED TTFB-reduction=%.1f%% (not measured)",
-        len(convo_msgs), len(trimmed_convo), reduction * 100,
+        "Eq1 token trim: %d msgs → %d msgs  (budget=%d, kept≈%d tokens)",
+        len(convo_msgs), len(kept) + 1,
+        token_budget, token_budget - remaining,
     )
     return result
-
-
-# ---------------------------------------------------------------------------
-# LiteLLM chat model shim
-# ---------------------------------------------------------------------------
-
-def _make_litellm_chat_model():
-    try:
-        from langchain_community.chat_models import ChatLiteLLM
-        from config import get_litellm_model
-        return ChatLiteLLM(
-            model=get_litellm_model(),
-            api_base=settings.litellm_api_base,
-            max_tokens=settings.litellm_max_tokens,
-            temperature=settings.litellm_temperature,
-            streaming=settings.litellm_stream,
-        )
-    except ImportError:
-        pass
-
-    from langchain_core.language_models.chat_models import BaseChatModel
-    from langchain_core.messages import BaseMessage, AIMessage
-    from langchain_core.outputs import ChatGeneration, ChatResult
-
-    class _Shim(BaseChatModel):
-        @property
-        def _llm_type(self) -> str:
-            return "litellm-shim"
-
-        def _generate(self, messages: list[BaseMessage], **kwargs) -> ChatResult:
-            from gateway.litellm_gateway import chat as gw_chat
-            formatted = [
-                {"role": m.type if m.type != "human" else "user",
-                 "content": m.content}
-                for m in messages
-            ]
-            text = gw_chat(formatted)
-            return ChatResult(generations=[ChatGeneration(message=AIMessage(content=text))])
-
-    return _Shim()
 
 
 # ---------------------------------------------------------------------------
@@ -318,161 +240,378 @@ def build_agent(extra_tools: list | None = None):
         END, START, StateGraph, add_messages, ToolNode,
     ) = _get_langgraph()
 
-    from typing import TypedDict
+    # Make the lazy-imported names resolvable by LangGraph's runtime
+    # get_type_hints() on the module-level AgentState TypedDict (it evaluates
+    # annotations against module globals, not function locals).
+    from langchain_core.messages import (
+        AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage,
+    )
+    globals()["AIMessage"] = AIMessage
+    globals()["BaseMessage"] = BaseMessage
+    globals()["HumanMessage"] = HumanMessage
+    globals()["SystemMessage"] = SystemMessage
+    globals()["ToolMessage"] = ToolMessage
+    globals()["add_messages"] = add_messages
+
     from tools.aider_tool import get_code_tools
 
-    tools          = get_code_tools() + (extra_tools or [])
-    llm            = _make_litellm_chat_model()
-    llm_with_tools = llm.bind_tools(tools) if tools else llm
-
-    class AgentState(TypedDict):
-        messages:    Annotated[list[BaseMessage], add_messages]
-        rag_context: str
-        # Eq2 timing fields
-        rag_start_time:  float
-        rag_fetch_time:  float
-        # Advanced reasoning metadata
-        advanced_reasoning_used: bool
-        reasoning_metadata: dict[str, Any]
+    tools = get_code_tools() + (extra_tools or [])
+    _have_tools = bool(tools)
 
     # ---- Nodes ----
 
-    def agent_node(state: AgentState) -> dict[str, Any]:
-        """Eq1: trim to memory window; then call LLM with automatic advanced reasoning."""
+    async def agent_node(state: AgentState) -> dict[str, Any]:
+        """Trim history, always apply generation policy, call LLM (async)."""
+        import litellm
+        from gateway.opt_core import (
+            resolve_generation_policy, estimate_tokens,
+            get_router_state, select_model, ollama_model_id,
+            detect_code_intent, check_model_available,
+        )
+
         msgs     = list(state["messages"])
         rag_ctx  = state.get("rag_context", "")
         t_rag    = state.get("rag_fetch_time", 0.0)
+        req_ctx  = state.get("_req_ctx", {})
 
-        # Eq1 – trim history to optimal window
-        msgs = _trim_messages_eq1(msgs, settings.agent_memory_window)
+        # --- Canonical context building: system -> current -> retrieved ->
+        #     recent history -> old history, checked against the model context
+        #     limit.  This is the SINGLE prompt optimizer on the live path.
+        from gateway.opt_core import build_context_messages
+        system_content = req_ctx.get("system_prompt") or settings.agent_system_prompt
+        built = build_context_messages(
+            msgs,
+            system_prompt=system_content,
+            rag_context=rag_ctx,
+            context_limit=getattr(settings, "context_window_size", 8192),
+            budget=getattr(settings, "token_budget", 4096),
+            compression_ratio=0.6,
+            always_keep_n_history=6,
+        )
+        formatted_msgs = built.messages
+        query_text = formatted_msgs[-1]["content"] if formatted_msgs else ""
+        if built.compressed:
+            logger.info("Compressed context: %s", built.reasoning)
+        is_math = any(w in query_text.lower() for w in (
+            "calculate", "solve", "equation", "+", "-", "*", "/",
+        ))
+        is_coding = detect_code_intent(query_text)
+        is_complex = len(query_text) > 100
+        needs_reasoning = any(w in query_text.lower() for w in (
+            "why", "how", "explain", "reason",
+        ))
 
-        # Automatic advanced reasoning integration
-        use_advanced_reasoning = (
-            settings.enable_advanced_reasoning and
-            len(msgs) >= 1 and
-            msgs[-1].type == "human" and
-            len(msgs[-1].content) > 50  # Only for substantive questions
+        # NOTE: use a types.SimpleNamespace instead of a nested class — a class
+        # body cannot see the enclosing-function locals (is_math = is_math fails).
+        from types import SimpleNamespace
+        _Analysis = SimpleNamespace(
+            is_math=is_math, is_coding=is_coding, is_complex=is_complex,
+            needs_reasoning=needs_reasoning,
+            expected_response_length=(
+                "short" if len(query_text) < 30 else "medium"),
+            query_text=query_text,
         )
 
-        reasoning_metadata = {}
-        if use_advanced_reasoning:
-            try:
-                # Use our advanced reasoning integration
-                from advanced_reasoning_integration import EnhancedReasoningEngine
-                from litellm_model_adapter import LiteLLMModelAdapter
+        # --- Request params ---
+        req_model = req_ctx.get("model")
+        req_temp = req_ctx.get("temperature")
+        req_max = req_ctx.get("max_tokens")
+        use_router = req_ctx.get("use_router", True)
+        speed_mode = req_ctx.get("speed_mode", False)
 
-                # Initialize components
-                model_adapter = LiteLLMModelAdapter(settings.default_model)
-                enhanced_engine = EnhancedReasoningEngine(
-                    model_adapter,
-                    hidden_dim=model_adapter.hidden_dim,
-                    use_advanced_techniques=settings.use_cutting_edge_techniques
+        # --- Model selection (always applied) ---
+        base_model = req_model or settings.default_model
+        model_to_use = ollama_model_id(base_model)
+
+        # Code intent routing: prefer code-specialized model if available
+        code_model = None
+        if is_coding and not req_model:
+            code_candidates = ["ollama/deepseek-coder:1.3b", "ollama/codellama:7b"]
+            # Check availability in parallel to avoid sequential network calls
+            availability = await asyncio.gather(*[
+                asyncio.to_thread(check_model_available, cm)
+                for cm in code_candidates
+            ])
+            for cm, available in zip(code_candidates, availability):
+                if available:
+                    code_model = cm
+                    break
+
+        # If router is enabled, let RouterState decide
+        if use_router and not req_model:
+            router_state = get_router_state()
+            model_to_use = ollama_model_id(
+                select_model(
+                    requested=settings.default_model,
+                    routed=None,
+                    code_model=code_model,
+                    state=router_state,
+                    expected_output_tokens=req_max or settings.litellm_max_tokens,
                 )
-
-                # Extract problem from last message
-                problem = msgs[-1].content
-                context = "\n".join([f"{m.type}: {m.content}" for m in msgs[:-1]])
-
-                # Generate enhanced reasoning
-                result = enhanced_engine.generate_enhanced_cot(
-                    problem,
-                    max_steps=settings.reasoning_max_steps
-                )
-
-                # Incorporate reasoning into the prompt
-                reasoning_chain = " ".join(result['chain'])
-                if reasoning_chain:
-                    # Add reasoning as system context
-                    enhanced_prompt = f"Context: {context}\n\nReasoning: {reasoning_chain}\n\nUser: {problem}"
-                    msgs[-1] = HumanMessage(content=enhanced_prompt)
-
-                    reasoning_metadata = {
-                        "framework": "cutting_edge" if settings.use_cutting_edge_techniques else "standard_advanced",
-                        "num_steps": result['num_steps'],
-                        "coherence_loss": result.get('coherence_loss', 0),
-                        "techniques_used": result.get('used_advanced_techniques', 'unknown')
-                    }
-
-                    logger.info(f"Applied advanced reasoning: {reasoning_metadata['framework']} with {result['num_steps']} steps")
-
-            except Exception as exc:
-                logger.warning(f"Advanced reasoning failed, falling back to standard: {exc}")
-                reasoning_metadata = {"error": str(exc), "framework": "fallback"}
-
-        # Build system message with RAG context appended
-        system_content = settings.agent_system_prompt
-        if rag_ctx:
-            system_content += (
-                "\n\nRelevant context retrieved from documents:\n"
-                + rag_ctx
-                + "\n\nUse this context when answering."
             )
+        elif code_model:
+            model_to_use = code_model
 
-        if not msgs or msgs[0].type != "system":
-            msgs = [SystemMessage(content=system_content)] + msgs
+        # Verify model availability; fall back to default if not found
+        if not await asyncio.to_thread(check_model_available, model_to_use):
+            logger.warning("Model %s not available, falling back to %s",
+                          model_to_use, settings.default_model)
+            model_to_use = ollama_model_id(settings.default_model)
+
+        # --- Speed mode overrides ---
+        policy = None  # only set when not in speed mode
+        if speed_mode:
+            # Speed mode: reduce work, use faster settings
+            if is_math:
+                # Math still needs precision
+                speed_temp = 0.1
+            else:
+                speed_temp = min(req_temp or 0.3, 0.3)
+            reasoning_intent = is_math or is_coding or needs_reasoning
+            from gateway.opt_core import speed_mode_max_tokens
+            speed_max = speed_mode_max_tokens(req_max, is_reasoning=reasoning_intent)
+            final_temperature = speed_temp
+            final_max_tokens = speed_max
         else:
-            msgs[0] = SystemMessage(content=system_content)
+            # --- Generation policy (always computed) ---
+            base_params = {}
+            if req_temp is not None:
+                base_params["temperature"] = req_temp
+            if req_max is not None:
+                base_params["max_tokens"] = req_max
 
-        t_llm_start = time.perf_counter()
-        response    = llm_with_tools.invoke(msgs)
-        t_llm       = time.perf_counter() - t_llm_start
-
-        # Eq2 – log overlap metrics
-        if t_rag > 0:
-            t_prefill_est = t_llm * 0.35
-            vis_lat  = eq2_visible_latency(t_rag, t_prefill_est, t_llm * 0.65)
-            speedup  = eq2_speedup_prefetch(t_llm, t_rag, t_prefill_est)
-            logger.debug(
-                "Eq2 agent overlap: rag=%.2fs llm=%.2fs vis_lat=%.0fms speedup=%.2fx",
-                t_rag, t_llm, vis_lat * 1000, speedup,
+            policy = resolve_generation_policy(
+                _Analysis,
+                base=base_params,
+                configured_max_tokens=req_max or settings.litellm_max_tokens,
+                model_name=model_to_use,
             )
+
+            # User-provided values override the policy
+            final_temperature = req_temp if req_temp is not None else policy.temperature
+            final_max_tokens = req_max if req_max is not None else policy.max_tokens
+
+        # Record inflight for load-aware routing
+        router_state = get_router_state()
+        router_state.record_start(model_to_use)
+        try:
+            from gateway.opt_core import adaptive_generation_timeout
+            kwargs = {
+                "model": model_to_use,
+                "messages": formatted_msgs,
+                "temperature": final_temperature,
+                "max_tokens": final_max_tokens,
+                "timeout": adaptive_generation_timeout(
+                    final_max_tokens,
+                    getattr(settings, "generation_timeout", 15),
+                ),
+                "api_base": settings.litellm_api_base or "http://localhost:11434",
+            }
+
+            # Pass top_p and top_k from generation policy (unless speed mode)
+            if not speed_mode and policy is not None:
+                kwargs["top_p"] = policy.top_p
+                kwargs["top_k"] = policy.top_k
+
+            t_llm_start = time.perf_counter()
+            response_obj = await litellm.acompletion(**kwargs)
+            t_llm = time.perf_counter() - t_llm_start
+
+            from langchain_core.messages import AIMessage
+            response = AIMessage(content=response_obj.choices[0].message.content)
+            actual_model = response_obj.model if hasattr(response_obj, 'model') else model_to_use
+            usage = getattr(response_obj, "usage", None)
+            out_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+        finally:
+            router_state.record_end(model_to_use)
+
+        if t_rag > 0:
+            logger.debug("RAG+LLM: rag=%.2fs llm=%.2fs", t_rag, t_llm)
+
+        policy_reason = "speed_mode" if speed_mode else (
+            policy.reason if policy is not None else ""
+        )
 
         return {
             "messages": [response],
-            "advanced_reasoning_used": use_advanced_reasoning,
-            "reasoning_metadata": reasoning_metadata,
+            "advanced_reasoning_used": False,
+            "reasoning_metadata": {},
+            "model_used": actual_model,
+            "generation_policy": policy_reason,
+            "input_tokens": built.input_tokens,
+            "output_tokens": out_tokens,
         }
 
     async def rag_node_async(state: AgentState) -> dict[str, Any]:
-        """
-        Eq2: fire RAG retrieval as an asyncio task so it starts BEFORE
-        the LLM prefill begins.  The task result is awaited in agent_node.
-        """
+        """RAG retrieval — runs exactly once per request."""
+        req_ctx = state.get("_req_ctx", {})
+        use_rag = req_ctx.get("use_rag", True)
+        if not use_rag:
+            return {"rag_context": "", "rag_fetch_time": 0.0}
+
         msgs       = state["messages"]
         last_human = next(
             (m for m in reversed(msgs) if m.type == "human"), None
         )
         if last_human is None:
-            return {"rag_context": "", "rag_start_time": 0.0, "rag_fetch_time": 0.0}
+            return {"rag_context": "", "rag_fetch_time": 0.0}
+
+        # RAG skip fast path: simple queries don't need retrieval
+        from gateway.opt_core import is_safe_quick_path
+        if is_safe_quick_path(last_human.content):
+            logger.debug("RAG skip: query is simple/conversational")
+            return {"rag_context": "", "rag_fetch_time": 0.0}
 
         t0  = time.perf_counter()
-        ctx = await _rag_prefetch(last_human.content)
+        prefetch_task = state.get("rag_task")
+        if prefetch_task is not None:
+            # Eq2: retrieval was launched before the agent graph so it overlapped
+            # with request setup; wait on it now.
+            try:
+                ctx = await prefetch_task
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.warning("RAG prefetch task failed, using empty context", exc_info=True)
+                ctx = ""
+        else:
+            ctx = await _rag_prefetch(last_human.content)
         t_fetch = time.perf_counter() - t0
 
-        logger.debug("Eq2 RAG prefetch done in %.2fs", t_fetch)
+        # RAG deduplication and relevance filtering
+        if ctx:
+            from gateway.opt_core import (
+                dedupe_context_parts, estimate_tokens,
+                hashed_embedding, cosine_similarity,
+            )
+            parts = [p.strip() for p in ctx.split("\n\n") if p.strip()]
+            parts = dedupe_context_parts(parts)
+            # Token budget: don't let RAG exceed the configured budget
+            rag_budget = settings.rag_token_budget
+            kept, used = [], 0
+            for p in parts:
+                cost = estimate_tokens(p)
+                if used + cost > rag_budget:
+                    break
+                kept.append(p)
+                used += cost
+            ctx = "\n\n".join(kept)
+
+            # BUG 9 FIX: RAG confidence gate — if the retrieved context has no
+            # measurable lexical overlap with the question at all, it is almost
+            # certainly off-topic; drop it rather than polluting the prompt.
+            # The threshold is deliberately very conservative (0.05) so that only
+            # pathological retrieval results are rejected.
+            if kept:
+                try:
+                    q_emb = hashed_embedding(last_human.content)
+                    scores = [cosine_similarity(q_emb, hashed_embedding(p)) for p in kept]
+                    if max(scores) < 0.05:
+                        logger.info(
+                            "RAG relevance too low (%.3f) for %d chunks; dropping context",
+                            max(scores), len(kept),
+                        )
+                        ctx = ""
+                except Exception:
+                    pass
+
+        logger.debug("RAG done in %.2fs, ctx_len=%d", t_fetch, len(ctx))
         return {
             "rag_context":    ctx,
-            "rag_start_time": t0,
             "rag_fetch_time": t_fetch,
         }
 
+    _MAX_TOOL_ROUNDS = getattr(settings, "agent_max_tool_calls", 10)
+
     def should_continue(state: AgentState) -> Literal["tools", "__end__"]:
         last = state["messages"][-1]
-        if hasattr(last, "tool_calls") and last.tool_calls:
-            return "tools"
-        return "__end__"
+        if not (hasattr(last, "tool_calls") and last.tool_calls and _have_tools):
+            return "__end__"
 
+        # Per-request tool iteration limit: count completed tool rounds
+        # (each ToolMessage represents one completed tool call)
+        tool_rounds = sum(
+            1 for m in state["messages"]
+            if getattr(m, "type", "") == "tool"
+        )
+        if tool_rounds >= _MAX_TOOL_ROUNDS:
+            logger.warning(
+                "Max tool calls (%d) reached for request, stopping agent loop.",
+                _MAX_TOOL_ROUNDS,
+            )
+            return "__end__"
+
+        return "tools"
     # BUG 58 FIX: Custom tool node wrapper with output truncation
+    # MAX_REPEATED_SAME_CALL: after this many identical tool+args calls,
+    # short-circuit with an error instead of re-executing (request-scoped).
+    _MAX_REPEATED_SAME_CALL = 3
+
     class TruncatedToolNode:
-        """Tool node wrapper that truncates output to prevent context explosion."""
+        """Tool node wrapper that truncates output and detects repeated calls.
+
+        * Truncates tool outputs to prevent context explosion.
+        * Counts identical tool+args calls per request; after
+          ``_MAX_REPEATED_SAME_CALL`` repeats the same call is short-circuited
+          with an error message instead of re-executing.
+        * Uses ``asyncio.to_thread`` to avoid blocking the event loop.
+        """
         def __init__(self, tools, base_tool_node):
             self.tools = tools
             self.base_tool_node = base_tool_node
         
-        def __call__(self, state: AgentState):
-            # Call the base tool node
-            result = self.base_tool_node(state)
-            
+        async def __call__(self, state: AgentState):
+            # --- request-scoped repeated-call detector ---
+            call_counts: dict = state.get("_tool_call_counts") or {}
+            # Ensure the dict is mutable (TypedDict may give us a fresh copy)
+            if "_tool_call_counts" not in state:
+                state["_tool_call_counts"] = call_counts
+
+            # Inspect the AIMessage that triggered this tool step — it carries
+            # the tool_calls list with IDs, names, and args.
+            last_ai = None
+            for m in reversed(state.get("messages", [])):
+                if getattr(m, "type", "") == "ai":
+                    last_ai = m
+                    break
+
+            skip_ids: set = set()
+            if last_ai and getattr(last_ai, "tool_calls", None):
+                for tc in last_ai.tool_calls:
+                    tc_id = tc.get("id", "")
+                    tc_name = tc.get("name", "")
+                    tc_args_str = str(tc.get("args", ""))
+                    key = f"{tc_name}::{tc_args_str}"
+                    count = call_counts.get(key, 0) + 1
+                    call_counts[key] = count
+                    if count > _MAX_REPEATED_SAME_CALL:
+                        skip_ids.add(tc_id)
+
+            # --- execute tools (skipping repeated ones) ---
+            result = await asyncio.to_thread(self.base_tool_node.invoke, state)
+
+            # Replace skipped tool results with a clear error message
+            if skip_ids and "messages" in result:
+                from langchain_core.messages import ToolMessage
+                new_msgs = []
+                for msg in result["messages"]:
+                    if (getattr(msg, "type", "") == "tool"
+                            and getattr(msg, "tool_call_id", "") in skip_ids):
+                        new_msgs.append(ToolMessage(
+                            content=(
+                                f"Tool '{getattr(msg, 'name', '?')}' has been called "
+                                f"with the same arguments {self._max_repeated}+ times "
+                                f"this request. Re-calling is blocked — try a "
+                                f"different approach or answer from what you already "
+                                f"know."
+                            ),
+                            tool_call_id=msg.tool_call_id,
+                            name=getattr(msg, "name", "tool"),
+                        ))
+                    else:
+                        new_msgs.append(msg)
+                result["messages"] = new_msgs
+
             # Truncate tool outputs in the result
             if "messages" in result:
                 for msg in result["messages"]:
@@ -480,6 +619,9 @@ def build_agent(extra_tools: list | None = None):
                         msg.content = _truncate_tool_output(msg.content)
             
             return result
+
+        # Expose the constant so tests can reference it
+        _max_repeated = _MAX_REPEATED_SAME_CALL
 
     # ---- Graph ----
     tool_node = ToolNode(tools) if tools else None
@@ -493,14 +635,17 @@ def build_agent(extra_tools: list | None = None):
 
     graph.add_edge(START, "rag")
     graph.add_edge("rag",  "agent")
-    graph.add_conditional_edges("agent", should_continue)
 
     if tool_node:
         graph.add_node("tools", tool_node)
         graph.add_edge("tools", "agent")
+        graph.add_conditional_edges("agent", should_continue)
+    else:
+        # No tools configured: agent always ends after generating a reply.
+        graph.add_edge("agent", END)
 
     compiled = graph.compile()
-    logger.info("LangGraph agent compiled (Eq1+Eq2 active) | tools=%d", len(tools))
+    logger.info("LangGraph agent compiled | tools=%d", len(tools))
     return compiled
 
 
@@ -518,121 +663,66 @@ def get_agent():
     return _agent
 
 
-# ---------------------------------------------------------------------------
-# Eq19 – Best-of-N sampling gate
-# (Stiennon et al. 2020 RLHF; Nakano et al. 2021 WebGPT)
-# ---------------------------------------------------------------------------
+def chat(user_message: str, history: list[dict] | None = None, *,
+         model: str | None = None, temperature: float | None = None,
+         max_tokens: int | None = None, system_prompt: str | None = None,
+         use_rag: bool = True, use_router: bool = True,
+         use_cache: bool = True,
+         speed_mode: bool = False) -> str:
+    """Synchronous high-level chat. Propagates all request params to the agent."""
 
-def _best_of_n_invoke(
-    agent,
-    invoke_kwargs: dict,
-    n: int,
-    user_message: str,
-) -> str:
-    """
-    Run the agent N times synchronously and return the longest / most
-    information-dense reply as a simple quality proxy.
+    _req_ctx = {
+        "model": model, "temperature": temperature, "max_tokens": max_tokens,
+        "system_prompt": system_prompt, "use_rag": use_rag,
+        "use_router": use_router, "use_cache": use_cache,
+        "speed_mode": speed_mode,
+    }
 
-    For production, swap the scoring function for a reward model.
-    The Eq19 formula:
-        E[max reward over N] ≈ μ + σ · Φ⁻¹(1 − 1/N)
-    tells us how much quality improvement to expect from N samples.
-    """
-    replies: list[str] = []
-    for _ in range(n):
+    # --- Cache check (context-aware key, scoped to history) guard: sync path
+    # still goes through the agent graph (no quick-path shortcut here). ---
+    if use_cache:
         try:
-            result = agent.invoke(invoke_kwargs,
-                                  config={"recursion_limit": settings.agent_recursion_limit})
-            reply  = getattr(result["messages"][-1], "content", "")
-            if reply:
-                replies.append(reply)
-        except Exception as exc:
-            logger.warning("Eq19 BoN sample failed: %s", exc)
-
-    if not replies:
-        return ""
-
-    # Simple quality proxy: prefer replies that are longer and contain
-    # more unique words (avoids repetitive / degenerate outputs).
-    def _score(r: str) -> float:
-        words  = r.split()
-        unique = len(set(words))
-        return len(words) * 0.4 + unique * 0.6
-
-    best = max(replies, key=_score)
-    if len(replies) > 1:
-        scores  = [_score(r) for r in replies]
-        mu      = sum(scores) / len(scores)
-        sigma   = (sum((s - mu) ** 2 for s in scores) / len(scores)) ** 0.5
-        exp_max = eq19_best_of_n_expected_quality(len(replies), mu, sigma)
-        logger.debug(
-            "Eq19 BoN: n=%d  μ=%.1f  σ=%.2f  E[max]=%.1f  selected_score=%.1f",
-            len(replies), mu, sigma, exp_max, _score(best),
-        )
-    return best
-
-
-async def _best_of_n_ainvoke(
-    agent,
-    invoke_kwargs: dict,
-    n: int,
-) -> str:
-    """Async variant of _best_of_n_invoke."""
-    import asyncio as _asyncio
-
-    async def _one() -> str:
-        try:
-            result = await agent.ainvoke(
-                invoke_kwargs,
-                config={"recursion_limit": settings.agent_recursion_limit},
+            from gateway.simple_cache import get_cache
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
             )
-            return getattr(result["messages"][-1], "content", "")
-        except Exception as exc:
-            logger.warning("Eq19 async BoN sample failed: %s", exc)
-            return ""
+            cached = get_cache().get(
+                user_message, context={"history": history or []}, _key=cache_key)
+            if cached is not None:
+                logger.debug("Cache hit (sync): %.40s…", user_message)
+                return cached
+        except Exception:
+            pass
 
-    # Run all N samples concurrently
-    replies = [r for r in await _asyncio.gather(*[_one() for _ in range(n)]) if r]
-    if not replies:
-        return ""
+    # Quick-path: trivial queries answered instantly without the agent graph.
+    from gateway.opt_core import is_safe_quick_path, quick_arithmetic, quick_word_problem, quick_word_arithmetic
+    if is_safe_quick_path(user_message):
+        arithmetic = quick_arithmetic(user_message) or quick_word_arithmetic(user_message) or quick_word_problem(user_message)
+        if arithmetic is not None:
+            return arithmetic
+        if not history:
+            _greeting_reply = {
+                "hello": "Hello! How can I help you?",
+                "hi": "Hi! How can I help you?",
+                "hey": "Hey! How can I help you?",
+                "thanks": "You're welcome!",
+                "thank you": "You're welcome!",
+                "ok": "OK!",
+                "okay": "OK!",
+            }
+            reply = _greeting_reply.get(
+                user_message.strip().lower(), "How can I help you?")
+            return reply
 
-    def _score(r: str) -> float:
-        words  = r.split()
-        unique = len(set(words))
-        return len(words) * 0.4 + unique * 0.6
-
-    best = max(replies, key=_score)
-    if len(replies) > 1:
-        scores  = [_score(r) for r in replies]
-        mu      = sum(scores) / len(scores)
-        sigma   = (sum((s - mu) ** 2 for s in scores) / len(scores)) ** 0.5
-        exp_max = eq19_best_of_n_expected_quality(len(replies), mu, sigma)
-        logger.debug(
-            "Eq19 async BoN: n=%d  μ=%.1f  σ=%.2f  E[max]=%.1f",
-            len(replies), mu, sigma, exp_max,
-        )
-    return best
-
-
-def chat(user_message: str, history: list[dict] | None = None) -> str:
-    """
-    Synchronous high-level chat.
-
-    Eq4 fast-path: check the SmartCache before spinning up the full agent
-    graph — avoids the entire LangGraph overhead on repeated questions.
-    """
+    # --- Full agent graph (lazy: skip langgraph import/build for quick paths) ---
     (_, BaseMessage, HumanMessage, _, _, _, _, _, _, _, _) = _get_langgraph()
     from langchain_core.messages import AIMessage
-
-    # Eq4 – cache shortcut: skip agent entirely on a cache hit
-    try:
-        from gateway.smart_cache import get_cache
-        cached = get_cache().get(user_message)
-        if cached is not None:
-            logger.debug("Eq4 agent cache hit: %.40s…", user_message)
-            return cached
-    except Exception:
-        pass
 
     agent = get_agent()
     msgs: list[BaseMessage] = []
@@ -645,63 +735,148 @@ def chat(user_message: str, history: list[dict] | None = None) -> str:
     msgs.append(HumanMessage(content=user_message))
 
     invoke_kwargs = {
-        "messages": msgs, "rag_context": "",
-        "rag_start_time": 0.0, "rag_fetch_time": 0.0,
+        "messages": msgs, "rag_context": "", "rag_fetch_time": 0.0,
+        "_req_ctx": _req_ctx, "_tool_call_counts": {},
     }
 
-    # Eq19 – Best-of-N gate: use BoN for complex queries when cost allows
-    complexity      = eq18_query_complexity(user_message)
-    cost_per_sample = getattr(settings, "bon_cost_per_sample", 0.005)
-    use_bon         = eq19_should_use_bon(complexity, cost_per_sample)
-    if use_bon:
-        n_samples = eq19_optimal_n(
-            mu_reward=0.6,
-            sigma_reward=0.2,
-            cost_per_sample=cost_per_sample,
-            max_n=getattr(settings, "bon_max_n", 3),
-        )
-        logger.debug("Eq19 BoN sync: complexity=%.2f n=%d", complexity, n_samples)
-        reply = _best_of_n_invoke(agent, invoke_kwargs, n=n_samples,
-                                  user_message=user_message)
-    else:
-        result = agent.invoke(
-            invoke_kwargs,
-            config={"recursion_limit": settings.agent_recursion_limit},
-        )
-        reply = getattr(result["messages"][-1], "content", "")
+    result = agent.invoke(
+        invoke_kwargs,
+        config={"recursion_limit": settings.agent_recursion_limit},
+    )
+    reply = getattr(result["messages"][-1], "content", "")
 
-    # Eq6 – store in cache so future identical/similar queries skip the agent
-    try:
-        from gateway.smart_cache import get_cache
-        get_cache().put(user_message, reply)
-    except Exception:
-        pass
+    if use_cache and reply:
+        try:
+            from gateway.simple_cache import get_cache
+            from gateway.opt_core import make_cache_identity
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
+            )
+            get_cache().set(
+                query=user_message, response=reply,
+                context={"history": history or []}, _key=cache_key)
+        except Exception:
+            pass
 
     return reply
 
 
-async def achat(user_message: str, history: list[dict] | None = None) -> str:
-    """
-    Async high-level chat with Eq1 + Eq2 active.
+def _ensure_wiring() -> None:
+    """Install equation wiring (semantic cache, EWMA router) exactly once per
+    process instead of re-importing and re-checking on every request."""
+    global _wiring_installed
+    if _wiring_installed:
+        return
+    with _wiring_lock:
+        if _wiring_installed:
+            return
+        try:
+            from gateway.equation_wiring import (
+                install_semantic_cache, install_ewma_router,
+            )
+            from gateway.simple_cache import get_cache
+            from gateway.opt_core import get_router_state
+            install_semantic_cache(get_cache())
+            install_ewma_router(get_router_state())
+        except Exception:
+            logger.warning("equation wiring install failed", exc_info=True)
+        finally:
+            _wiring_installed = True
 
-    Eq4 fast-path: SmartCache lookup before invoking the agent graph.
-    Eq2 overlap: RAG prefetch task is launched here and passed through
-    the graph state so rag_node_async can report accurate timing even
-    when the graph fires it concurrently with the LLM prefill.
+
+async def achat(user_message: str, history: list[dict] | None = None, *,
+                model: str | None = None, temperature: float | None = None,
+                max_tokens: int | None = None, system_prompt: str | None = None,
+                use_rag: bool = True, use_router: bool = True,
+                use_cache: bool = True,
+                speed_mode: bool = False) -> ChatResult:
     """
+    Async high-level chat.  Single canonical path:
+
+      1. Cache check (context-aware key)
+      2. Quick-path for simple queries (no agent graph)
+      3. LangGraph: rag_node_async -> agent_node -> tools
+      4. Cache store + metadata
+    """
+    from gateway.opt_core import (
+        make_cache_identity, is_safe_quick_path,
+        quick_arithmetic, quick_word_problem, quick_word_arithmetic, estimate_tokens,
+    )
+
+    # Install equation wiring once (semantic cache, EWMA router, Koopman RAG).
+    _ensure_wiring()
+
+    _req_ctx = {
+        "model": model, "temperature": temperature, "max_tokens": max_tokens,
+        "system_prompt": system_prompt, "use_rag": use_rag,
+        "use_router": use_router, "use_cache": use_cache,
+        "speed_mode": speed_mode,
+    }
+
+    # --- 1. Cache check (context-aware key, scoped to conversation history) ---
+    if use_cache:
+        try:
+            from gateway.simple_cache import get_cache
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
+            )
+            cached = get_cache().get(
+                user_message, context={"history": history or []}, _key=cache_key)
+            if cached is not None:
+                logger.debug("Cache hit: %.40s…", user_message)
+                return ChatResult(
+                    reply=cached, cache_hit=True,
+                    model_used=model or settings.default_model,
+                )
+        except Exception:
+            pass
+
+    # --- 2. Quick-path: simple queries bypass the agent graph entirely.
+    # Arithmetic is stateless and safe regardless of history; greetings/acks are
+    # only answered directly when there is no conversation to contradict. ---
+    if is_safe_quick_path(user_message):
+        # Try arithmetic first (context-free)
+        arithmetic = quick_arithmetic(user_message) or quick_word_arithmetic(user_message) or quick_word_problem(user_message)
+        if arithmetic is not None:
+            logger.debug("Quick path: arithmetic -> %s", arithmetic)
+            return ChatResult(
+                reply=arithmetic,
+                model_used=model or settings.default_model,
+                generation_policy="arithmetic",
+            )
+        # Greeting / acknowledgment — only when no prior conversation context
+        if not history:
+            _greeting_reply = {
+                "hello": "Hello! How can I help you?",
+                "hi": "Hi! How can I help you?",
+                "hey": "Hey! How can I help you?",
+                "thanks": "You're welcome!",
+                "thank you": "You're welcome!",
+                "ok": "OK!",
+                "okay": "OK!",
+            }
+            reply = _greeting_reply.get(user_message.strip().lower(), "How can I help you?")
+            return ChatResult(
+                reply=reply,
+                model_used=model or settings.default_model,
+                generation_policy="greeting",
+            )
+
+    # --- 3. Full agent graph ---
     (_, BaseMessage, HumanMessage, _, _, _, _, _, _, _, _) = _get_langgraph()
     from langchain_core.messages import AIMessage
-
-    # Eq4 – cache shortcut
-    try:
-        from gateway.smart_cache import get_cache
-        cached = get_cache().get(user_message)
-        if cached is not None:
-            logger.debug("Eq4 agent async cache hit: %.40s…", user_message)
-            return cached
-    except Exception:
-        pass
-
     agent = get_agent()
     msgs: list[BaseMessage] = []
     for turn in (history or []):
@@ -712,39 +887,309 @@ async def achat(user_message: str, history: list[dict] | None = None) -> str:
             msgs.append(AIMessage(content=content))
     msgs.append(HumanMessage(content=user_message))
 
-    # Eq1 – compute TTFB reduction before invoke
-    history_chars = sum(len(getattr(m, "content", "")) for m in msgs[:-1])
-    query_chars   = len(user_message)
-    h_tok = max(0, history_chars // 4)
-    q_tok = max(1, query_chars // 4)
-    reduction = eq1_ttfb_reduction_fraction(h_tok, q_tok)
-    logger.debug("Eq1 achat TTFB-reduction=%.1f%% (h=%d q=%d tok)",
-                 reduction * 100, h_tok, q_tok)
+    total_input_tokens = sum(estimate_tokens(m.content) for m in msgs)
 
-    # Eq2 – fire RAG prefetch as a background task RIGHT NOW so it runs
-    # concurrently with the graph's agent_node LLM prefill.
-    import asyncio as _asyncio
-    rag_task = _asyncio.create_task(_rag_prefetch(user_message))
-    t_rag_start = _asyncio.get_event_loop().time()
+    # Eq2: launch RAG retrieval BEFORE entering the agent graph so it overlaps
+    # with graph setup / routing rather than serialising inside rag_node.
+    rag_task = None
+    if use_rag and not is_safe_quick_path(user_message):
+        rag_task = asyncio.create_task(_rag_prefetch(user_message))
 
-    result = await agent.ainvoke(
-        {"messages": msgs, "rag_context": "",
-         "rag_start_time": t_rag_start, "rag_fetch_time": 0.0},
-        config={"recursion_limit": settings.agent_recursion_limit},
-    )
+    try:
+        result = await agent.ainvoke(
+            {"messages": msgs, "rag_context": "", "rag_fetch_time": 0.0,
+             "_req_ctx": _req_ctx, "_tool_call_counts": {}, "rag_task": rag_task},
+            config={"recursion_limit": settings.agent_recursion_limit},
+        )
+    except BaseException:
+        if rag_task is not None and not rag_task.done():
+            rag_task.cancel()
+        raise
+
     reply = getattr(result["messages"][-1], "content", "")
+    rag_used = bool(result.get("rag_context"))
+    reasoning_used = result.get("advanced_reasoning_used", False)
+    policy_reason = result.get("generation_policy", "")
+    actual_model = result.get("model_used", model or settings.default_model)
+    # Prefer the token count actually sent to the model (after trimming/compression).
+    actual_input_tokens = result.get("input_tokens") or total_input_tokens
+    actual_output_tokens = result.get("output_tokens") or 0
 
-    # Collect RAG task (likely already done; minimal extra wait)
+    # --- 4. Cache store ---
+    if use_cache and reply:
+        try:
+            from gateway.simple_cache import get_cache
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
+            )
+            get_cache().set(
+                query=user_message, response=reply,
+                context={"history": history or []}, _key=cache_key)
+        except Exception:
+            pass
+
+    return ChatResult(
+        reply=reply, cache_hit=False, model_used=actual_model,
+        rag_used=rag_used, input_tokens=actual_input_tokens,
+        output_tokens=actual_output_tokens,
+        reasoning_used=reasoning_used, generation_policy=policy_reason,
+    )
+
+
+async def achat_stream(user_message: str, history: list[dict] | None = None, *,
+                       model: str | None = None, temperature: float | None = None,
+                       max_tokens: int | None = None, system_prompt: str | None = None,
+                       use_rag: bool = True, use_router: bool = True,
+                       use_cache: bool = True, speed_mode: bool = False,
+                       api_base: str | None = None):
+    """Async streaming chat with full agent parity.
+
+    Applies every optimization the non-streaming agent does:
+      1. context-aware cache check (yields cached reply in one chunk)
+      2. quick-path (arithmetic / greeting) — no LLM call
+      3. Eq2 async RAG prefetch (overlaps retrieval with setup)
+      4. Eq1 context building + trimming/compression and generation policy
+      5. router + model-availability fallback
+      6. streaming `acompletion` delta-by-delta, then caches the full reply.
+    Unlike the graph tool loop (single LLM call), tools are not streamed.
+    """
+    import litellm
+    from langchain_core.messages import AIMessage, HumanMessage
+    from gateway.opt_core import (
+        make_cache_identity, is_safe_quick_path, quick_arithmetic, quick_word_problem,
+        quick_word_arithmetic,
+        estimate_tokens, build_context_messages, resolve_generation_policy,
+        get_router_state, select_model, ollama_model_id,
+        detect_code_intent, check_model_available, dedupe_context_parts,
+    )
+
+    _ensure_wiring()
+
+    # --- 1. Cache check ---
+    if use_cache:
+        try:
+            from gateway.simple_cache import get_cache
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
+            )
+            cached = get_cache().get(
+                user_message, context={"history": history or []}, _key=cache_key)
+            if cached is not None:
+                logger.debug("Stream cache hit: %.40s…", user_message)
+                yield cached
+                return
+        except Exception:
+            pass
+
+    # --- 2. Quick-path ---
+    if is_safe_quick_path(user_message):
+        arithmetic = quick_arithmetic(user_message) or quick_word_arithmetic(user_message) or quick_word_problem(user_message)
+        if arithmetic is not None:
+            yield arithmetic
+            return
+        if not history:
+            _greeting_reply = {
+                "hello": "Hello! How can I help you?",
+                "hi": "Hi! How can I help you?",
+                "hey": "Hey! How can I help you?",
+                "thanks": "You're welcome!",
+                "thank you": "You're welcome!",
+                "ok": "OK!",
+                "okay": "OK!",
+            }
+            yield _greeting_reply.get(
+                user_message.strip().lower(), "How can I help you?")
+            return
+
+    # --- 3. Eq2: launch RAG retrieval before graph/decision work ---
+    rag_task = None
+    if use_rag and not is_safe_quick_path(user_message):
+        rag_task = asyncio.create_task(_rag_prefetch(user_message))
+
+    msgs: list = []
+    for turn in (history or []):
+        role, content = turn.get("role", "user"), turn.get("content", "")
+        if role == "user":
+            msgs.append(HumanMessage(content=content))
+        elif role == "assistant":
+            msgs.append(AIMessage(content=content))
+    msgs.append(HumanMessage(content=user_message))
+
+    total_input_tokens = sum(estimate_tokens(m.content) for m in msgs)
+
+    # --- 4. Retrieve context ---
+    rag_ctx = ""
+    if rag_task is not None:
+        try:
+            rag_ctx = await rag_task
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            logger.warning("RAG prefetch failed (stream), continuing", exc_info=True)
+    if rag_ctx:
+        parts = [p.strip() for p in rag_ctx.split("\n\n") if p.strip()]
+        parts = dedupe_context_parts(parts)
+        rag_budget = settings.rag_token_budget
+        kept, used = [], 0
+        for p in parts:
+            cost = estimate_tokens(p)
+            if used + cost > rag_budget:
+                break
+            kept.append(p)
+            used += cost
+        rag_ctx = "\n\n".join(kept)
+
+    # --- 5. Equal to agent_node decisioning (Eq1 trim, analysis, policy) ---
+    system_content = system_prompt or settings.agent_system_prompt
+    built = build_context_messages(
+        msgs,
+        system_prompt=system_content,
+        rag_context=rag_ctx,
+        context_limit=getattr(settings, "context_window_size", 8192),
+        budget=getattr(settings, "token_budget", 4096),
+        compression_ratio=0.6,
+        always_keep_n_history=6,
+    )
+    formatted_msgs = built.messages
+    query_text = formatted_msgs[-1]["content"] if formatted_msgs else ""
+    if built.compressed:
+        logger.info("Compressed context: %s", built.reasoning)
+
+    from types import SimpleNamespace
+    _Analysis = SimpleNamespace(
+        is_math=any(w in query_text.lower() for w in (
+            "calculate", "solve", "equation", "+", "-", "*", "/")),
+        is_coding=detect_code_intent(query_text),
+        is_complex=len(query_text) > 100,
+        needs_reasoning=any(w in query_text.lower() for w in (
+            "why", "how", "explain", "reason")),
+        expected_response_length=(
+            "short" if len(query_text) < 30 else "medium"),
+        query_text=query_text,
+    )
+
+    req_model = model
+    req_temp = temperature
+    req_max = max_tokens
+    base_model = req_model or settings.default_model
+    model_to_use = ollama_model_id(base_model)
+
+    code_model = None
+    if _Analysis.is_coding and not req_model:
+        code_candidates = ["ollama/deepseek-coder:1.3b", "ollama/codellama:7b"]
+        availability = await asyncio.gather(*[
+            asyncio.to_thread(check_model_available, cm)
+            for cm in code_candidates
+        ])
+        for cm, available in zip(code_candidates, availability):
+            if available:
+                code_model = cm
+                break
+
+    if use_router and not req_model:
+        router_state = get_router_state()
+        model_to_use = ollama_model_id(
+            select_model(
+                requested=settings.default_model,
+                routed=None,
+                code_model=code_model,
+                state=router_state,
+                expected_output_tokens=req_max or settings.litellm_max_tokens,
+            )
+        )
+    elif code_model:
+        model_to_use = code_model
+
+    if not await asyncio.to_thread(check_model_available, model_to_use):
+        logger.warning("Model %s not available, falling back to %s",
+                       model_to_use, settings.default_model)
+        model_to_use = ollama_model_id(settings.default_model)
+
+    policy = None
+    if speed_mode:
+        speed_temp = 0.1 if _Analysis.is_math else min(req_temp or 0.3, 0.3)
+        reasoning_intent = _Analysis.is_math or _Analysis.is_coding or _Analysis.needs_reasoning
+        from gateway.opt_core import speed_mode_max_tokens
+        speed_max = speed_mode_max_tokens(req_max, is_reasoning=reasoning_intent)
+        final_temperature = speed_temp
+        final_max_tokens = speed_max
+    else:
+        base_params = {}
+        if req_temp is not None:
+            base_params["temperature"] = req_temp
+        if req_max is not None:
+            base_params["max_tokens"] = req_max
+        policy = resolve_generation_policy(
+            _Analysis,
+            base=base_params,
+            configured_max_tokens=req_max or settings.litellm_max_tokens,
+            model_name=model_to_use,
+        )
+        final_temperature = req_temp if req_temp is not None else policy.temperature
+        final_max_tokens = req_max if req_max is not None else policy.max_tokens
+
+    router_state = get_router_state()
+    router_state.record_start(model_to_use)
     try:
-        await _asyncio.wait_for(rag_task, timeout=0.5)
-    except Exception:
-        pass
+        from gateway.opt_core import adaptive_generation_timeout
+        kwargs = {
+            "model": model_to_use,
+            "messages": formatted_msgs,
+            "temperature": final_temperature,
+            "max_tokens": final_max_tokens,
+            "timeout": adaptive_generation_timeout(
+                final_max_tokens,
+                getattr(settings, "generation_timeout", 15),
+            ),
+            "api_base": settings.litellm_api_base or "http://localhost:11434",
+            "stream": True,
+        }
+        if api_base:
+            kwargs["api_base"] = api_base
+        if not speed_mode and policy is not None:
+            kwargs["top_p"] = policy.top_p
+            kwargs["top_k"] = policy.top_k
 
-    # Eq6 – store in cache for future hits
-    try:
-        from gateway.smart_cache import get_cache
-        get_cache().put(user_message, reply)
-    except Exception:
-        pass
+        response = await litellm.acompletion(**kwargs)
+        full = ""
+        async for part in response:
+            if not getattr(part, "choices", None):
+                continue
+            delta = getattr(part.choices[0], "delta", None)
+            content = getattr(delta, "content", None)
+            if content:
+                full += content
+                yield content
+    finally:
+        router_state.record_end(model_to_use)
 
-    return reply
+    # --- 6. Cache store ---
+    if use_cache and full:
+        try:
+            from gateway.simple_cache import get_cache
+            cache_key = make_cache_identity(
+                user_message,
+                model=model or settings.default_model,
+                temperature=temperature,
+                max_tokens=max_tokens,
+                system_prompt=system_prompt or "",
+                rag_enabled=use_rag,
+                messages=list(history or []),
+            )
+            get_cache().set(
+                query=user_message, response=full,
+                context={"history": history or []}, _key=cache_key)
+        except Exception:
+            pass
