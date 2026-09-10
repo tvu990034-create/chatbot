@@ -382,6 +382,33 @@ _SPEED_MODE_PARAMS = {
     "num_predict": 50     # Ollama-specific parameter
 }
 
+# Speed-mode budget for reasoning/math/code: multi-step questions need room to
+# actually finish (GSM8K showed a 50-token cap truncates answers -> ~10% acc).
+# Simple queries keep the short cap above.
+SPEED_REASONING_MAX_TOKENS = 200
+
+
+def is_multiple_choice_query(query: str) -> bool:
+    """Return True when ``query`` is a multiple-choice / selection question.
+
+    The direct math solver must never short-circuit these: it would serve a
+    number computed from an arithmetic fragment inside the prose instead of
+    the correct option letter.
+    """
+    q = query.lower().strip()
+    if any(phrase in q for phrase in (
+        "which of the following", "which of these", "which one", "which answer",
+        "choose the correct", "select the correct", "select the answer",
+        "multiple choice", "multiple-choice", "true or false",
+        "statement 1", "statement 2", "statement i", "statement ii",
+        "best matches", "marked by",
+    )):
+        return True
+    # Option-letter markers like "A) ", "B. ", "(c)" set the question apart.
+    if re.search(r"\(?[a-d][\):\.]\s", q):
+        return True
+    return False
+
 # Smart mode parameters for intelligence
 _SMART_MODE_PARAMS = {
     "temperature": 0,  # No randomness for deterministic results
@@ -827,7 +854,8 @@ class UniversalEnhancedGateway:
             start_time = time.time()
             
             # Try direct optimization solving for math queries (LangChain Tool pattern)
-            if self.enable_all_optimizations and query_analysis.is_math:
+            if (self.enable_all_optimizations and query_analysis.is_math
+                    and not is_multiple_choice_query(query)):
                 direct_answer = self._solve_equation_directly(query)
                 if direct_answer:
                     # Provide both calculation and explanation
@@ -1199,9 +1227,15 @@ class UniversalEnhancedGateway:
         return None
     
     def _tool_search(self, query: str) -> Optional[str]:
-        """Tool: Search for information (placeholder implementation)."""
-        # In a full implementation, this would use a search API
-        return "Search functionality not yet implemented - this is a placeholder"
+        """Tool: Search for information (no live backend wired up).
+
+        Returns None instead of a placeholder on purpose: a canned
+        "not implemented" string is not an answer, and short-circuiting on
+        it previously hijacked every query containing "search"/"find"
+        (including most AIME word problems) and replaced real model output.
+        """
+        logger.debug("Search tool invoked but no search backend is configured")
+        return None
     
     def _tool_file_read(self, path: str) -> Optional[str]:
         """Tool: Read file contents (placeholder implementation)."""
@@ -2376,12 +2410,22 @@ Provide the final synthesized response."""
         elif analysis.expected_response_length == "long":
             params["max_tokens"] = max(params["max_tokens"], 200)
         
-        # Performance-mode precedence: 'speed' must keep the configured short cap,
-        # regardless of content-length classification (BUG: long-response bump
-        # previously defeated speed mode).
+        # Performance-mode precedence: 'speed' keeps a short cap for simple
+        # queries, but reasoning/math/code gets SPEED_REASONING_MAX_TOKENS so the
+        # answer can complete instead of being truncated mid-solution.
         if self.performance_mode == "speed":
-            params["max_tokens"] = min(
-                params["max_tokens"], self.model_params.get("max_tokens", 50))
+            reasoning = bool(analysis.is_math or analysis.is_coding
+                             or analysis.needs_reasoning or analysis.is_complex
+                             or analysis.expected_response_length == "long")
+            if reasoning:
+                params["max_tokens"] = max(
+                    params["max_tokens"], SPEED_REASONING_MAX_TOKENS)
+            else:
+                params["max_tokens"] = min(
+                    params["max_tokens"], self.model_params.get("max_tokens", 50))
+            if params.get("num_predict") is not None:
+                params["num_predict"] = max(
+                    params["num_predict"], params["max_tokens"])
         
         # Outlines-style: Use deterministic sampling for small models
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():
@@ -2566,18 +2610,22 @@ Code:"""
                         x = int(x)
                     return f"x = {x}"
             
-            # Pattern 2: Simple arithmetic "15% of 200"
-            if "%" in query:
-                match = re.search(r'(\d+\.?\d*)%\s*of\s*(\d+\.?\d*)', query, re.IGNORECASE)
-                if match:
-                    percent, value = map(float, match.groups())
-                    result = (percent / 100) * value
-                    return f"{result}"
-            
-            # Pattern 3: Simple calculations
-            match = re.search(r'(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)', query)
-            if match:
-                a, op, b = match.groups()
+            # Pattern 2: "15% of 200" (only when the whole query IS that idiom —
+            # prose that merely mentions "X% of Y" must go to the model).
+            stripped = query.strip().rstrip('?').strip()
+            pct = re.fullmatch(
+                r"\s*(\d+\.?\d*)\s*%\s*of\s*(\d+\.?\d*)\s*", stripped, re.IGNORECASE)
+            if pct:
+                percent, value = map(float, pct.groups())
+                return f"{(percent / 100) * value}"
+
+            # Pattern 3: Pure arithmetic like "12 * 8" — only when the whole
+            # query IS a calculation, never prose that merely contains digits
+            # and operators (that was answering "He gave 1/2 ..." with 0.5).
+            calc = re.fullmatch(
+                r"\s*(\d+\.?\d*)\s*([+\-*/])\s*(\d+\.?\d*)\s*", stripped)
+            if calc:
+                a, op, b = calc.groups()
                 a, b = float(a), float(b)
                 if op == '+':
                     return f"{a + b}"
@@ -2806,7 +2854,8 @@ Code:"""
         
         try:
             # Step 1: Direct Python tool use for math (LangChain Tool pattern)
-            if analysis.is_math:
+            # Never short-circuit multiple-choice / selection questions.
+            if analysis.is_math and not is_multiple_choice_query(query):
                 python_result = self._solve_equation_directly(query)
                 if python_result:
                     print(f"[DEBUG] LangChain Chain: Python tool returned {python_result}")

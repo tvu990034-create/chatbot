@@ -453,27 +453,26 @@ class TestQuickWordProblem:
         assert gw._tool_calculator(q) == "120"
 
 class TestPerformanceModePrecedence:
-    """BUG 15: speed mode must cap max_tokens regardless of the 'long response'
-    classifier, otherwise the speed optimization is silently defeated."""
+    """BUG 15: speed mode must cap max_tokens for simple queries but keep a
+    reasoning budget for math/code/reasoning so answers are not truncated."""
 
     def _analysis(self):
         from gateway.universal_enhanced_gateway import QueryAnalysis
         a = QueryAnalysis()
         return a
 
-    def test_speed_mode_caps_long_response(self):
+    def test_speed_mode_caps_long_response_to_reasoning_budget(self):
         from gateway.universal_enhanced_gateway import (
             UniversalEnhancedGateway, QueryAnalysis)
         gw = UniversalEnhancedGateway("phi3:mini",
                                       enable_all_optimizations=True,
                                       performance_mode="speed")
-        speed_cap = gw.model_params.get("max_tokens", 50)
         analysis = QueryAnalysis()
         analysis.expected_response_length = "long"
         params = gw._get_adaptive_model_params(analysis)
-        assert params["max_tokens"] <= speed_cap, \
-            f"speed mode leaked max_tokens {params['max_tokens']} > cap {speed_cap}"
-        assert params["max_tokens"] < 200
+        assert params["max_tokens"] == 200, \
+            f"speed-mode reasoning should get its 200-token budget, got {params['max_tokens']}"
+        assert params["num_predict"] >= params["max_tokens"]
 
     def test_speed_mode_short_response_still_capped(self):
         from gateway.universal_enhanced_gateway import (
@@ -485,6 +484,18 @@ class TestPerformanceModePrecedence:
         analysis.expected_response_length = "short"
         params = gw._get_adaptive_model_params(analysis)
         assert params["max_tokens"] <= 40
+
+    def test_speed_mode_math_gets_reasoning_budget(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=True,
+                                      performance_mode="speed")
+        analysis = QueryAnalysis()
+        analysis.is_math = True
+        params = gw._get_adaptive_model_params(analysis)
+        assert params["max_tokens"] == 200
+        assert params["num_predict"] >= 200
 
 # ---------------------------------------------------------------------------
 # BUG 13 / 27 / 28 / 33 / 29 / 32 fixes
@@ -688,9 +699,55 @@ class TestDeterministicMathOptimizations:
         a = gw._intelligent_query_analysis_with_complexity(q)
         with patch.object(ug, "_ssr_enabled", True), \
              patch.object(ug, "_math_strategies", {"x": {"keywords": ["2"],
-                                                        "strategies": []}}):
+                                                         "strategies": []}}):
             r = gw._apply_ssr_guidance(q, a)
         assert r is None
+
+
+class TestDirectSolverRefinement:
+    """BUG: the solver's loose re.search patterns answered word problems and
+    multiple-choice questions with numbers pulled from arithmetic fragments
+    in the prose (e.g. "He gave 1/2 of his pencils" -> 0.5).  Only pure
+    calculations may be short-circuited."""
+
+    def _gw(self):
+        import logging
+        logging.disable(logging.INFO)
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+
+    def test_pure_arithmetic_still_resolves(self):
+        gw = self._gw()
+        assert gw._solve_equation_directly("12 * 8") == "96.0"
+        assert gw._solve_equation_directly("8 / 4") == "2.0"
+        assert gw._solve_equation_directly("15% of 200") == "30.0"
+
+    def test_word_problem_never_short_circuits(self):
+        gw = self._gw()
+        q = "Anthony had 50 pencils. He gave 1/2 of his pencils to Brando."
+        assert gw._solve_equation_directly(q) is None
+        q2 = "Stephen borrowed $300 and promised to pay 2% of the money he owed."
+        assert gw._solve_equation_directly(q2) is None
+
+    def test_multiple_choice_query_detected(self):
+        from gateway.universal_enhanced_gateway import is_multiple_choice_query
+        assert is_multiple_choice_query(
+            "(1+i)^10 =\nA) -32i\nB) 32i\nC) -32\nD) 0") is True
+        assert is_multiple_choice_query(
+            "Which of the following is a prime number?") is True
+        assert is_multiple_choice_query("What is 2 + 2?") is False
+        assert is_multiple_choice_query(
+            "He gave 1/2 of his pencils to Brando.") is False
+
+    def test_chain_skips_multiple_choice_math(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        q = "Simplify: (a+b)^2 =  ?\nA) a^2+b^2\nB) a^2+2ab+b^2\nC) ab\nD) 2ab"
+        a = QueryAnalysis()
+        a.is_math = True
+        a.is_complex = True
+        assert gw._apply_chain_composition(q, a) is None
 
 
 class TestWholeCodebaseImportIntegrity:
@@ -923,3 +980,29 @@ class TestSpeedModeReasoningBudget:
         assert src.count("speed_mode_max_tokens(") == 2
         assert "reasoning_intent = is_math or is_coding or needs_reasoning" in src
         assert "reasoning_intent = _Analysis.is_math or _Analysis.is_coding or _Analysis.needs_reasoning" in src
+
+
+class TestPlaceholderToolNeverHijacksAnswer:
+    """AIME 2026 regression: the un-wired search tool returned a canned
+    'not yet implemented' placeholder that replaced real model output for
+    every query containing 'find'/'search'. Tool calls must never leak a
+    placeholder as the user-visible answer."""
+
+    def _gw(self) -> "UniversalEnhancedGateway":
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway("phi3:mini")
+        gw.enable_tool_system = True
+        return gw
+
+    def test_unwired_search_returns_none(self):
+        gw = self._gw()
+        assert gw._tool_search("Find the name of the director who took over.") is None
+
+    def test_tool_session_does_not_short_circuit_on_unwired_tools(self):
+        gw = self._gw()
+        query = ("Can you find the name of the director who took over in 2004?")
+        analysis = gw._intelligent_query_analysis_with_complexity(query)
+        result = gw._execute_tool_calls(query, analysis)
+        # Without a working tool result there must be no short-circuit, so the
+        # normal LLM generation path runs instead of a placeholder.
+        assert result is None
