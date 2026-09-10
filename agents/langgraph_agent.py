@@ -458,7 +458,21 @@ def build_agent(extra_tools: list | None = None):
 
         # RAG skip fast path: simple queries don't need retrieval
         from gateway.opt_core import is_safe_quick_path
-        if is_safe_quick_path(last_human.content):
+        
+        # Additional simple query patterns for CLI efficiency
+        def is_very_simple_query(query: str) -> bool:
+            """Skip RAG for very simple conversational queries."""
+            import re
+            simple_patterns = [
+                r'^hello', r'^hi', r'^hey', r'^thanks', r'^thank you',
+                r'^what is your name', r'^who are you', r'^how are you',
+                r'^good morning', r'^good afternoon', r'^good evening',
+                r'^yes$', r'^no$', r'^ok$', r'^okay$'
+            ]
+            query_lower = query.lower().strip()
+            return any(re.match(p, query_lower) for p in simple_patterns)
+        
+        if is_safe_quick_path(last_human.content) or is_very_simple_query(last_human.content):
             logger.debug("RAG skip: query is simple/conversational")
             return {"rag_context": "", "rag_fetch_time": 0.0}
 

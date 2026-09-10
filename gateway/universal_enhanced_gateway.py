@@ -384,8 +384,10 @@ _SPEED_MODE_PARAMS = {
 
 # Speed-mode budget for reasoning/math/code: multi-step questions need room to
 # actually finish (GSM8K showed a 50-token cap truncates answers -> ~10% acc).
+# 512 gives thinking models (e.g. qwen3) room to reason + answer verbosely;
+# terse models still stop at EOS, so the cap mostly costs nothing.
 # Simple queries keep the short cap above.
-SPEED_REASONING_MAX_TOKENS = 200
+SPEED_REASONING_MAX_TOKENS = 512
 
 
 def is_multiple_choice_query(query: str) -> bool:
@@ -754,18 +756,20 @@ class UniversalEnhancedGateway:
         selected_model = self._route_to_model(query_analysis)
         if selected_model and selected_model != self.model_name:
             logger.info(f"RouteLLM: Routed to {selected_model} (complexity: {query_analysis.complexity_score:.2f})")
-            # Bug #34 FIX: Actually use the selected model for inference
-            self.model_name = selected_model
+            # BUG FIX: Use local variable instead of mutating global state
+            model_to_use = selected_model
             # BUG 35 FIX: Store routing decision for telemetry
             self._routed_model = selected_model
         else:
+            model_to_use = self.model_name
             self._routed_model = None
         
         # Step 5.5: DeepSeek-Coder code routing: Route to code-specialized model
         code_model = self._route_to_code_model(query_analysis)
-        if code_model and code_model != self.model_name:
+        if code_model and code_model != model_to_use:
             logger.info(f"DeepSeek-Coder: Routed to code model {code_model}")
-            # For now, we'll just log the routing decision
+            # BUG FIX: Use local variable for per-request routing
+            model_to_use = code_model
         
         # Step 5.6: CodeFuse semantic cache: Check code-specific semantic cache
         code_cache_result = self._check_code_semantic_cache(query)
@@ -774,7 +778,7 @@ class UniversalEnhancedGateway:
             return code_cache_result
         
         # Step 5.7: ModelCache enhanced lookup: Enhanced semantic caching
-        modelcache_result = self._enhanced_modelcache_lookup(query, self.model_name)
+        modelcache_result = self._enhanced_modelcache_lookup(query, model_to_use)
         if modelcache_result:
             logger.info(f"ModelCache: Enhanced cache hit")
             return modelcache_result
@@ -1031,9 +1035,6 @@ class UniversalEnhancedGateway:
         except Exception as e:
             logger.error(f"Error in chat: {e}")
             return self._generate_fallback_response(query, query_analysis)
-        finally:
-            # Restore original model name to prevent cross-request contamination
-            self.model_name = original_model_name
     
     def _current_gen_identity(self) -> Dict[str, Any]:
         """Build the identity of the current inference semantics.
@@ -1331,8 +1332,10 @@ class UniversalEnhancedGateway:
             code_prompt = f"Write Python code to solve: {query}\n"
             code_prompt += "Only output the code, no explanation.\n"
             
+            # BUG FIX: Use local model_to_use instead of self.model_name
+            model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
             code_response = completion(
-                model=self.model_name,
+                model=model_to_use,
                 messages=[{"role": "user", "content": code_prompt}],
                 temperature=0.3,
                 timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
