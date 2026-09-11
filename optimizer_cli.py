@@ -117,8 +117,16 @@ def make_optimized_gateway(model: Optional[str] = None, mode: str = DEFAULT_MODE
 def raw_chat(messages: List[Dict[str, str]], model: Optional[str] = None,
              max_tokens: Optional[int] = None) -> Tuple[str, bool, str]:
     from gateway.litellm_gateway import chat
-    return chat(messages, model=_resolve_model(model), max_tokens=max_tokens,
-                use_cache=False)
+    from gateway.universal_enhanced_gateway import THINKING_MODEL_MARKERS
+    model_name = _resolve_model(model)
+    kwargs = dict(messages=messages, model=model_name, max_tokens=max_tokens,
+                  use_cache=False)
+    # Thinking models (qwen3) burn their whole generation budget on hidden
+    # chain-of-thought and return empty content; the baseline must run under
+    # the same think-off setting as the optimized path to be comparable.
+    if any(m in model_name.lower() for m in THINKING_MODEL_MARKERS):
+        kwargs["reasoning_effort"] = "none"
+    return chat(**kwargs)
 
 
 def _gateway_stats(gw) -> Dict[str, Any]:

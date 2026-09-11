@@ -384,10 +384,16 @@ _SPEED_MODE_PARAMS = {
 
 # Speed-mode budget for reasoning/math/code: multi-step questions need room to
 # actually finish (GSM8K showed a 50-token cap truncates answers -> ~10% acc).
-# 512 gives thinking models (e.g. qwen3) room to reason + answer verbosely;
-# terse models still stop at EOS, so the cap mostly costs nothing.
+# 1024 also fits verbose no-thinking answers from qwen3-style models; terse
+# models still stop at EOS, so the cap mostly costs nothing.
 # Simple queries keep the short cap above.
-SPEED_REASONING_MAX_TOKENS = 512
+SPEED_REASONING_MAX_TOKENS = 1024
+
+# Models that emit a hidden chain-of-thought. Ollama counts those reasoning
+# tokens against num_predict, so on hard questions the entire budget can be
+# consumed before content ever starts -> empty responses. Disable thinking for
+# these in speed mode (see _get_adaptive_model_params).
+THINKING_MODEL_MARKERS = ("qwen3",)
 
 
 def is_multiple_choice_query(query: str) -> bool:
@@ -2429,6 +2435,13 @@ Provide the final synthesized response."""
             if params.get("num_predict") is not None:
                 params["num_predict"] = max(
                     params["num_predict"], params["max_tokens"])
+            # Thinking models (qwen3): their hidden chain-of-thought counts
+            # against num_predict and can consume the whole budget on hard
+            # questions, making the final content come back empty. Speed mode
+            # must actually answer -> disable reasoning so tokens go to the
+            # response itself.
+            if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+                params["reasoning_effort"] = "none"
         
         # Outlines-style: Use deterministic sampling for small models
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():

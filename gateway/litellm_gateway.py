@@ -36,6 +36,7 @@ def chat(
     use_cache: bool = True,
     speed_mode: bool = False,
     system_prompt: str = None,
+    reasoning_effort: str = None,
 ) -> tuple[str, bool, str]:
     """
     Simple chat function with caching.
@@ -100,6 +101,8 @@ def chat(
             getattr(settings, "generation_timeout", 15),
         ),
     }
+    if reasoning_effort is not None:
+        kwargs["reasoning_effort"] = reasoning_effort
 
     # Apply generation policy (top_p/top_k) unless in speed mode
     if not speed_mode:

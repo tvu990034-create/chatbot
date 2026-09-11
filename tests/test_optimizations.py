@@ -463,15 +463,15 @@ class TestPerformanceModePrecedence:
 
     def test_speed_mode_caps_long_response_to_reasoning_budget(self):
         from gateway.universal_enhanced_gateway import (
-            UniversalEnhancedGateway, QueryAnalysis)
+            UniversalEnhancedGateway, QueryAnalysis, SPEED_REASONING_MAX_TOKENS)
         gw = UniversalEnhancedGateway("phi3:mini",
                                       enable_all_optimizations=True,
                                       performance_mode="speed")
         analysis = QueryAnalysis()
         analysis.expected_response_length = "long"
         params = gw._get_adaptive_model_params(analysis)
-        assert params["max_tokens"] == 200, \
-            f"speed-mode reasoning should get its 200-token budget, got {params['max_tokens']}"
+        assert params["max_tokens"] == SPEED_REASONING_MAX_TOKENS, \
+            f"speed-mode reasoning should get its reasoning budget, got {params['max_tokens']}"
         assert params["num_predict"] >= params["max_tokens"]
 
     def test_speed_mode_short_response_still_capped(self):
@@ -487,15 +487,40 @@ class TestPerformanceModePrecedence:
 
     def test_speed_mode_math_gets_reasoning_budget(self):
         from gateway.universal_enhanced_gateway import (
-            UniversalEnhancedGateway, QueryAnalysis)
+            UniversalEnhancedGateway, QueryAnalysis, SPEED_REASONING_MAX_TOKENS)
         gw = UniversalEnhancedGateway("phi3:mini",
                                       enable_all_optimizations=True,
                                       performance_mode="speed")
         analysis = QueryAnalysis()
         analysis.is_math = True
         params = gw._get_adaptive_model_params(analysis)
-        assert params["max_tokens"] == 200
-        assert params["num_predict"] >= 200
+        assert params["max_tokens"] == SPEED_REASONING_MAX_TOKENS
+        assert params["num_predict"] >= SPEED_REASONING_MAX_TOKENS
+
+    def test_speed_mode_disables_thinking_for_thinking_models(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("qwen3:4b",
+                                      enable_all_optimizations=True,
+                                      performance_mode="speed")
+        analysis = QueryAnalysis()
+        analysis.is_math = True
+        params = gw._get_adaptive_model_params(analysis)
+        assert params.get("reasoning_effort") == "none", \
+            "thinking models must have reasoning disabled in speed mode " \
+            "(their hidden chain-of-thought burns the whole num_predict budget)"
+
+    def test_thoughtful_model_param_build_keeps_plain_params(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("qwen3:4b",
+                                      enable_all_optimizations=True,
+                                      performance_mode="speed")
+        analysis = QueryAnalysis()
+        analysis.expected_response_length = "short"
+        params = gw._get_adaptive_model_params(analysis)
+        assert params.get("reasoning_effort") == "none"
+        assert params["max_tokens"] <= 40
 
 # ---------------------------------------------------------------------------
 # BUG 13 / 27 / 28 / 33 / 29 / 32 fixes
