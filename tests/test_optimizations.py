@@ -370,6 +370,35 @@ class TestQuickResponseSafeMath:
         result = gw._get_quick_response("hello")
         assert result is not None
 
+    # BUG 41 FIX: canned confirmations must never fire mid-conversation
+    def test_confirmation_not_returned_in_multi_turn(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=False)
+        multi_turn = [
+            {"role": "user", "content": "What is 2+2?"},
+            {"role": "assistant", "content": "4"},
+            {"role": "user", "content": "yes"},
+        ]
+        result = gw._get_quick_response("yes", multi_turn)
+        assert result is None, "canned confirmation must not fire mid-conversation"
+
+    def test_greeting_not_returned_in_multi_turn(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=False)
+        multi_turn = [
+            {"role": "user", "content": "Tell me a joke"},
+            {"role": "assistant", "content": "Why did the chicken cross the road?"},
+            {"role": "user", "content": "hello"},
+        ]
+        result = gw._get_quick_response("hello", multi_turn)
+        assert result is None, "canned greeting must not fire mid-conversation"
+
+    def test_quick_response_still_works_on_first_turn(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=False)
+        result = gw._get_quick_response("yes", [{"role": "user", "content": "yes"}])
+        assert result is not None
+
 
 # ---------------------------------------------------------------------------
 # RAG deduplication (Bug 2+5)

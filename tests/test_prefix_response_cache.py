@@ -16,6 +16,7 @@ KV-tensor reuse, so no KV-cache metric may be produced from a response-cache hit
 from __future__ import annotations
 
 import hashlib
+import json
 import threading
 
 
@@ -30,15 +31,15 @@ def _make_gateway(enable: bool = True, model: str = "phi3:mini"):
     return gw
 
 
+def _conversation_fingerprint(messages):
+    return hashlib.md5(
+        json.dumps(messages, ensure_ascii=False, sort_keys=True).encode()
+    ).hexdigest()
+
+
 def _write(gw, messages, model="phi3:mini", params=None):
     """Manually mirror the write path (same identity construction)."""
-    prefix = ""
-    if messages and messages[0].get("role") == "system":
-        prefix = messages[0]["content"][:200]
-    elif messages:
-        prefix = messages[0]["content"][:100]
-    prefix_key = hashlib.md5(prefix.encode()).hexdigest()
-    full_query = messages[-1]["content"]
+    prefix_key = _conversation_fingerprint(messages)
 
     ident = {"model": model, "system_prompt": gw.system_prompt}
     for k in ("temperature", "max_tokens", "top_p", "top_k", "max_length"):
@@ -47,7 +48,7 @@ def _write(gw, messages, model="phi3:mini", params=None):
             ident[k] = p[k]
 
     with threading.Lock():
-        gw.prefix_response_cache.setdefault(prefix_key, {})[full_query] = {
+        gw.prefix_response_cache.setdefault(prefix_key, {})[prefix_key] = {
             "response": "cached response",
             "gen_identity": ident,
         }
@@ -129,3 +130,34 @@ class TestBackCompatAlias:
         # Both names must reference the same underlying object when enabled.
         assert gw.prefix_response_cache is not None
         assert gw.prefix_cache is gw.prefix_response_cache
+
+
+class TestNoMultiTurnReplay:
+    """BUG 41 FIX: a short follow-up in a DIFFERENT conversation must never
+    replay an answer cached for a different topic."""
+
+    def _conversation(self, topic_query):
+        return [
+            {"role": "system", "content": "You are a helpful assistant."},
+            {"role": "user", "content": topic_query},
+            {"role": "assistant", "content": "Some previous answer"},
+            {"role": "user", "content": "yes"},
+        ]
+
+    def test_followup_does_not_reuse_other_conversation(self):
+        gw = _make_gateway()
+        conv_a = self._conversation("What is the capital of France?")
+        # Cache an answer for conversation A ending in "yes".
+        _write(gw, conv_a)
+        # Conversation B has the SAME final "yes" but a different topic.
+        conv_b = self._conversation("Explain quantum entanglement?")
+        result = gw._check_prefix_cache(conv_b, gw._current_gen_identity())
+        assert result is None, \
+            "a 'yes' follow-up in another conversation must not replay a cached answer"
+
+    def test_identical_conversation_still_hits(self):
+        gw = _make_gateway()
+        conv = self._conversation("What is the capital of France?")
+        _write(gw, conv)
+        result = gw._check_prefix_cache(conv, gw._current_gen_identity())
+        assert result == "cached response"

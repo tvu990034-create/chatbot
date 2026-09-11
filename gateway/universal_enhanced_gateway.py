@@ -591,26 +591,44 @@ class UniversalEnhancedGateway:
         
         logger.info(f"Fast cache warming complete: {len(self.cache)} cache entries pre-loaded")
     
-    def _get_quick_response(self, query: str) -> Optional[str]:
-        """LangChain-style quick response: Get instant response from templates for common queries."""
+    def _get_quick_response(self, query: str, messages: Optional[List[Dict[str, str]]] = None) -> Optional[str]:
+        """LangChain-style quick response: Get instant response from templates for common queries.
+
+        Confirmation/greeting templates are only safe for a FIRST message.
+        In a multi-turn conversation a stray "yes" or "ok" is the user
+        confirming a previous assistant reply, not a fresh question - so we
+        must route it to the model, never to a canned confirmation.
+        """
         query_lower = query.lower().strip()
-        
+
+        # Count previous assistant turns. Quick templates only apply when the
+        # user has not yet received any assistant reply (single-turn start).
+        num_prior_turns = 0
+        if isinstance(messages, list):
+            num_prior_turns = sum(
+                1 for m in messages if m.get("role") == "assistant"
+            )
+
         # Instant greeting responses
         if query_lower in ["hello", "hi", "hey", "greetings"]:
+            if num_prior_turns > 0:
+                return None
             import random
             return random.choice(_quick_response_templates["greeting"])
-        
+
         # Instant confirmation responses
-        if query_lower in ["yes", "correct", "right", "true"]:
+        if query_lower in ["yes", "correct", "right", "true", "ok", "okay"]:
+            if num_prior_turns > 0:
+                return None
             import random
             return random.choice(_quick_response_templates["confirmation"])
-        
+
         # Instant math for simple calculations (safe arithmetic, no eval)
         from .opt_core import quick_arithmetic as _safe_math
         math_result = _safe_math(query_lower)
         if math_result is not None:
             return f"The answer is {math_result}"
-        
+
         return None
     
     def chat(self, messages: List[Dict[str, str]], use_cache: bool = True, **kwargs) -> str:
@@ -665,7 +683,7 @@ class UniversalEnhancedGateway:
         query = messages[-1]["content"]
         
         # Step 1: LangChain quick response: ULTRA-FAST instant response for common queries
-        quick_response = self._get_quick_response(query)
+        quick_response = self._get_quick_response(query, messages)
         if quick_response:
             logger.info(f"Quick response returned in <0.01s")
             return quick_response
@@ -969,30 +987,29 @@ class UniversalEnhancedGateway:
                     self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
 
                 # Step 11.1: Prefix-keyed response cache write — store the full
-                # response keyed by the prompt prefix.  The stored payload is
-                # tagged with the generation identity (model + generation
-                # settings) so a cached entry is only reused when that identity
-                # still matches on lookup (see _check_prefix_cache).  This is a
-                # RESPONSE cache; it does not reuse backend KV tensors.
+                # response keyed by the full conversation fingerprint.  The
+                # stored payload is tagged with the generation identity (model
+                # + generation settings) so a cached entry is only reused when
+                # that identity still matches on lookup (see
+                # _check_prefix_cache).  This is a RESPONSE cache; it does not
+                # reuse backend KV tensors.
                 if self.enable_all_optimizations and self.prefix_response_cache is not None:
-                    prefix = ""
-                    if len(messages) > 0 and messages[0].get("role") == "system":
-                        prefix = messages[0]["content"][:200]
-                    elif len(messages) > 0:
-                        prefix = messages[0]["content"][:100]
-                    if prefix:
-                        prefix_key = hashlib.md5(prefix.encode()).hexdigest()
-                        full_query = messages[-1]["content"]
-                        # Tag with the ACTUAL model used, not the configured default.
-                        gen_id = self._current_gen_identity()
-                        gen_id["model"] = model_to_use
-                        with _prefix_response_cache_lock:
-                            if prefix_key not in self.prefix_response_cache:
-                                self.prefix_response_cache[prefix_key] = {}
-                            self.prefix_response_cache[prefix_key][full_query] = {
-                                "response": response_text,
-                                "gen_identity": gen_id,
-                            }
+                    # Key by the ENTIRE conversation fingerprint (matches the
+                    # read path) so a cached response is only reused for a
+                    # byte-identical conversation, never replayed across turns.
+                    prefix_key = hashlib.md5(
+                        json.dumps(messages, ensure_ascii=False, sort_keys=True).encode()
+                    ).hexdigest()
+                    # Tag with the ACTUAL model used, not the configured default.
+                    gen_id = self._current_gen_identity()
+                    gen_id["model"] = model_to_use
+                    with _prefix_response_cache_lock:
+                        if prefix_key not in self.prefix_response_cache:
+                            self.prefix_response_cache[prefix_key] = {}
+                        self.prefix_response_cache[prefix_key][prefix_key] = {
+                            "response": response_text,
+                            "gen_identity": gen_id,
+                        }
             
             # Step 11.5: CodeFuse semantic cache: Store code responses
             if query_analysis.is_coding and _code_semantic_cache_enabled:
@@ -1080,30 +1097,26 @@ class UniversalEnhancedGateway:
                             gen_identity: Optional[Dict[str, Any]] = None) -> Optional[str]:
         """Prefix-keyed RESPONSE cache lookup (NOT a backend KV cache).
 
-        Returns a previously generated response only when BOTH the prefix
-        bucket and the full-query identity match, AND the generation identity
-        (model + generation settings) still matches.  This avoids serving a
-        stale response when the model or sampling settings have changed.
+        Returns a previously generated response only when the ENTIRE
+        conversation (all messages, not just the tail) is byte-identical to
+        the stored one AND the generation identity (model + generation
+        settings) still matches.  Keying by the full conversation fingerprint
+        prevents a short follow-up ("yes", "continue") in a different
+        conversation from replaying an unrelated cached answer.
         """
-        # Extract system prompt or first message as prefix
-        prefix = ""
-        if len(messages) > 0 and messages[0].get("role") == "system":
-            prefix = messages[0]["content"][:200]  # First 200 chars
-        elif len(messages) > 0:
-            prefix = messages[0]["content"][:100]
-
-        if not prefix:
+        if not messages:
             return None
 
-        prefix_key = hashlib.md5(prefix.encode()).hexdigest()
-        full_query = messages[-1]["content"]
+        conversation_fingerprint = hashlib.md5(
+            json.dumps(messages, ensure_ascii=False, sort_keys=True).encode()
+        ).hexdigest()
         expected_id = gen_identity or self._current_gen_identity()
 
         with _prefix_response_cache_lock:
             if not self.prefix_response_cache:
                 return None
-            bucket = self.prefix_response_cache.get(prefix_key)
-            entry = bucket.get(full_query) if bucket else None
+            bucket = self.prefix_response_cache.get(conversation_fingerprint)
+            entry = bucket.get(conversation_fingerprint) if bucket else None
             if entry is None:
                 return None
             # Second validation step: the generation identity must still match.
@@ -1316,7 +1329,12 @@ class UniversalEnhancedGateway:
                         timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                         api_base="http://localhost:11434"
                     )
-                    responses.append((model, response.choices[0].message.content))
+                    content = response.choices[0].message.content
+                    # Skip empty / missing generations - never offer a blank
+                    # candidate for the preference vote (BUG 41 fix).
+                    if content is None or not str(content).strip():
+                        continue
+                    responses.append((model, str(content)))
                 except Exception as e:
                     logger.warning(f"UltraFeedback: Model {model} failed: {e}")
             
@@ -1337,8 +1355,16 @@ class UniversalEnhancedGateway:
             
             # Select best response
             best = max(scored_responses, key=lambda x: x[2])
+            if best[1] is None or not best[1].strip():
+                return None
             logger.info(f"UltraFeedback: Selected {best[0]} (score: {best[2]:.1f})")
-            return best[1]
+            # Route the winner through the same response constraints as the
+            # main path (math framing, dumber-guard, safety filter) so the
+            # selected answer is never LESS constrained than a normal answer.
+            try:
+                return self._apply_response_constraints(best[1], analysis)
+            except Exception:
+                return best[1]
             
         except Exception as e:
             logger.warning(f"UltraFeedback: Selection failed: {e}")
@@ -1562,6 +1588,9 @@ Provide the fixed code only, no explanation."""
                 api_base="http://localhost:11434"
             )
             code = gen_response.choices[0].message.content
+            if code is None or not str(code).strip():
+                return None
+            code = str(code)
             
             # Extract code block
             import re
@@ -1581,6 +1610,8 @@ Provide the fixed code only, no explanation."""
                 api_base="http://localhost:11434"
             )
             tests = test_response.choices[0].message.content
+            if tests is None or not str(tests).strip():
+                tests = ""
             
             # Stage 3: Code Reviewer (simplified)
             # BUG 75 FIX: Don't double-prefix with ollama/ if already present
@@ -1594,6 +1625,8 @@ Provide the fixed code only, no explanation."""
                 api_base="http://localhost:11434"
             )
             review = review_response.choices[0].message.content
+            if review is None or not str(review).strip():
+                review = ""
             
             logger.info(f"MetaGPT: Code pipeline completed (3 stages)")
             
@@ -1959,6 +1992,9 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
             )
             
             response_text = response.choices[0].message.content
+            if response_text is None or not str(response_text).strip():
+                return None
+            response_text = str(response_text)
             
             # Extract code blocks for execution
             import re
@@ -1995,14 +2031,20 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                     )
                     
                     response_text = final_response.choices[0].message.content
+                    if response_text is None or not str(response_text).strip():
+                        response_text = ""
+                    else:
+                        response_text = str(response_text)
             
             # Extract final answer
             boxed_answer = self._extract_boxed_answer(response_text)
             if boxed_answer:
                 logger.info(f"TIR: Extracted answer: {boxed_answer}")
                 return response_text
-            
-            return response_text
+
+            if response_text.strip():
+                return response_text
+            return None
             
         except Exception as e:
             logger.warning(f"TIR: Reasoning failed: {e}")
@@ -2031,6 +2073,10 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                 )
                 
                 response_text = response.choices[0].message.content
+                if response_text is None or not str(response_text).strip():
+                    # Skip blank samplesso a fallback can never be empty.
+                    continue
+                response_text = str(response_text)
                 responses.append(response_text)
                 
                 # Extract confidence (BUG 28: prefer verifiable correctness over
@@ -2064,6 +2110,8 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                     for _ in range(int(conf * 10)):
                         answers.append(answer)
             
+            if not responses:
+                return None
             if not answers:
                 return responses[0]  # Fallback to first response
             
@@ -2244,7 +2292,9 @@ Provide your evaluation in JSON format:
                     timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
-                results.append(f"Analysis: {analysis_response.choices[0].message.content}")
+                _c = analysis_response.choices[0].message.content
+                if _c is not None and str(_c).strip():
+                    results.append(f"Analysis: {_c}")
             
             # Step 2: Execution agent (conditional)
             if analysis.is_coding:
@@ -2258,7 +2308,9 @@ Provide your evaluation in JSON format:
                     timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
                     api_base="http://localhost:11434"
                 )
-                results.append(f"Execution: {execution_response.choices[0].message.content}")
+                _c = execution_response.choices[0].message.content
+                if _c is not None and str(_c).strip():
+                    results.append(f"Execution: {_c}")
             
             # Step 3: Synthesis agent
             if len(results) > 1:
@@ -2280,7 +2332,10 @@ Provide the final synthesized response."""
                 )
                 
                 logger.info(f"AgentVerse: Multi-agent synthesis completed")
-                return synthesis_response.choices[0].message.content
+                _synth = synthesis_response.choices[0].message.content
+                if _synth is not None and str(_synth).strip():
+                    return _synth
+                # Synthesis was blank; fall through to the fallback below.
             
             # Fallback: return first result
             if results:
@@ -2314,6 +2369,9 @@ Provide sub-questions as a numbered list."""
             )
             
             sub_questions = decomposition_response.choices[0].message.content
+            if sub_questions is None or not str(sub_questions).strip():
+                return None
+            sub_questions = str(sub_questions)
             
             # Extract sub-questions
             import re
@@ -2342,6 +2400,9 @@ Provide sub-questions as a numbered list."""
                 )
                 
                 answer = answer_response.choices[0].message.content
+                if answer is None or not str(answer).strip():
+                    continue
+                answer = str(answer)
                 answers.append(f"Q: {q}\nA: {answer}")
                 
                 # Cache answer
