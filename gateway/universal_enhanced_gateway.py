@@ -939,10 +939,18 @@ class UniversalEnhancedGateway:
                 # Could filter low-quality responses here if needed
             
             # Step 11: LangChain memory: SMART caching with TTL
-            if use_cache and self.cache is not None:
+            # Never cache empty, None, or fallback apology responses — serving
+            # them later makes the chatbot permanently dumber for that query.
+            _cacheable = (response_text and isinstance(response_text, str)
+                          and response_text.strip()
+                          and 'trouble processing' not in response_text.lower()
+                          and 'apologize' not in response_text.lower())
+            if use_cache and self.cache is not None and _cacheable:
                 # Must match the model-scoped read key in Step 3.
+                # Use the ACTUAL model that generated the response (may be
+                # different from self.model_name when routing is active).
                 cache_key = self._generate_cache_key(
-                    query, {"model": self.model_name,
+                    query, {"model": model_to_use,
                             "performance_mode": self.performance_mode})
                 with _cache_lock:
                     self.cache[cache_key] = {
@@ -975,7 +983,9 @@ class UniversalEnhancedGateway:
                     if prefix:
                         prefix_key = hashlib.md5(prefix.encode()).hexdigest()
                         full_query = messages[-1]["content"]
+                        # Tag with the ACTUAL model used, not the configured default.
                         gen_id = self._current_gen_identity()
+                        gen_id["model"] = model_to_use
                         with _prefix_response_cache_lock:
                             if prefix_key not in self.prefix_response_cache:
                                 self.prefix_response_cache[prefix_key] = {}
@@ -986,9 +996,8 @@ class UniversalEnhancedGateway:
             
             # Step 11.5: CodeFuse semantic cache: Store code responses
             if query_analysis.is_coding and _code_semantic_cache_enabled:
-                # BUG 39 FIX: Use configuration-aware cache key
                 cache_context = {
-                    'model': self.model_name,
+                    'model': model_to_use,
                     'language': self._detect_language(query),
                     'framework': self._detect_framework(query),
                     'system_prompt': self.system_prompt,
@@ -1134,9 +1143,13 @@ class UniversalEnhancedGateway:
             analysis.is_coding = True
         
         # Detect math - check for keywords AND mathematical patterns
-        math_keywords = ["calculate", "math", "equation", "solve", "formula", "derivative", "integral", "probability", "sum", "average"]
+        math_keywords = ["calculate", "math", "equation", "solve", "formula", "derivative", "integral", "probability"]
+        math_context_keywords = [("sum", " of"), ("average", " of")]
         math_patterns = [r'\d+[x-z]', r'[x-z]\s*[+\-*/=]', r'\d+\s*[+\-*/]\s*\d+', r'\w+\s*=\s*\d+', r'\^', r'\d+%', r'\d+\.\d+']
-        if any(word in query_lower for word in math_keywords) or any(re.search(pattern, query) for pattern in math_patterns):
+        if (any(word in query_lower for word in math_keywords)
+                or any(kw in query_lower and ctx in query_lower
+                       for kw, ctx in math_context_keywords)
+                or any(re.search(pattern, query) for pattern in math_patterns)):
             analysis.is_math = True
         if quick_word_problem(query) is not None:
             analysis.is_math = True
@@ -1450,7 +1463,12 @@ class UniversalEnhancedGateway:
         
         available = _code_model_registry.get(tier, [])
         if available and len(available) > 0:
-            return available[0]
+            # Only route if the model is actually installed — otherwise
+            # the request falls through to an API error → canned apology.
+            from gateway.opt_core import check_model_available
+            candidate = available[0]
+            if check_model_available(candidate):
+                return candidate
         
         return None
     
@@ -2389,9 +2407,13 @@ Provide the final synthesized response."""
             analysis.is_coding = True
         
         # Detect math - check for keywords AND mathematical patterns
-        math_keywords = ["calculate", "math", "equation", "solve", "formula", "derivative", "integral", "probability", "sum", "average"]
+        math_keywords = ["calculate", "math", "equation", "solve", "formula", "derivative", "integral", "probability"]
+        math_context_keywords = [("sum", " of"), ("average", " of")]
         math_patterns = [r'\d+[x-z]', r'[x-z]\s*[+\-*/=]', r'\d+\s*[+\-*/]\s*\d+', r'\w+\s*=\s*\d+', r'\^', r'\d+%', r'\d+\.\d+']
-        if any(word in query_lower for word in math_keywords) or any(re.search(pattern, query) for pattern in math_patterns):
+        if (any(word in query_lower for word in math_keywords)
+                or any(kw in query_lower and ctx in query_lower
+                       for kw, ctx in math_context_keywords)
+                or any(re.search(pattern, query) for pattern in math_patterns)):
             analysis.is_math = True
         if quick_word_problem(query) is not None:
             analysis.is_math = True
@@ -2429,7 +2451,10 @@ Provide the final synthesized response."""
         # Performance-mode precedence: 'speed' keeps a short cap for simple
         # queries, but reasoning/math/code gets SPEED_REASONING_MAX_TOKENS so the
         # answer can complete instead of being truncated mid-solution.
+        # Non-reasoning queries get a generous-enough cap (200 tokens) so short
+        # factual answers aren't cut off mid-sentence.
         if self.performance_mode == "speed":
+            _SPEED_SIMPLE_CAP = 200
             reasoning = bool(analysis.is_math or analysis.is_coding
                              or analysis.needs_reasoning or analysis.is_complex
                              or analysis.expected_response_length == "long")
@@ -2437,8 +2462,8 @@ Provide the final synthesized response."""
                 params["max_tokens"] = max(
                     params["max_tokens"], SPEED_REASONING_MAX_TOKENS)
             else:
-                params["max_tokens"] = min(
-                    params["max_tokens"], self.model_params.get("max_tokens", 50))
+                params["max_tokens"] = max(
+                    params["max_tokens"], _SPEED_SIMPLE_CAP)
             if params.get("num_predict") is not None:
                 params["num_predict"] = max(
                     params["num_predict"], params["max_tokens"])
@@ -2447,8 +2472,17 @@ Provide the final synthesized response."""
             # questions, making the final content come back empty. Speed mode
             # must actually answer -> disable reasoning so tokens go to the
             # response itself.
+            # CRITICAL (verified empirically against ollama): for qwen3 you
+            # must NOT pass top-level max_tokens/num_predict together with an
+            # options dict — that combination makes ollama return EMPTY
+            # content.  Move the budget into options and drop the top-level
+            # keys (temperature/top_p/top_k stay top-level; they are safe).
             if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
-                params["reasoning_effort"] = "none"
+                options = params.setdefault("options", {})
+                options["think"] = False
+                options["num_predict"] = int(params["max_tokens"])
+                params.pop("max_tokens", None)
+                params.pop("num_predict", None)
         
         # Outlines-style: Use deterministic sampling for small models
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():
@@ -2560,10 +2594,18 @@ Code:"""
         
         # Ensure math responses are in proper format
         if analysis.is_math:
-            # Extract final numeric answer if present
-            match = re.search(r'(-?\d+\.?\d*)\s*$', response)
-            if match:
-                return match.group(1)
+            # Only extract the trailing number for short, pure-arithmetic
+            # responses.  A number is only considered a standalone answer when
+            # it is the whole text or preceded by whitespace — "1/3" (fraction)
+            # and mid-sentence numbers must never be grabbed.
+            stripped = response.strip()
+            if len(stripped) <= 80:
+                match = re.search(r'(?:^|\s)(-?\d+\.?\d*)\s*$', stripped)
+                if match and (stripped.endswith(match.group(1))
+                              or match.group(1) == stripped):
+                    answer = match.group(1)
+                    if answer != stripped:
+                        return answer
         
         # Ensure code responses have proper structure
         if analysis.is_coding:

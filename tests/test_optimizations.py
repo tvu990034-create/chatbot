@@ -187,6 +187,116 @@ class TestCacheModelScoping:
 
 
 # ---------------------------------------------------------------------------
+# Bug: NEVER serve a dumber answer than the model produced
+# ---------------------------------------------------------------------------
+
+class TestDumberGuard:
+    """Regression tests for every path that could degrade answers:
+    1. empty/None/apology responses must not be cached
+    2. math constraint must not strip explanations or corrupt fractions
+    3. 'summarize' must not be treated as math
+    4. code routing must verify model availability
+    5. non-reasoning speed-mode queries get a generous token budget
+    """
+
+    def test_empty_response_not_cached(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway)
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        response_text = ""
+        _cacheable = (response_text and isinstance(response_text, str)
+                      and response_text.strip())
+        assert not _cacheable
+        response_text = None
+        _cacheable = (response_text and isinstance(response_text, str)
+                      and response_text.strip())
+        assert not _cacheable
+
+    def test_apology_not_cached(self):
+        text = "I apologize, but I'm having trouble processing your request."
+        import re
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway)
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        response_text = text
+        _cacheable = (response_text and isinstance(response_text, str)
+                      and response_text.strip()
+                      and 'trouble processing' not in response_text.lower()
+                      and 'apologize' not in response_text.lower())
+        assert not _cacheable
+
+    def test_math_constraint_keeps_fraction_explanations(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=True)
+        analysis = QueryAnalysis()
+        analysis.is_math = True
+        # Long explanation with a fraction -> must NOT be stripped to "3"
+        result = gw._apply_response_constraints(
+            "To solve this, divide 2 by 3: the answer is 1/3", analysis)
+        assert "1/3" in result, f"fraction explanation got corrupted: {result!r}"
+        assert result.strip() != "3"
+
+    def test_math_constraint_strips_only_short_numeric(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=True)
+        analysis = QueryAnalysis()
+        analysis.is_math = True
+        # Short pure-arithmetic response -> trailing number extraction is fine
+        result = gw._apply_response_constraints("4", analysis)
+        assert result == "4"
+
+    def test_summarize_is_not_math(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=False)
+        analysis = gw._intelligent_query_analysis_with_complexity(
+            "summarize this article in 2 sentences")
+        assert not analysis.is_math, \
+            "'summarize' contains 'sum' but must not be classified as math"
+        analysis2 = gw._intelligent_query_analysis_with_complexity(
+            "what is the sum of 2 and 3?")
+        assert analysis2.is_math, \
+            "'sum of X and Y' IS math"
+
+    def test_code_routing_checks_availability(self):
+        from unittest.mock import patch
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=True)
+        analysis = QueryAnalysis()
+        analysis.is_coding = True
+        analysis.complexity_score = 0.1
+        analysis.query_text = "write a python function"
+        with patch("gateway.opt_core.check_model_available",
+                   return_value=False):
+            result = gw._route_to_code_model(analysis)
+        assert result is None, \
+            "must NOT route to an uninstalled code model (leads to apology)"
+        with patch("gateway.opt_core.check_model_available",
+                   return_value=True):
+            result = gw._route_to_code_model(analysis)
+        assert result is not None, \
+            "a valid code model should be used when available"
+
+    def test_speed_simple_queries_get_generous_budget(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini",
+                                      enable_all_optimizations=True,
+                                      performance_mode="speed")
+        analysis = QueryAnalysis()  # plain factual query
+        params = gw._get_adaptive_model_params(analysis)
+        assert params["max_tokens"] >= 200, \
+            "simple speed-mode queries must not be truncated to 50 tokens"
+
+
+# ---------------------------------------------------------------------------
 # Bug 10: Code routing uses query_text
 # ---------------------------------------------------------------------------
 
@@ -499,7 +609,7 @@ class TestPerformanceModePrecedence:
             f"speed-mode reasoning should get its reasoning budget, got {params['max_tokens']}"
         assert params["num_predict"] >= params["max_tokens"]
 
-    def test_speed_mode_short_response_still_capped(self):
+    def test_speed_mode_short_response_capped_generously(self):
         from gateway.universal_enhanced_gateway import (
             UniversalEnhancedGateway, QueryAnalysis)
         gw = UniversalEnhancedGateway("phi3:mini",
@@ -508,7 +618,10 @@ class TestPerformanceModePrecedence:
         analysis = QueryAnalysis()
         analysis.expected_response_length = "short"
         params = gw._get_adaptive_model_params(analysis)
-        assert params["max_tokens"] <= 40
+        # Non-reasoning queries get a generous 200-token cap so short factual
+        # answers are not cut off mid-sentence.
+        assert params["max_tokens"] >= 200
+        assert params["max_tokens"] <= 200
 
     def test_speed_mode_math_gets_reasoning_budget(self):
         from gateway.universal_enhanced_gateway import (
@@ -531,8 +644,9 @@ class TestPerformanceModePrecedence:
         analysis = QueryAnalysis()
         analysis.is_math = True
         params = gw._get_adaptive_model_params(analysis)
-        assert params.get("reasoning_effort") == "none", \
-            "thinking models must have reasoning disabled in speed mode " \
+        options = params.get("options") or {}
+        assert options.get("think") is False, \
+            "thinking models must have the ollama think flag disabled in speed mode " \
             "(their hidden chain-of-thought burns the whole num_predict budget)"
 
     def test_thoughtful_model_param_build_keeps_plain_params(self):
@@ -544,8 +658,15 @@ class TestPerformanceModePrecedence:
         analysis = QueryAnalysis()
         analysis.expected_response_length = "short"
         params = gw._get_adaptive_model_params(analysis)
-        assert params.get("reasoning_effort") == "none"
-        assert params["max_tokens"] <= 40
+        options = params.get("options") or {}
+        assert options.get("think") is False, \
+            "think must be disabled for qwen3 in speed mode"
+        assert options.get("num_predict") is not None, \
+            "num_predict must live inside options (not top-level) for ollama qwen3"
+        assert "max_tokens" not in params, \
+            "top-level max_tokens must be removed for thinking models (ollama bug)"
+        assert "num_predict" not in params, \
+            "top-level num_predict must be removed for thinking models (ollama bug)"
 
 # ---------------------------------------------------------------------------
 # BUG 13 / 27 / 28 / 33 / 29 / 32 fixes

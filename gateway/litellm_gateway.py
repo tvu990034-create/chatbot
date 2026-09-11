@@ -37,6 +37,7 @@ def chat(
     speed_mode: bool = False,
     system_prompt: str = None,
     reasoning_effort: str = None,
+    options: dict = None,
 ) -> tuple[str, bool, str]:
     """
     Simple chat function with caching.
@@ -91,18 +92,34 @@ def chat(
     
     # API call
     from gateway.opt_core import adaptive_generation_timeout
+    timeout = adaptive_generation_timeout(
+        max_tokens or settings.litellm_max_tokens,
+        getattr(settings, "generation_timeout", 15),
+    )
     kwargs = {
         "model": model,
         "messages": messages,
         "temperature": temperature,
-        "max_tokens": max_tokens,
-        "timeout": adaptive_generation_timeout(
-            max_tokens or settings.litellm_max_tokens,
-            getattr(settings, "generation_timeout", 15),
-        ),
+        "timeout": timeout,
     }
     if reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
+    if options is not None:
+        kwargs["options"] = options
+        if "num_predict" in options:
+            # ollama bug: sending top-level max_tokens together with an
+            # options dict that sets num_predict makes qwen3 return EMPTY
+            # content.  num_predict inside options is authoritative; drop the
+            # top-level cap.  Keep max_tokens at top level otherwise.
+            kwargs.pop("max_tokens", None)
+            kwargs["timeout"] = adaptive_generation_timeout(
+                options["num_predict"],
+                getattr(settings, "generation_timeout", 15),
+            )
+        else:
+            kwargs["max_tokens"] = max_tokens
+    else:
+        kwargs["max_tokens"] = max_tokens
 
     # Apply generation policy (top_p/top_k) unless in speed mode
     if not speed_mode:

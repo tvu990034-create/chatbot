@@ -124,8 +124,13 @@ def raw_chat(messages: List[Dict[str, str]], model: Optional[str] = None,
     # Thinking models (qwen3) burn their whole generation budget on hidden
     # chain-of-thought and return empty content; the baseline must run under
     # the same think-off setting as the optimized path to be comparable.
+    # NOTE: passing both max_tokens and options{num_predict} to ollama makes
+    # qwen3 return EMPTY content, so litellm_gateway handles the drop when it
+    # sees num_predict inside options.
     if any(m in model_name.lower() for m in THINKING_MODEL_MARKERS):
-        kwargs["reasoning_effort"] = "none"
+        from config import settings as _settings
+        budget = kwargs.get("max_tokens") or _settings.litellm_max_tokens
+        kwargs["options"] = {"think": False, "num_predict": int(budget)}
     return chat(**kwargs)
 
 
