@@ -681,7 +681,11 @@ class UniversalEnhancedGateway:
         
         # Step 3: LangChain memory: AGGRESSIVE cache checking with semantic matching
         if use_cache and self.cache is not None:
-            cache_key = self._generate_cache_key(query)
+            # Model-scoped cache key: answers cached by one model must never be
+            # served to another (phi3 got qwen3's verbatim replies otherwise).
+            cache_key = self._generate_cache_key(
+                query, {"model": self.model_name,
+                        "performance_mode": self.performance_mode})
             
             # Exact match
             if cache_key in self.cache:
@@ -936,7 +940,10 @@ class UniversalEnhancedGateway:
             
             # Step 11: LangChain memory: SMART caching with TTL
             if use_cache and self.cache is not None:
-                cache_key = self._generate_cache_key(query)
+                # Must match the model-scoped read key in Step 3.
+                cache_key = self._generate_cache_key(
+                    query, {"model": self.model_name,
+                            "performance_mode": self.performance_mode})
                 with _cache_lock:
                     self.cache[cache_key] = {
                         "response": response_text,

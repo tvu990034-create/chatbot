@@ -162,6 +162,31 @@ class TestPrefixCache:
 
 
 # ---------------------------------------------------------------------------
+# Bug: shared _global_cache served one model's answers to another
+# ---------------------------------------------------------------------------
+
+class TestCacheModelScoping:
+    """Main response cache keys must be scoped by model + mode so answers
+    cached under qwen3:4b are never served to phi3:mini."""
+
+    def test_cache_key_varies_by_model(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        ctx = {"model": "phi3:mini", "performance_mode": "speed"}
+        k_phi = gw._generate_cache_key("What is the capital of France?", ctx)
+        ctx2 = {"model": "qwen3:4b", "performance_mode": "speed"}
+        k_qwen = gw._generate_cache_key("What is the capital of France?", ctx2)
+        assert k_phi != k_qwen
+
+    def test_cache_key_stable_for_same_model_mode(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        ctx = {"model": "qwen3:4b", "performance_mode": "speed"}
+        assert gw._generate_cache_key("hello", ctx) == \
+            gw._generate_cache_key("hello", ctx)
+
+
+# ---------------------------------------------------------------------------
 # Bug 10: Code routing uses query_text
 # ---------------------------------------------------------------------------
 
