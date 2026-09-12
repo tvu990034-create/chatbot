@@ -174,6 +174,8 @@ from litellm.exceptions import (
 from config import settings
 from .opt_core import (
     BoundedTTLCache,
+    TOKENS_PER_SECOND_FLOOR,
+    TIMEOUT_BUFFER_S,
     adaptive_generation_timeout,
     build_priority_messages,
     check_model_available,
@@ -354,6 +356,31 @@ _code_semantic_cache = {}
 _code_semantic_cache_hits = 0
 _code_cache_lock = threading.Lock()
 _code_semantic_cache_max_size = 500  # BUG 40 FIX: Limit code semantic cache size
+
+
+def _adaptive_timeout(params, settings_module) -> float:
+    """Compute the generation timeout from the ACTUAL token budget.
+
+    The effective budget may live in options['num_predict'] (qwen3/thinking
+    models) or in max_tokens.  Sizing the timeout from settings.litellm_max_tokens
+    alone truncates long code/reasoning generations mid-stream and the gateway
+    falls back to a canned apology.  When no param dict is available (fast-path
+    helpers) fall back to the reasoning budget, which covers slow cold starts.
+    Thinking-model paths (options dict present) also need a cold-start cushion:
+    qwen3 takes ~60s just to LOAD into VRAM before it emits the first token, and
+    that load time counts against the timeout.
+    """
+    options = (params or {}).get("options") or {}
+    effective = options.get("num_predict") or (params or {}).get("max_tokens")
+    base_timeout = getattr(settings_module, "generation_timeout", 15)
+    base = float(base_timeout if base_timeout is not None else 15.0)
+    budget = int(effective if effective else getattr(settings_module, "litellm_max_tokens", SPEED_REASONING_MAX_TOKENS))
+    needed = budget / TOKENS_PER_SECOND_FLOOR + TIMEOUT_BUFFER_S
+    # A first-call model load (cold start) consumes up to ~90s that is NOT
+    # covered by the per-token budget term.
+    if options:
+        needed += 90.0
+    return max(base, needed)
 
 # Pre-computed response templates for instant responses
 _quick_response_templates = {
@@ -902,7 +929,7 @@ class UniversalEnhancedGateway:
                         model=model_to_use,  # Bug #34 FIX: Use routed model
                         messages=optimized_messages,
                         **adaptive_params,
-                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                        timeout=_adaptive_timeout(adaptive_params, settings),
                         api_base="http://localhost:11434"
                     )
                     response_text = response.choices[0].message.content
@@ -919,7 +946,7 @@ class UniversalEnhancedGateway:
                     model=model_to_use,
                     messages=optimized_messages,
                     **adaptive_params,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(adaptive_params, settings),
                     api_base="http://localhost:11434"
                 )
                 response_text = response.choices[0].message.content
@@ -1326,7 +1353,7 @@ class UniversalEnhancedGateway:
                     response = completion(
                         model=f"ollama/{model}",
                         messages=[{"role": "user", "content": query}],
-                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                        timeout=_adaptive_timeout(None, settings),
                         api_base="http://localhost:11434"
                     )
                     content = response.choices[0].message.content
@@ -1390,7 +1417,7 @@ class UniversalEnhancedGateway:
                 model=model_to_use,
                 messages=[{"role": "user", "content": code_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -1547,7 +1574,7 @@ Provide the fixed code only, no explanation."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": repair_prompt}],
                     temperature=0.2,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1584,7 +1611,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": generator_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             code = gen_response.choices[0].message.content
@@ -1606,7 +1633,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": test_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             tests = test_response.choices[0].message.content
@@ -1621,7 +1648,7 @@ Provide the fixed code only, no explanation."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": review_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             review = review_response.choices[0].message.content
@@ -1827,7 +1854,7 @@ You have access to the following tools:
                     model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.3 + (i * 0.2),  # Vary temperature
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 
@@ -1888,7 +1915,7 @@ You have access to the following tools:
                 model=model_to_use,
                 messages=[{"role": "user", "content": translation_prompt}],
                 temperature=0.2,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -1987,7 +2014,7 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
                 model=model_to_use,
                 messages=[{"role": "user", "content": tir_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -2026,7 +2053,7 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                             {"role": "user", "content": feedback_prompt}
                         ],
                         temperature=0.2,
-                        timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                        timeout=_adaptive_timeout(None, settings),
                         api_base="http://localhost:11434"
                     )
                     
@@ -2068,7 +2095,7 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": query}],
                     temperature=0.7 + (i * 0.1),  # Vary temperature
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2188,7 +2215,7 @@ Relevant strategies to consider:
                 model=model_to_use,
                 messages=[{"role": "user", "content": strategy_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -2238,7 +2265,7 @@ Provide your evaluation in JSON format:
                 model=f"ollama/{_judge_model}",
                 messages=[{"role": "user", "content": judge_prompt}],
                 temperature=0.2,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -2289,7 +2316,7 @@ Provide your evaluation in JSON format:
                     model=model_to_use,
                     messages=[{"role": "user", "content": analysis_prompt}],
                     temperature=0.3,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 _c = analysis_response.choices[0].message.content
@@ -2305,7 +2332,7 @@ Provide your evaluation in JSON format:
                     model=model_to_use,
                     messages=[{"role": "user", "content": execution_prompt}],
                     temperature=0.3,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 _c = execution_response.choices[0].message.content
@@ -2327,7 +2354,7 @@ Provide the final synthesized response."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": synthesis_prompt}],
                     temperature=0.3,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2364,7 +2391,7 @@ Provide sub-questions as a numbered list."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": decomposition_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -2395,7 +2422,7 @@ Provide sub-questions as a numbered list."""
                     model=model_to_use,
                     messages=[{"role": "user", "content": q}],
                     temperature=0.3,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 
@@ -2427,7 +2454,7 @@ Provide the final synthesized response."""
                 model=model_to_use,
                 messages=[{"role": "user", "content": synthesis_prompt}],
                 temperature=0.3,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             
@@ -2528,22 +2555,21 @@ Provide the final synthesized response."""
             if params.get("num_predict") is not None:
                 params["num_predict"] = max(
                     params["num_predict"], params["max_tokens"])
-            # Thinking models (qwen3): their hidden chain-of-thought counts
-            # against num_predict and can consume the whole budget on hard
-            # questions, making the final content come back empty. Speed mode
-            # must actually answer -> disable reasoning so tokens go to the
-            # response itself.
-            # CRITICAL (verified empirically against ollama): for qwen3 you
-            # must NOT pass top-level max_tokens/num_predict together with an
-            # options dict — that combination makes ollama return EMPTY
-            # content.  Move the budget into options and drop the top-level
-            # keys (temperature/top_p/top_k stay top-level; they are safe).
-            if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
-                options = params.setdefault("options", {})
-                options["think"] = False
-                options["num_predict"] = int(params["max_tokens"])
-                params.pop("max_tokens", None)
-                params.pop("num_predict", None)
+        
+        # Thinking models (qwen3) in ANY mode: their hidden chain-of-thought
+        # counts against num_predict and can consume the whole budget on hard
+        # questions, making the final content come back empty.
+        # CRITICAL (verified empirically against ollama): for qwen3 you
+        # must NOT pass top-level max_tokens/num_predict together with an
+        # options dict — that combination makes ollama return EMPTY
+        # content.  Move the budget into options and drop the top-level
+        # keys (temperature/top_p/top_k stay top-level; they are safe).
+        if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+            options = params.setdefault("options", {})
+            options["think"] = False
+            options["num_predict"] = int(params["max_tokens"])
+            params.pop("max_tokens", None)
+            params.pop("num_predict", None)
         
         # Outlines-style: Use deterministic sampling for small models
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():
@@ -2809,7 +2835,7 @@ Code:"""
                 model=model_to_use,
                 messages=enhanced_messages,
                 **temp_params,
-                timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                timeout=_adaptive_timeout(None, settings),
                 api_base="http://localhost:11434"
             )
             return response.choices[0].message.content
@@ -2842,7 +2868,7 @@ Code:"""
                     model=model_to_use,
                     messages=messages,
                     **temp_params,
-                    timeout=adaptive_generation_timeout(settings.litellm_max_tokens, getattr(settings, 'generation_timeout', 15)),
+                    timeout=_adaptive_timeout(None, settings),
                     api_base="http://localhost:11434"
                 )
                 responses.append(response.choices[0].message.content)
