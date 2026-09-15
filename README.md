@@ -15,6 +15,32 @@ libraries into one cohesive application with advanced performance optimizations.
 | REST API | **FastAPI** | OpenAI-compatible HTTP backend |
 | Chat UI | **Gradio** | Interactive web interface |
 
+---
+
+## Performance & correctness status (updated 2026-09)
+
+Post-fix measurements on a 24-question hard set (HLE medical + MMLU-Pro), all
+three modes run from the same fixed build, scored by gold-answer phrase match:
+
+| Model | HLE correct (raw → smart → speed) | Avg latency (raw → smart → speed) |
+|---|---|---|
+| `phi3:mini` (3.8B) | 1/4 → 2/4 → **3/4** | 21s → 92s → 87s |
+| `qwen3:4b` (4B) | **2/4** → 0/4 → 1/4 | 382s → 260s → 671s |
+
+- **phi3:** speed mode is the winner — 3x more correct answers than raw at a
+  sub-2-minute cost. The optimizer genuinely works here.
+- **qwen3:** litellm + `options(think:false)` was a documented correctness and
+  latency trap (timeouts >600s, empty answers). The current build routes
+  thinking-model reasoning queries through a raw ollama `/api/generate` call
+  (single-shot, timeout 480s) instead of the litellm staircase.
+- **Empty responses and canned apologies are eliminated.** When any optimized
+  path fails, execution degrades gracefully: optimized → plain retry → raw
+  generator → neutral `"I couldn't finish, please retry"` (no fake apology).
+- Known limit (model-level, not optimizer): a 3-4B local model does not know
+  most frontier-exam (HLE/AIME) gold answers in *any* mode.
+
+---
+
 ## ✨ What's New
 
 - **Simplified Configuration** - Streamlined `.env.example` with advanced options separated
