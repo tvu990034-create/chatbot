@@ -3237,9 +3237,17 @@ Code:"""
 
         # Single raw call — always fast, always non-empty.
         if use_stream:
-            response_text = self._timeboxed_raw_call(
+            response_text, was_cut = self._timeboxed_raw_call(
                 query, budget=budget, deadline=hard_deadline,
                 think=False if is_thinking else None)
+            # Bounded resume pass: time-boxed answer cut mid-sentence gets
+            # ONE small continuation (<=45s, <=256 tokens) so hard answers
+            # finish instead of shipping truncated.  Worst case stays
+            # ~deadline + ~45s; never loops.
+            if was_cut and response_text:
+                cont = self._continue_answer(query, response_text)
+                if cont:
+                    response_text = f"{response_text}\n\n{cont}"
         else:
             response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
                                                      think=False if is_thinking else None)
@@ -3315,14 +3323,15 @@ Code:"""
             logger.info("Balanced cache store failed: %s", e)
 
     def _timeboxed_raw_call(self, query: str, budget: int = 900, deadline: int = 90,
-                            think: Optional[bool] = None) -> str:
+                            think: Optional[bool] = None) -> tuple:
         """Streaming raw ollama call that returns within a hard wall-clock.
 
         Reads /api/generate with stream=True and accumulates response tokens
         until EITHER num_predict tokens are produced OR ``deadline`` seconds
-        elapse.  Returns whatever real text accumulated (never empty from a
-        slow generation), so hard queries have predictable latency and still
-        deliver a genuine answer — no 600s+ hangs, no canned apologies.
+        elapse.  Returns (text, was_cut): text is whatever real content
+        accumulated (never empty from a slow generation), was_cut=True when
+        the wall-clock hit before the model finished — so the caller can run
+        a bounded resume pass instead of shipping a mid-sentence answer.
         """
         import requests as _requests
         options = {"num_predict": budget}
@@ -3330,6 +3339,8 @@ Code:"""
             options["think"] = think
         stop_at = time.time() + deadline
         parts = []
+        done = False
+        timed_out = False
         try:
             with _requests.post(
                     "http://localhost:11434/api/generate",
@@ -3341,6 +3352,7 @@ Code:"""
                     if not line:
                         continue
                     if time.time() >= stop_at:
+                        timed_out = True
                         break
                     try:
                         chunk = json.loads(line.decode("utf-8", "replace"))
@@ -3350,16 +3362,55 @@ Code:"""
                     if piece:
                         parts.append(piece)
                     if chunk.get("done"):
+                        done = True
                         break
         except Exception as e:
             logger.info("Timeboxed raw call failed: %s", e)
         out = "".join(parts).strip()
         if out:
-            return out
+            return out, (not done and timed_out)
         # Nothing streamed (e.g. instant error) — fall back to non-stream so
         # we still surface a real error/targeted message instead of empty.
-        return self._raw_reasoning_call(query, budget=budget,
-                                        timeout=max(deadline, 60), think=think)
+        return (self._raw_reasoning_call(query, budget=budget,
+                                         timeout=max(deadline, 60), think=think),
+                False)
+
+    def _continue_answer(self, query: str, partial: str, budget: int = 256,
+                         timeout: int = 45) -> Optional[str]:
+        """Bounded continuation for a time-boxed answer that was cut off.
+
+        Asks ollama to continue from the last \"Reasoning:\"/answer tail of
+        ``partial`` with a small num_predict so the request finishes quickly.
+        Returns only the new text; ``timeout`` caps worst-case added latency,
+        keeping the whole hard path predictable (~deadline + ~timeout).
+        """
+        tail = partial[-160:].strip()
+        if not tail:
+            return None
+        prompt = (f"Continue the response below exactly where it stopped. "
+                  f"Do NOT repeat it.  Only write the next part.\n\n"
+                  f"{tail}\n\n---\nContinuing:")
+        try:
+            import requests as _requests
+            r = _requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": self.model_name, "prompt": prompt,
+                      "stream": False,
+                      "options": {"num_predict": budget,
+                                  "temperature": 0.2}},
+                timeout=timeout,
+            )
+            j = r.json()
+            if j.get("error"):
+                logger.info("Continue pass error: %s", j["error"])
+                return None
+            cont = j.get("response") or ""
+            cont = cont.strip()
+            if cont and len(cont) >= 6:
+                return cont
+        except Exception as e:
+            logger.info("Continue pass failed: %s", e)
+        return None
 
     def _raw_reasoning_call(self, query: str, budget: int = 900, timeout: int = 480,
                             think: Optional[bool] = None) -> str:
