@@ -3137,7 +3137,7 @@ Code:"""
             return min(t, 220.0)
         return t
 
-    def _plain_retry(self, messages: List[Dict[str, str]]) -> Optional[str]:
+    def _plain_retry(self, messages: List[Dict[str, str]], max_seconds: Optional[int] = None) -> Optional[str]:
         """Retry a failed optimized call with a plain, un-optimized completion.
 
         Uses the original messages verbatim (no CoT scaffold, no DSPy
@@ -3177,6 +3177,8 @@ Code:"""
                 timeout = min(timeout, 150.0)
             elif speed and thinking:
                 timeout = min(timeout, 400.0)
+            if max_seconds is not None:
+                timeout = min(timeout, float(max_seconds))
             response = completion(
                 model=model,
                 messages=messages,
@@ -3215,31 +3217,43 @@ Code:"""
         # truncating the answer (qwen3 HLE gave 0/4 mid-thought vs 2/4 direct).
         # Direct answers are 3-6x faster AND complete.  Non-thinking models
         # get the same single-shot treatment.
+        #
+        # TIME-BOXED: reasoning queries stream tokens and cut off at a hard
+        # wall-clock (~90s).  The degradation ladder below is clamped so a
+        # slow call can never snowball into a 900s+ chain.
         if reasoning:
-            budget = 768
-            timeout = 240
+            budget = 900
+            hard_deadline = 90
+            use_stream = True
         else:
             budget = 96
             timeout = 45
+            hard_deadline = None
+            use_stream = False
 
         # Easy/chat queries: force a concise direct answer.
         if not reasoning:
             query = f"{query}\n\nAnswer briefly and directly in one short sentence."
 
         # Single raw call — always fast, always non-empty.
-        response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
-                                                 think=False if is_thinking else None)
+        if use_stream:
+            response_text = self._timeboxed_raw_call(
+                query, budget=budget, deadline=hard_deadline,
+                think=False if is_thinking else None)
+        else:
+            response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
+                                                     think=False if is_thinking else None)
 
         if response_text and response_text.strip():
             response_text = response_text.strip()
         else:
             response_text = None
 
-        # Graceful degradation (only if the single call truly failed).
+        # Graceful degradation — TIME-BOXED so worst case is bounded, not 900s.
         if not response_text:
-            response_text = self._plain_retry(messages)
+            response_text = self._plain_retry(messages, max_seconds=60)
         if not response_text:
-            response_text = self._raw_fallback_retry(messages)
+            response_text = self._raw_fallback_retry(messages, timeout=60)
         if not response_text:
             response_text = self._generate_fallback_response(query, query_analysis)
 
@@ -3300,6 +3314,53 @@ Code:"""
         except Exception as e:
             logger.info("Balanced cache store failed: %s", e)
 
+    def _timeboxed_raw_call(self, query: str, budget: int = 900, deadline: int = 90,
+                            think: Optional[bool] = None) -> str:
+        """Streaming raw ollama call that returns within a hard wall-clock.
+
+        Reads /api/generate with stream=True and accumulates response tokens
+        until EITHER num_predict tokens are produced OR ``deadline`` seconds
+        elapse.  Returns whatever real text accumulated (never empty from a
+        slow generation), so hard queries have predictable latency and still
+        deliver a genuine answer — no 600s+ hangs, no canned apologies.
+        """
+        import requests as _requests
+        options = {"num_predict": budget}
+        if think is not None:
+            options["think"] = think
+        stop_at = time.time() + deadline
+        parts = []
+        try:
+            with _requests.post(
+                    "http://localhost:11434/api/generate",
+                    json={"model": self.model_name, "prompt": query,
+                          "stream": True, "options": options},
+                    timeout=deadline + 15,
+                    stream=True) as resp:
+                for line in resp.iter_lines(decode_unicode=False):
+                    if not line:
+                        continue
+                    if time.time() >= stop_at:
+                        break
+                    try:
+                        chunk = json.loads(line.decode("utf-8", "replace"))
+                    except Exception:
+                        continue
+                    piece = chunk.get("response") or chunk.get("thinking") or ""
+                    if piece:
+                        parts.append(piece)
+                    if chunk.get("done"):
+                        break
+        except Exception as e:
+            logger.info("Timeboxed raw call failed: %s", e)
+        out = "".join(parts).strip()
+        if out:
+            return out
+        # Nothing streamed (e.g. instant error) — fall back to non-stream so
+        # we still surface a real error/targeted message instead of empty.
+        return self._raw_reasoning_call(query, budget=budget,
+                                        timeout=max(deadline, 60), think=think)
+
     def _raw_reasoning_call(self, query: str, budget: int = 900, timeout: int = 480,
                             think: Optional[bool] = None) -> str:
         """Single-shot raw ollama /api/generate call for reasoning queries.
@@ -3344,7 +3405,7 @@ Code:"""
                     or analysis.needs_reasoning or analysis.is_complex
                     or analysis.expected_response_length == "long")
 
-    def _raw_fallback_retry(self, messages: List[Dict[str, str]]) -> Optional[str]:
+    def _raw_fallback_retry(self, messages: List[Dict[str, str]], timeout: int = 400) -> Optional[str]:
         """Last-resort retry through plain ollama /api/generate.
 
         Bypasses litellm entirely.  for qwen3 (and any model with a hidden
@@ -3361,7 +3422,7 @@ Code:"""
                 "http://localhost:11434/api/generate",
                 json={"model": self.model_name, "prompt": query, "stream": False,
                       "options": {"num_predict": 768}},
-                timeout=400,
+                timeout=timeout,
             )
             j = r.json()
             out = ((j.get("thinking") or "") + (j.get("response") or "")).strip()

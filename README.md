@@ -25,6 +25,19 @@ per query (no litellm at all): tight budget + `think:false` for simple chat,
 full budget for hard reasoning. Answers are cached so repeat queries short-
 circuit in ~0s.
 
+**Hard reasoning is TIME-BOXED** (streaming + ~90s wall-clock): a slow
+generation never hangs the request — it returns whatever real text it
+produced, and the retry ladder is clamped to 60s+60s, so worst case is
+bounded (~90s) instead of the old 240s single-call that could cascade into
+900s+. Live check on the same box:
+
+| Query | Model | Time | Result |
+|---|---|---|---|
+| easy | `phi3:mini` | 8.2s | complete answer |
+| hard | `phi3:mini` | 63.8s | **finished in-box** (complete) |
+| easy | `qwen3:4b` | 22.8s | complete answer |
+| hard | `qwen3:4b` | 77.6s | 4432 chars, cut mid-sentence at cap |
+
 Balanced mode vs raw baseline — measured on the same ollama box
 (`_balance_compare.py` + `postfix_balanced.jsonl`, gold-answer phrase match):
 
