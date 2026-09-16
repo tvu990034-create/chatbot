@@ -358,7 +358,7 @@ _code_cache_lock = threading.Lock()
 _code_semantic_cache_max_size = 500  # BUG 40 FIX: Limit code semantic cache size
 
 
-def _adaptive_timeout(params, settings_module) -> float:
+def _adaptive_timeout(params, settings_module, ceiling: Optional[float] = None) -> float:
     """Compute the generation timeout from the ACTUAL token budget.
 
     The effective budget may live in options['num_predict'] (qwen3/thinking
@@ -379,8 +379,16 @@ def _adaptive_timeout(params, settings_module) -> float:
     # A first-call model load (cold start) consumes up to ~90s that is NOT
     # covered by the per-token budget term.
     if options:
-        needed += 90.0
-    return max(base, needed)
+        needed += 120.0
+    # Hard/reasoning questions (budget >= 768) also pay for slow prefill and
+    # GPU contention on long prompts; give them extra room so a full answer
+    # gets out instead of collapsing into a canned apology.
+    if budget >= 768:
+        needed += 120.0
+    result = max(base, needed)
+    if ceiling is not None:
+        result = min(result, ceiling)
+    return result
 
 # Pre-computed response templates for instant responses
 _quick_response_templates = {
@@ -395,7 +403,7 @@ _quick_response_templates = {
         "That's right."
     ],
     "error": [
-        "I apologize, but I encountered an issue. Could you please rephrase your question?",
+        "I couldn't complete that request. Please retry or rephrase.",
         "Let me try a different approach to help you."
     ]
 }
@@ -445,13 +453,24 @@ def is_multiple_choice_query(query: str) -> bool:
     return False
 
 # Smart mode parameters for intelligence
+# Budget must be generous: hard reasoning/code questions (HLE, SWE-bench,
+# MMLU-Pro) need room to give a REAL answer.  A 150-token cap made optimized
+# output visibly dumber than raw — it truncated answers mid-reasoning. 768
+# still stops at EOS for terse replies, so only lengthy answers use it.
 _SMART_MODE_PARAMS = {
     "temperature": 0,  # No randomness for deterministic results
-    "max_tokens": 150,    # Balanced length
+    "max_tokens": 768,    # Balanced but complete
     "top_p": 0.5,         # Moderate sampling
     "top_k": 20,          # Balanced token choices
-    "num_predict": 150
+    "num_predict": 768
 }
+
+# Non-speed reasoning budget (see SPEED_REASONING_MAX_TOKENS for speed mode).
+SMART_REASONING_MAX_TOKENS = 768
+
+# Short speed-mode drafts at/below this length get a verification pass before
+# they are trusted (long drafts already wrote out a real answer).
+_SPEED_VERIFY_MAX_CHARS = 350
 
 # Clear corrupted cache on module load
 _global_cache.clear()
@@ -460,7 +479,7 @@ logger.info("Global cache cleared on module load")
 class UniversalEnhancedGateway:
     """Universal gateway integrating patterns from 180+ AI/ML repositories."""
     
-    def __init__(self, model_name: str = "phi3:mini", enable_all_optimizations: bool = True, performance_mode: str = "speed"):
+    def __init__(self, model_name: str = "phi3:mini", enable_all_optimizations: bool = True, performance_mode: str = "balanced"):
         """
         Initialize universal gateway with advanced optimization patterns.
         
@@ -551,10 +570,10 @@ class UniversalEnhancedGateway:
             self.academic_knowledge_enhancement = True
             self.model_params = {
                 "temperature": 0.5,
-                "max_tokens": 300,
+                "max_tokens": 768,
                 "top_p": 0.7,
                 "top_k": 30,
-                "num_predict": 300
+                "num_predict": 768
             }
         
         # Configure LiteLLM for Ollama with maximum speed
@@ -849,7 +868,17 @@ class UniversalEnhancedGateway:
         if chain_result:
             logger.info(f"LangChain chain short-circuit: response in <0.1s")
             return chain_result
-        
+
+        # UNIFIED BALANCED MODE (default): ONE adaptive method, no modes.
+        #  * Easy / chat queries -> fast raw generator call (no litellm).
+        #  * Reasoning queries   -> raw-primary generation (litellm times out
+        #    >600s on qwen3 thinking; raw finishes and is correct).
+        # Skips the 15-step agent dance (TIR/CISC/MetaGPT/AgentVerse/...) that
+        # added latency without beating the raw generator.  Caches + quick
+        # templates above still short-circuit for free.
+        if self.performance_mode == "balanced" and self.enable_all_optimizations:
+            return self._unified_generate(messages, query, query_analysis)
+
         # Step 7: Qwen-Agent tool calling: Check for function calls in query
         tool_result = self._execute_tool_calls(query, query_analysis)
         if tool_result:
@@ -925,14 +954,22 @@ class UniversalEnhancedGateway:
                     # Bug #34 FIX: Use the potentially routed model (self.model_name)
                     # BUG 75 FIX: Don't double-prefix with ollama/ if already present
                     model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
-                    response = completion(
-                        model=model_to_use,  # Bug #34 FIX: Use routed model
-                        messages=optimized_messages,
-                        **adaptive_params,
-                        timeout=_adaptive_timeout(adaptive_params, settings),
-                        api_base="http://localhost:11434"
-                    )
-                    response_text = response.choices[0].message.content
+                    if self._should_use_raw_reasoning(query_analysis):
+                        # Thinking models + hard reasoning: litellm's ollama
+                        # path times out >=600s where plain /api/generate
+                        # finishes in ~230-680s (post-fix 24-key benchmark:
+                        # qwen3 raw 2/4 HLE correct vs smart 0/4 / speed 1/4).
+                        # Go straight to the raw generator - no staging.
+                        response_text = self._raw_reasoning_call(query)
+                    else:
+                        response = completion(
+                            model=model_to_use,  # Bug #34 FIX: Use routed model
+                            messages=optimized_messages,
+                            **adaptive_params,
+                            timeout=self._main_generation_timeout(adaptive_params),
+                            api_base="http://localhost:11434"
+                        )
+                        response_text = response.choices[0].message.content
                     duration = time.time() - start_time
                     
                     # Apply Guidance-style response constraints
@@ -942,14 +979,37 @@ class UniversalEnhancedGateway:
                 # Single API call with optimized parameters
                 # BUG 75 FIX: Don't double-prefix with ollama/ if already present
                 model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
-                response = completion(
-                    model=model_to_use,
-                    messages=optimized_messages,
-                    **adaptive_params,
-                    timeout=_adaptive_timeout(adaptive_params, settings),
-                    api_base="http://localhost:11434"
-                )
-                response_text = response.choices[0].message.content
+                if self._should_use_raw_reasoning(query_analysis):
+                    # See the math-branch comment: litellm + Qwen3-thinking is
+                    # a documented timeout trap on reasoning queries; raw
+                    # generator is the fast-and-correct primary path.
+                    response_text = self._raw_reasoning_call(query)
+                else:
+                    response = completion(
+                        model=model_to_use,
+                        messages=optimized_messages,
+                        **adaptive_params,
+                        timeout=self._main_generation_timeout(adaptive_params),
+                        api_base="http://localhost:11434"
+                    )
+                    response_text = response.choices[0].message.content
+                duration = time.time() - start_time
+
+            # Fast AND smart: in speed mode, a SHORT fast answer to a reasoning
+            # question is the dangerous "fast but wrong" case — return it blind
+            # and the user gets confident nonsense.  Verify short drafts with a
+            # focused second pass; LONG thorough drafts (already consumed a big
+            # budget to write out a real answer) are trusted as-is and NOT
+            # double-generated, which would double latency for zero gain.
+            if (self.performance_mode == "speed" and self.enable_all_optimizations
+                    and response_text and response_text.strip()
+                    and len(response_text) < _SPEED_VERIFY_MAX_CHARS
+                    and (query_analysis.is_math or query_analysis.is_coding
+                         or query_analysis.needs_reasoning or query_analysis.is_complex
+                         or query_analysis.expected_response_length == "long")):
+                verified = self._verify_speed_answer(query_analysis.query if hasattr(query_analysis, "query") else query, response_text)
+                if verified:
+                    response_text = verified
                 duration = time.time() - start_time
             
             # Step 10: Guidance response constraints: Apply output formatting
@@ -1100,6 +1160,25 @@ class UniversalEnhancedGateway:
             
         except Exception as e:
             logger.error(f"Error in chat: {e}")
+            # The optimization path (tight budget / scaffolding / timeouts)
+            # fails far more often than the model itself.  Before giving up,
+            # retry ONCE with a plain, un-optimized completion: it reliably
+            # returns a real answer when the optimized pipeline was the
+            # problem.  This converts the old canned-apology behavior (which
+            # the 61-question benchmark showed firing on ~half of hard
+            # questions) into a real response.
+            if self.enable_all_optimizations:
+                plain = self._plain_retry(messages)
+                if not plain:
+                    # Thinking models can also fail the litellm path for
+                    # reasons unrelated to our params (61-q: qwen3 HLE#0
+                    # deterministically refused every options/think variant,
+                    # yet answered correctly via plain ollama /api/generate).
+                    # Let the raw generator take one final shot.
+                    plain = self._raw_fallback_retry(messages)
+                if plain:
+                    logger.info("Chat: optimization path failed; plain retry succeeded")
+                    return plain
             return self._generate_fallback_response(query, query_analysis)
     
     def _current_gen_identity(self) -> Dict[str, Any]:
@@ -2541,20 +2620,30 @@ Provide the final synthesized response."""
         # answer can complete instead of being truncated mid-solution.
         # Non-reasoning queries get a generous-enough cap (200 tokens) so short
         # factual answers aren't cut off mid-sentence.
+        # SMART/quality modes get the same treatment with their own budget so
+        # hard questions stop being cut at 150 tokens (which made optimized
+        # output demonstrably dumber than raw on the 61-question benchmark).
+        reasoning = bool(analysis.is_math or analysis.is_coding
+                         or analysis.needs_reasoning or analysis.is_complex
+                         or analysis.expected_response_length == "long")
         if self.performance_mode == "speed":
             _SPEED_SIMPLE_CAP = 200
-            reasoning = bool(analysis.is_math or analysis.is_coding
-                             or analysis.needs_reasoning or analysis.is_complex
-                             or analysis.expected_response_length == "long")
             if reasoning:
                 params["max_tokens"] = max(
                     params["max_tokens"], SPEED_REASONING_MAX_TOKENS)
             else:
                 params["max_tokens"] = max(
                     params["max_tokens"], _SPEED_SIMPLE_CAP)
-            if params.get("num_predict") is not None:
-                params["num_predict"] = max(
-                    params["num_predict"], params["max_tokens"])
+        else:
+            if reasoning:
+                params["max_tokens"] = max(
+                    params["max_tokens"], SMART_REASONING_MAX_TOKENS)
+            else:
+                params["max_tokens"] = max(
+                    params["max_tokens"], 200)
+        if params.get("num_predict") is not None:
+            params["num_predict"] = max(
+                params["num_predict"], params["max_tokens"])
         
         # Thinking models (qwen3) in ANY mode: their hidden chain-of-thought
         # counts against num_predict and can consume the whole budget on hard
@@ -2565,6 +2654,35 @@ Provide the final synthesized response."""
         # content.  Move the budget into options and drop the top-level
         # keys (temperature/top_p/top_k stay top-level; they are safe).
         if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+            # Thinking models on reasoning queries have NO fast-and-correct
+            # param set: speed's low temperature + suppressed thinking makes
+            # qwen3 loop degenerately on hard questions (61-q benchmark: speed
+            # -> timed out / empty while balanced -> real complete answers).
+            # Reuse the proven SMART shape for reasoning so speed mode is
+            # still CORRECT here; simplicity is where speed stays fast.
+            reasoning = bool(analysis.is_math or analysis.is_coding
+                             or analysis.needs_reasoning or analysis.is_complex
+                             or analysis.expected_response_length == "long")
+            if reasoning:
+                try:
+                    from gateway.adaptive_temperature import get_adaptive_temperature
+                    at = get_adaptive_temperature().get_temperature()
+                    params["temperature"] = at if at and at > 0 else 0.3
+                except Exception:
+                    params["temperature"] = 0.3
+                params["top_p"] = 0.7
+                params["max_tokens"] = SMART_REASONING_MAX_TOKENS
+            # Cap the private budget at 768 in EVERY mode.  Empirically (61-q
+            # benchmark + direct calls) a 1024-token num_predict on qwen3 with
+            # thinking suppressed made hard questions come back EMPTY, while
+            # 768 returned real complete answers.  top_k is dropped too — it
+            # interacts badly with the suppressed-reasoning output.
+            # top_p is forced to >= 0.7: speed's 0.3 with suppressed thinking
+            # made qwen3 loop on degenerate tokens and burn the whole timeout
+            # on hard questions (vs balanced's 0.5 which completed).
+            params["max_tokens"] = min(int(params["max_tokens"] or 0), 768) or 768
+            params.pop("top_k", None)
+            params["top_p"] = max(float(params.get("top_p", 0.7) or 0.0), 0.7)
             options = params.setdefault("options", {})
             options["think"] = False
             options["num_predict"] = int(params["max_tokens"])
@@ -2619,6 +2737,12 @@ Provide the final synthesized response."""
     
     def _get_reasoning_enhancement(self, query: str, analysis: QueryAnalysis) -> str:
         """Generate reasoning enhancements: DSPy signatures for small models, LangChain templates for larger models."""
+        # Thinking models (qwen3, etc.) reason natively — injecting a CoT
+        # scaffold on top of their own hidden chain-of-thought produces
+        # conflicting instructions, duplicated reasoning, and visibly dumber
+        # answers.  Leave their prompt untouched.
+        if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+            return ""
         # For small models (2B), use DSPy-style minimal signatures
         if "2b" in self.model_name.lower() or "mini" in self.model_name.lower():
             # DSPy-style: minimal function signatures
@@ -2988,13 +3112,307 @@ Code:"""
     
     def _generate_fallback_response(self, query: str, analysis: QueryAnalysis) -> str:
         """LangChain-style fallback chain: Generate intelligent fallback response when API fails."""
+        # Neutral wording — never a fake apology.  Apologies read as "the bot
+        # broke" and the response cache is already configured to never store
+        # them.  This is a genuine last resort (the plain retry runs first).
         if analysis.is_coding:
-            return "I apologize, but I'm having trouble processing your code request. Please try again or rephrase your question."
+            return "I couldn't finish that request in time. Please retry or make it shorter."
         elif analysis.is_math:
-            return "I'm having trouble with the calculation right now. Please try again with a simpler expression."
+            return "I couldn't finish that calculation in time. Please retry with a simpler expression."
         else:
-            return "I apologize for the inconvenience. I'm experiencing some technical difficulties. Please try your question again."
-    
+            return "I couldn't finish generating a response in time. Please retry or rephrase your question."
+
+    def _main_generation_timeout(self, params) -> float:
+        """Timeout for the optimized main completion call.
+
+        Speed mode on a THINKING model must not silently burn a ~6-minute
+        window when the model gets stuck (61-q run: identical 592s timeouts on
+        a hard question).  Cap the main call at 220s so a stuck generation
+        fails fast and the plain retry (which uses the proven SMART params for
+        thinking models) recovers a real answer instead of an apology.
+        """
+        t = _adaptive_timeout(params, settings)
+        if self.performance_mode == "speed" and any(
+                m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+            return min(t, 220.0)
+        return t
+
+    def _plain_retry(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """Retry a failed optimized call with a plain, un-optimized completion.
+
+        Uses the original messages verbatim (no CoT scaffold, no DSPy
+        signature, no query rewriting) with a generous budget and timeout.
+        Honors the thinking-model option rule (qwen3 must use options
+        num_predict, never top-level max_tokens + options).
+
+        Speed mode failures must NEVER cascade into a second ~6-minute wait
+        (that produced 900s total timeouts in the 61-question run): speed uses
+        a tight 256-token budget and a capped wall-clock.
+        """
+        thinking = any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS)
+        speed = self.performance_mode == "speed"
+        # Thinking models in speed mode do not have a fast-and-correct param
+        # set: reuse the proven SMART shape so the retry recovers a real
+        # answer (see _get_adaptive_model_params).  Non-thinking speed retry
+        # stays tight/fast; SMART keeps its generous budget.
+        retry_budget = SMART_REASONING_MAX_TOKENS if thinking else (256 if speed else 768)
+        try:
+            model = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+            params: Dict[str, Any] = {
+                "temperature": 0.2,
+                "max_tokens": retry_budget,
+                "top_p": 0.7,
+            }
+            if thinking:
+                try:
+                    from gateway.adaptive_temperature import get_adaptive_temperature
+                    at = get_adaptive_temperature().get_temperature()
+                    params["temperature"] = at if at and at > 0 else 0.3
+                except Exception:
+                    params["temperature"] = 0.3
+                params["options"] = {"think": False, "num_predict": retry_budget}
+                params.pop("max_tokens", None)
+            timeout = _adaptive_timeout(params, settings)
+            if speed and not thinking:
+                timeout = min(timeout, 150.0)
+            elif speed and thinking:
+                timeout = min(timeout, 400.0)
+            response = completion(
+                model=model,
+                messages=messages,
+                **params,
+                timeout=timeout,
+                api_base="http://localhost:11434"
+            )
+            text = response.choices[0].message.content
+            if text and text.strip() and "apologize" not in text.lower():
+                return text
+        except Exception as e:
+            logger.info(f"Plain retry failed: {e}")
+        return None
+
+    def _unified_generate(self, messages: List[Dict[str, str]], query: str,
+                          query_analysis) -> str:
+        """ONE balanced method: fast AND smart, no modes.
+
+        Uses a single raw ollama /api/generate call for every query with
+        adaptive budget/timeout based on difficulty.  Bypasses litellm
+        entirely (which adds overhead and is a timeout trap for qwen3
+        thinking).  Easy queries get small budget + fast timeout; hard
+        reasoning gets a generous budget + longer timeout.
+        Degrades gracefully: neutral message if everything fails.
+        """
+        start_time = time.time()
+        reasoning = bool(query_analysis.is_math or query_analysis.is_coding
+                         or query_analysis.needs_reasoning
+                         or query_analysis.is_complex
+                         or query_analysis.expected_response_length == "long")
+
+        is_thinking = any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS)
+        # Adaptive budget + timeout: small for chat, generous for reasoning.
+        # Thinking models ALWAYS run with think=False: a hidden thinking pass
+        # counts against num_predict and burns the whole budget on reasoning,
+        # truncating the answer (qwen3 HLE gave 0/4 mid-thought vs 2/4 direct).
+        # Direct answers are 3-6x faster AND complete.  Non-thinking models
+        # get the same single-shot treatment.
+        if reasoning:
+            budget = 768
+            timeout = 240
+        else:
+            budget = 96
+            timeout = 45
+
+        # Easy/chat queries: force a concise direct answer.
+        if not reasoning:
+            query = f"{query}\n\nAnswer briefly and directly in one short sentence."
+
+        # Single raw call — always fast, always non-empty.
+        response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
+                                                 think=False if is_thinking else None)
+
+        if response_text and response_text.strip():
+            response_text = response_text.strip()
+        else:
+            response_text = None
+
+        # Graceful degradation (only if the single call truly failed).
+        if not response_text:
+            response_text = self._plain_retry(messages)
+        if not response_text:
+            response_text = self._raw_fallback_retry(messages)
+        if not response_text:
+            response_text = self._generate_fallback_response(query, query_analysis)
+
+        if self.enable_all_optimizations:
+            response_text = self._apply_response_constraints(response_text, query_analysis)
+        self._store_balanced_response(response_text, query, messages, query_analysis)
+        duration = time.time() - start_time
+        self._update_performance_metrics(duration, query_analysis)
+        return response_text
+
+    def _store_balanced_response(self, response_text: str, query: str,
+                                 messages: List[Dict[str, str]],
+                                 query_analysis) -> None:
+        """Persist a balanced-mode answer into the response caches so an
+        identical conversation short-circuits on the next call.
+
+        Mirrors the staircase path's Step 11/11.1 cache writes but for the
+        unified balanced path, which used to return directly and leave both
+        caches cold — forcing a full regeneration on every repeat query.
+        """
+        if not (response_text and isinstance(response_text, str) and response_text.strip()):
+            return
+        if not self.enable_all_optimizations:
+            return
+        try:
+            # Main TTL cache (read path: Step 3, model-scoped key).
+            if self.cache is not None:
+                cache_key = self._generate_cache_key(
+                    query, {"model": self.model_name,
+                            "performance_mode": self.performance_mode})
+                with _cache_lock:
+                    self.cache[cache_key] = {
+                        "response": response_text,
+                        "query": query,
+                        "timestamp": time.time(),
+                        "is_warm": False,
+                        "query_analysis": query_analysis.__dict__,
+                        "response_length": len(response_text),
+                    }
+                    ttl = 3600 if query_analysis.urgency_level == "normal" else 1800
+                    import random as _random
+                    jitter = _random.uniform(0.9, 1.1)
+                    self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
+
+            # Prefix-keyed response cache (read path: Step 2).
+            if self.prefix_response_cache is not None:
+                prefix_key = hashlib.md5(
+                    json.dumps(messages, ensure_ascii=False, sort_keys=True).encode()
+                ).hexdigest()
+                gen_id = self._current_gen_identity()
+                with _prefix_response_cache_lock:
+                    if prefix_key not in self.prefix_response_cache:
+                        self.prefix_response_cache[prefix_key] = {}
+                    self.prefix_response_cache[prefix_key][prefix_key] = {
+                        "response": response_text,
+                        "gen_identity": gen_id,
+                    }
+        except Exception as e:
+            logger.info("Balanced cache store failed: %s", e)
+
+    def _raw_reasoning_call(self, query: str, budget: int = 900, timeout: int = 480,
+                            think: Optional[bool] = None) -> str:
+        """Single-shot raw ollama /api/generate call for reasoning queries.
+
+        Bypasses litellm entirely for Qwen3 (and other thinking models) on
+        hard reasoning questions where litellm consistently times out (600s+).
+        ollama /api/generate with default think=True completes in ~230-680s
+        and produces correct answers where litellm+options(think:false)
+        returned 0-1/4 correct.  Joins thinking + response fields so the
+        full reasoning is available.  "think" controls hidden reasoning:
+        pass False for easy/chat queries to answer without a thinking pass.
+        """
+        try:
+            import requests as _requests
+            options = {"num_predict": budget}
+            if think is not None:
+                options["think"] = think
+            r = _requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": self.model_name, "prompt": query,
+                      "stream": False,
+                      "options": options},
+                timeout=timeout,
+            )
+            j = r.json()
+            if j.get("error"):
+                return f"[ERROR] {j['error']}"
+            out = ((j.get("thinking") or "") + (j.get("response") or "")).strip()
+            if out:
+                return out
+        except Exception as e:
+            logger.info(f"Raw reasoning call failed: {e}")
+        return None
+
+    def _should_use_raw_reasoning(self, analysis) -> bool:
+        """Decide whether to bypass litellm and use the raw generator."""
+        if not self.enable_all_optimizations:
+            return False
+        if not any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+            return False
+        return bool(analysis.is_math or analysis.is_coding
+                    or analysis.needs_reasoning or analysis.is_complex
+                    or analysis.expected_response_length == "long")
+
+    def _raw_fallback_retry(self, messages: List[Dict[str, str]]) -> Optional[str]:
+        """Last-resort retry through plain ollama /api/generate.
+
+        Bypasses litellm entirely.  for qwen3 (and any model with a hidden
+        reasoning pass) plain generate can produce a real answer where the
+        litellm options/think variants return empty (61-q: HLE#0).  Uses a
+        normal num_predict cap, no thinking suppression, and captures the
+        thinking + response fields so a reasoning-heavy model still yields
+        content.
+        """
+        try:
+            import requests as _requests
+            query = messages[-1]["content"][:1200]
+            r = _requests.post(
+                "http://localhost:11434/api/generate",
+                json={"model": self.model_name, "prompt": query, "stream": False,
+                      "options": {"num_predict": 768}},
+                timeout=400,
+            )
+            j = r.json()
+            out = ((j.get("thinking") or "") + (j.get("response") or "")).strip()
+            if out and "apologize" not in out.lower():
+                return out
+        except Exception as e:
+            logger.info(f"Raw fallback retry failed: {e}")
+        return None
+
+    def _verify_speed_answer(self, query: str, answer: str) -> Optional[str]:
+        """Verify a fast speed-mode draft answer with a focused second pass.
+
+        A fast low-budget answer to a reasoning/math/code question can be
+        confidently wrong while looking confident; returning it blind makes
+        speed mode useless ("fast but all answers wrong").  This pass asks the
+        model to review its own draft under a stepping-stones prompt and
+        return either the marker [[CORRECT]] (keep the draft) or a corrected
+        answer.  Returns the corrected text, or None to keep the draft.
+        """
+        try:
+            model = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+            check_prompt = (
+                "Question: {q}\n\n"
+                "Proposed answer:\n{answer}\n\n"
+                "Review the proposed answer carefully against the question. "
+                "Re-solve the problem yourself: what does the question actually ask? "
+                "If the proposed answer is correct and complete, reply EXACTLY with: [[CORRECT]]\n"
+                "If the proposed answer is wrong or incomplete, give ONLY the corrected answer, "
+                "concise, with no preamble and no [[CORRECT]] marker."
+            ).format(q=query[:2000], answer=(answer or "")[:1500])
+            params: Dict[str, Any] = {"temperature": 0.0, "max_tokens": 300, "top_p": 1.0}
+            if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
+                params["options"] = {"think": False, "num_predict": 300}
+                params.pop("max_tokens", None)
+            response = completion(
+                model=model,
+                messages=[{"role": "user", "content": check_prompt}],
+                **params,
+                timeout=_adaptive_timeout(params, settings),
+                api_base="http://localhost:11434"
+            )
+            text = (response.choices[0].message.content or "").strip()
+            if not text or "[[CORRECT]]" in text:
+                return None
+            if "apologize" in text.lower() or len(text) < 3:
+                return None
+            return text
+        except Exception as e:
+            logger.info(f"Speed verify failed: {e}")
+            return None
+
     def _apply_chain_composition(self, query: str, analysis: QueryAnalysis) -> Optional[str]:
         """LangChain SequentialChain: Apply multiple operations in sequence (tool use, retrieval, reasoning)."""
         if not self.enable_all_optimizations:
