@@ -3234,6 +3234,15 @@ Code:"""
         # Easy/chat queries: force a concise direct answer.
         if not reasoning:
             query = f"{query}\n\nAnswer briefly and directly in one short sentence."
+        # Reasoning queries on THINKING models that do NOT need code or long
+        # prose: ask for a few-sentence think + one-sentence answer.  Measured:
+        # qwen3+concise hit 3/4 on the hard tail in ~63s each (vs 1/4 verbose)
+        # yet phi3 regressioned 3/4 -> 2/4, so this stays thinking-model-only
+        # and is never applied to coding/long-output requests.
+        elif (is_thinking and not query_analysis.is_coding
+              and query_analysis.expected_response_length != "long"):
+            query = (f"{query}\n\nThink for a few sentences, then answer in "
+                     f"exactly one short sentence.")
 
         # Single raw call — always fast, always non-empty.
         if use_stream:

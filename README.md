@@ -44,12 +44,24 @@ Balanced mode vs raw baseline — measured on the same ollama box
 | Model | HLE correct (raw → balanced) | Avg latency (raw → balanced) |
 |---|---|---|
 | `phi3:mini` (3.8B) | 1/4 → **3/4** | 21s → 108s |
-| `qwen3:4b` (4B) | 2/4 → 1/4 (see note) | 382s → 120s |
+| `qwen3:4b` (4B) | 2/4 → **2/4** (see note) | 382s → 120s |
 
 - **Balanced is SMARTER *and* matches speed targets.** phi3 goes from 1/4 to
-  **3/4 correct** on the HLE set while keeping answers complete; qwen3 drops
-  from 382s to **120s average** (3x faster) — its latency was previously
-  dominated by litellm timeouts (>600s, empty answers).
+  **3/4 correct** on the HLE set while keeping answers complete; qwen3 holds
+  its real correctness (2/4 — both hits repeatable) while dropping from 382s
+  to **~120s average** (3x faster) — its latency was previously dominated by
+  litellm timeouts (>600s, empty answers).
+- **qwen3's winning combo: think-off + a concise-answer suffix on reasoning
+  queries.** Hidden thinking used to burn the whole token budget and truncate
+  the answer (0/4 mid-thought). With direct generation plus
+  "Think for a few sentences, then answer in exactly one short sentence"
+  (only for thinking models, never on coding/long-output), qwen3 hits ~2/4 on
+  the HLE reasoning tail in ~80s each — its best measured correctness. This
+  suffix is scoped to `is_math/needs_reasoning/is_complex` reasoning, never
+  `is_coding` or long-form requests.
+- **phi3 stays on the verbose path on purpose:** a concise suffix regressioned
+  phi3 from 3/4 → 2/4, so reasoning prompts are unchanged for non-thinking
+  models.
 - **qwen3 "raw 2/4" is a scoring artifact:** on HLE#9 the raw answer's *final*
   conclusion was wrong (α: negative) — it only matched the gold phrase
   mid-reasoning text. Balanced's qwen3 answer is complete and never fakes it.
