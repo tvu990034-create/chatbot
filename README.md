@@ -21,58 +21,50 @@ libraries into one cohesive application with advanced performance optimizations.
 
 Everything is combined into ONE unified **balanced mode** (default). It replaces
 the old smart/speed staircase with a single adaptive raw `/api/generate` call
-per query (no litellm at all): tight budget + `think:false` for simple chat,
-full budget for hard reasoning. Answers are cached so repeat queries short-
-circuit in ~0s.
+per query (no litellm at all). Easy chat is routed to the fast non-thinking
+model; hard reasoning runs on the selected model with a generous budget.
+Answers are cached so repeat queries short-circuit in ~0s.
+
+**Answers are the model's real final answer.** ollama returns a thinking
+model's reasoning in `thinking` and its answer in `response`; earlier builds
+concatenated the two, so a scorer could "find" the gold phrase inside the
+model's rambling while the actual answer was wrong. Balanced now returns the
+`response` field (falling back to `thinking` only when no answer was emitted),
+making both the answer and our correctness numbers honest.
 
 **Hard reasoning is TIME-BOXED** (streaming + ~90s wall-clock): a slow
 generation never hangs the request — it returns whatever real text it
 produced, and the retry ladder is clamped to 60s+60s, so worst case is
 bounded (~90s) instead of the old 240s single-call that could cascade into
-900s+. Live check on the same box:
+900s+.
 
-| Query | Model | Time | Result |
-|---|---|---|---|
-| easy | `phi3:mini` | 8.2s | complete answer |
-| hard | `phi3:mini` | 63.8s | **finished in-box** (complete) |
-| easy | `qwen3:4b` | 22.8s | complete answer |
-| hard | `qwen3:4b` | 77.6s | 4432 chars, cut mid-sentence at cap |
+**Easy chat uses the routed fast model.** A reasoning model spends ~20-40s on
+hidden thinking even for trivia ("What is the capital of France?"), so the
+RouteLLM picker's installed fast model is used for simple queries:
+qwen3:4b -> phi3:mini answered a trivia question in **6.8s** with a clean
+31-char answer (vs ~47s of rambling). Falls back to the selected model when no
+fast model is installed.
 
-Balanced mode vs raw baseline — measured on the same ollama box
-(`_balance_compare.py` + `postfix_balanced.jsonl`, gold-answer phrase match):
+Correctness (gold final-answer match on the HLE subset, `_balance_compare.py`):
 
-| Model | HLE correct (raw → balanced) | Avg latency (raw → balanced) |
+| Model | HLE correct (raw → balanced) | Notes |
 |---|---|---|
-| `phi3:mini` (3.8B) | 1/4 → **3/4** | 21s → 108s |
-| `qwen3:4b` (4B) | 2/4 → **2/4** (see note) | 382s → 120s |
+| `phi3:mini` (3.8B) | 1/4 → **3/4** | genuine: phi3 answers are clean (no thinking field) |
+| `qwen3:4b` (4B) | ≤1/4 → ≤1/4 | no reliable gain; earlier "2/4" was a reasoning-text artifact |
 
-- **Balanced is SMARTER *and* matches speed targets.** phi3 goes from 1/4 to
-  **3/4 correct** on the HLE set while keeping answers complete; qwen3 holds
-  its real correctness (2/4 — both hits repeatable) while dropping from 382s
-  to **~120s average** (3x faster) — its latency was previously dominated by
-  litellm timeouts (>600s, empty answers).
-- **qwen3's winning combo: think-off + a concise-answer suffix on reasoning
-  queries.** Hidden thinking used to burn the whole token budget and truncate
-  the answer (0/4 mid-thought). With direct generation plus
-  "Think for a few sentences, then answer in exactly one short sentence"
-  (only for thinking models, never on coding/long-output), qwen3 hits ~2/4 on
-  the HLE reasoning tail in ~80s each — its best measured correctness. This
-  suffix is scoped to `is_math/needs_reasoning/is_complex` reasoning, never
-  `is_coding` or long-form requests.
-- **phi3 stays on the verbose path on purpose:** a concise suffix regressioned
-  phi3 from 3/4 → 2/4, so reasoning prompts are unchanged for non-thinking
-  models.
-- **qwen3 "raw 2/4" is a scoring artifact:** on HLE#9 the raw answer's *final*
-  conclusion was wrong (α: negative) — it only matched the gold phrase
-  mid-reasoning text. Balanced's qwen3 answer is complete and never fakes it.
-- Latency proof (full 12-key set, per-query): phi3 easy ~9-15s, phi3 hard
-  65-194s; qwen3 easy ~12-22s, qwen3 hard 70-171s — vs raw qwen3 hard
-  230-678s. Repeat identical queries hit the response cache at **0.0s**.
-- **litellm was the root-cause bug for qwen3** (6/6 param variants timed out
-  >600s on hard reasoning). Balanced bypasses it entirely for every query.
-- **Think passes are off for simple chat** (qwen3 easy 152s→~20s) and hidden
-  reasoning is avoided on hard queries too — qwen3 writes verbose analysis
-  even without thinking, so direct generation is both faster and complete.
+- **phi3 is the real smartness win:** 1/4 → **3/4** correct on the HLE subset,
+  with complete answers.
+- **qwen3 is a speed + reliability win, not an accuracy win.** Balanced drops
+  it from 382s to **~120s average** (3x faster; latency was dominated by
+  litellm >600s timeouts with empty answers), returns clean final answers, and
+  never hangs — but a 4B reasoning model still can't answer frontier-exam HLE
+  items, in any mode.
+- **`options["think"]` is ignored by ollama** (it is a top-level field), so the
+  old "think:false" never actually suppressed reasoning. qwen3 now uses its own
+  `/no_think` directive plus a concise-answer suffix on reasoning queries.
+- **Litellm was a root-cause latency/empty-answer bug for qwen3** (6/6 param
+  variants timed out >600s on hard reasoning). Balanced bypasses it for every
+  query.
 - **Empty responses and canned apologies are eliminated.** When any optimized
   path fails, execution degrades gracefully: optimized → plain retry → raw
   generator → neutral `"I couldn't finish, please retry"` (no fake apology).

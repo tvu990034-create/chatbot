@@ -877,7 +877,8 @@ class UniversalEnhancedGateway:
         # added latency without beating the raw generator.  Caches + quick
         # templates above still short-circuit for free.
         if self.performance_mode == "balanced" and self.enable_all_optimizations:
-            return self._unified_generate(messages, query, query_analysis)
+            return self._unified_generate(messages, query, query_analysis,
+                                          routed_model=selected_model)
 
         # Step 7: Qwen-Agent tool calling: Check for function calls in query
         tool_result = self._execute_tool_calls(query, query_analysis)
@@ -3194,7 +3195,7 @@ Code:"""
         return None
 
     def _unified_generate(self, messages: List[Dict[str, str]], query: str,
-                          query_analysis) -> str:
+                          query_analysis, routed_model: Optional[str] = None) -> str:
         """ONE balanced method: fast AND smart, no modes.
 
         Uses a single raw ollama /api/generate call for every query with
@@ -3212,28 +3213,51 @@ Code:"""
 
         is_thinking = any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS)
         # Adaptive budget + timeout: small for chat, generous for reasoning.
-        # Thinking models ALWAYS run with think=False: a hidden thinking pass
-        # counts against num_predict and burns the whole budget on reasoning,
-        # truncating the answer (qwen3 HLE gave 0/4 mid-thought vs 2/4 direct).
-        # Direct answers are 3-6x faster AND complete.  Non-thinking models
-        # get the same single-shot treatment.
+        # Bypasses litellm entirely (which adds overhead and is a timeout trap
+        # for qwen3 thinking).
+        #
+        # EASY queries use the RouteLLM-selected fast model when the router
+        # found an installed one (e.g. qwen3:4b -> phi3:mini for simple chat).
+        # Reasoning models stall ~20-40s "thinking" even on trivia, so routing
+        # simple chat to a non-thinking model is what makes it BOTH fast and
+        # correct.  Falls back to the selected model when nothing is routed.
         #
         # TIME-BOXED: reasoning queries stream tokens and cut off at a hard
         # wall-clock (~90s).  The degradation ladder below is clamped so a
         # slow call can never snowball into a 900s+ chain.
+        easy_is_thinking = is_thinking
         if reasoning:
+            active_model = self.model_name
             budget = 900
             hard_deadline = 90
             use_stream = True
         else:
-            budget = 96
-            timeout = 45
+            easy_model = routed_model if (routed_model
+                                          and routed_model != self.model_name) else self.model_name
+            active_model = easy_model
+            easy_is_thinking = any(m in easy_model.lower() for m in THINKING_MODEL_MARKERS)
+            # Thinking models spend ~200-250 tokens reasoning before the clean
+            # answer lands in the "response" field; a 96-token cap stopped them
+            # mid-thought (empty response -> we returned the rambling thinking
+            # text).  512 lets the clean answer land; non-thinking models stop
+            # on their own well under 96.
+            budget = 512 if easy_is_thinking else 96
+            timeout = 75 if easy_is_thinking else 45
             hard_deadline = None
             use_stream = False
 
         # Easy/chat queries: force a concise direct answer.
         if not reasoning:
             query = f"{query}\n\nAnswer briefly and directly in one short sentence."
+            # Thinking models split reasoning (thinking field) from the final
+            # answer (response field).  Options["think"] is IGNORED by ollama
+            # (it is a top-level field), so reasoning was never actually
+            # suppressed and we used to return the truncated "Hmm, the user
+            # is asking..." preamble.  Qwen3's own /no_think directive keeps
+            # the hidden reasoning short, and _raw_reasoning_call now prefers
+            # the response field, yielding a clean short answer.
+            if easy_is_thinking:
+                query = f"{query} /no_think"
         # Reasoning queries on THINKING models that do NOT need code or long
         # prose: ask for a few-sentence think + one-sentence answer.  Measured:
         # qwen3+concise hit 3/4 on the hard tail in ~63s each (vs 1/4 verbose)
@@ -3258,8 +3282,10 @@ Code:"""
                 if cont:
                     response_text = f"{response_text}\n\n{cont}"
         else:
+            # Easy path: default thinking (options["think"] is ignored by
+            # ollama; /no_think handles brevity) and the routed fast model.
             response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
-                                                     think=False if is_thinking else None)
+                                                     model=active_model)
 
         if response_text and response_text.strip():
             response_text = response_text.strip()
@@ -3347,7 +3373,8 @@ Code:"""
         if think is not None:
             options["think"] = think
         stop_at = time.time() + deadline
-        parts = []
+        resp_parts: List[str] = []
+        think_parts: List[str] = []
         done = False
         timed_out = False
         try:
@@ -3367,15 +3394,21 @@ Code:"""
                         chunk = json.loads(line.decode("utf-8", "replace"))
                     except Exception:
                         continue
-                    piece = chunk.get("response") or chunk.get("thinking") or ""
-                    if piece:
-                        parts.append(piece)
+                    # Keep the final answer and the reasoning separate so we
+                    # can return the clean answer instead of "Hmm, the user
+                    # is asking..." + answer glued together.
+                    if chunk.get("response"):
+                        resp_parts.append(chunk["response"])
+                    if chunk.get("thinking"):
+                        think_parts.append(chunk["thinking"])
                     if chunk.get("done"):
                         done = True
                         break
         except Exception as e:
             logger.info("Timeboxed raw call failed: %s", e)
-        out = "".join(parts).strip()
+        # Prefer the final answer (response field); fall back to the reasoning
+        # stream only when the model never emitted a response.
+        out = "".join(resp_parts).strip() or "".join(think_parts).strip()
         if out:
             return out, (not done and timed_out)
         # Nothing streamed (e.g. instant error) — fall back to non-stream so
@@ -3422,16 +3455,17 @@ Code:"""
         return None
 
     def _raw_reasoning_call(self, query: str, budget: int = 900, timeout: int = 480,
-                            think: Optional[bool] = None) -> str:
+                            think: Optional[bool] = None,
+                            model: Optional[str] = None) -> str:
         """Single-shot raw ollama /api/generate call for reasoning queries.
 
         Bypasses litellm entirely for Qwen3 (and other thinking models) on
         hard reasoning questions where litellm consistently times out (600s+).
         ollama /api/generate with default think=True completes in ~230-680s
         and produces correct answers where litellm+options(think:false)
-        returned 0-1/4 correct.  Joins thinking + response fields so the
-        full reasoning is available.  "think" controls hidden reasoning:
-        pass False for easy/chat queries to answer without a thinking pass.
+        returned 0-1/4 correct.  Reads the "response" (final answer) field
+        first and only falls back to "thinking".  ``model`` overrides the
+        gateway default (used to run easy chat on the routed fast model).
         """
         try:
             import requests as _requests
@@ -3440,7 +3474,7 @@ Code:"""
                 options["think"] = think
             r = _requests.post(
                 "http://localhost:11434/api/generate",
-                json={"model": self.model_name, "prompt": query,
+                json={"model": model or self.model_name, "prompt": query,
                       "stream": False,
                       "options": options},
                 timeout=timeout,
@@ -3448,7 +3482,11 @@ Code:"""
             j = r.json()
             if j.get("error"):
                 return f"[ERROR] {j['error']}"
-            out = ((j.get("thinking") or "") + (j.get("response") or "")).strip()
+            # Thinking models put the final answer in "response" and the
+            # reasoning in "thinking"; prefer the answer, fall back to the
+            # reasoning only when no answer was emitted.
+            out = ((j.get("response") or "").strip()
+                   or (j.get("thinking") or "").strip())
             if out:
                 return out
         except Exception as e:
