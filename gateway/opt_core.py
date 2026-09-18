@@ -717,6 +717,7 @@ def ollama_model_id(model: str) -> str:
 
 _model_avail_cache: Dict[str, tuple[float, bool]] = {}
 _MODEL_AVAIL_TTL = 60.0  # seconds
+_urllib_no_proxy_opener = None
 
 
 def clear_model_availability_cache() -> None:
@@ -724,7 +725,7 @@ def clear_model_availability_cache() -> None:
     _model_avail_cache.clear()
 
 
-def check_model_available(model: str, api_base: str = "http://localhost:11434") -> bool:
+def check_model_available(model: str, api_base: str = "http://127.0.0.1:11434") -> bool:
     """Check if a model exists in the Ollama backend. Returns True if available.
 
     Results are cached with a TTL (``_MODEL_AVAIL_TTL``) so the HTTP
@@ -732,7 +733,13 @@ def check_model_available(model: str, api_base: str = "http://localhost:11434") 
     (api_base, model) per TTL window.  Network failures are cached as True
     (assume available) for the same window so a flaky backend does not stall
     the event loop with repeated 3-second timeouts.
+
+    Uses 127.0.0.1 instead of "localhost": on Windows the latter resolves via
+    IPv6 first and can stall ~2s per call before falling back to IPv4, which
+    dominated easy-question latency.  Proxies are bypassed for localhost.
     """
+    # Normalise every call site (many pass "localhost") to the fast literal.
+    api_base = api_base.replace("localhost", "127.0.0.1")
     key = f"{api_base}|{model}"
     now = time.time()
     cached = _model_avail_cache.get(key)
@@ -740,10 +747,14 @@ def check_model_available(model: str, api_base: str = "http://localhost:11434") 
         return cached[1]
     import urllib.request
     import json as _json
+    global _urllib_no_proxy_opener
+    if _urllib_no_proxy_opener is None:
+        _urllib_no_proxy_opener = urllib.request.build_opener(
+            urllib.request.ProxyHandler({}))
     try:
         url = f"{api_base.rstrip('/')}/api/tags"
         req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
+        with _urllib_no_proxy_opener.open(req, timeout=3) as resp:
             data = _json.loads(resp.read())
             names = [m.get("name", "") for m in data.get("models", [])]
             # Exact match, or prefix+dangling-colon match so that asking for a
