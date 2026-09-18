@@ -1097,6 +1097,13 @@ def quick_arithmetic(query: str) -> Optional[str]:
     string, or None if the expression isn't a safe, simple arithmetic query.
     """
     expr = (query or "").strip().rstrip("?")
+    # Strip a natural-language lead-in so "What is 12 * 8?" / "calculate 2+2"
+    # resolve instantly instead of being classified as hard reasoning and sent
+    # to the slow thinking model.
+    expr = re.sub(
+        r"^(?:what(?:'s|\s+is)|\s*calculate|\s*compute|\s*evaluate|\s*solve|"
+        r"\s*how\s+much\s+is)\s+",
+        "", expr, flags=re.IGNORECASE).strip()
     if not re.fullmatch(r"[\d\s\+\-\*/\(\)\.]+", expr):
         return None
     tokens = re.findall(r"\d+\.?\d*|[()+\-*/]", expr)

@@ -40,8 +40,8 @@ from rich.panel import Panel
 from rich.table import Table
 
 console = Console()
-DEFAULT_MODE = "speed"
-EVAL_MODE = "speed"
+DEFAULT_MODE = "balanced"
+EVAL_MODE = "balanced"
 MAX_TURNS = 12
 _CACHE_DIR = Path(__file__).resolve().parent / ".hf_cache"
 
@@ -80,10 +80,29 @@ def _quiet_library_logging() -> None:
 
 
 def _resolve_model(model: Optional[str]) -> str:
+    """Pick the local Ollama model, matching ``main.py``'s precedence.
+
+    ``--model`` > ``DEFAULT_MODEL`` > ``LOCAL_MODEL_NAME``, each stripped of the
+    LiteLLM ``ollama/`` prefix and validated against the installed models so the
+    documented pair (qwen3:4b for hard, phi3:mini for trivial) is actually used.
+    """
     if model:
-        return model
+        return model.replace("ollama/", "").strip()
     from config import settings
-    return getattr(settings, "local_model_name", None) or settings.default_model
+    from gateway.opt_core import check_model_available
+
+    def _clean(name: Optional[str]) -> str:
+        return (name or "").replace("ollama/", "").strip()
+
+    primary = _clean(settings.default_model or getattr(settings, "local_model_name", None))
+    if primary and check_model_available(primary):
+        return primary
+    for candidate in (getattr(settings, "local_model_name", None),
+                      "phi3:mini", "qwen3:4b"):
+        candidate = _clean(candidate)
+        if candidate and check_model_available(candidate):
+            return candidate
+    return primary or "phi3:mini"
 
 
 def _trim_context(messages: List[Dict[str, str]],

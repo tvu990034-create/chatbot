@@ -70,9 +70,9 @@ python main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent 
 python main.py chat --no-rag "..."                            # skip RAG retrieval
 ```
 
-Each `chat` call runs the balanced gateway: trivial questions answer in
-seconds on a fast model, hard reasoning is time-boxed to ~90s, and the answer
-is the model's real final reply.
+Each `chat` call runs the balanced gateway: greetings and simple arithmetic
+answer instantly, other trivia in seconds on a fast model, and hard reasoning
+runs to a real final answer instead of being cut off mid-thought.
 
 ### Status
 
@@ -100,8 +100,9 @@ chains), classified and routed on the fly:
 
 | Query type | Example | Model | Latency |
 |---|---|---|---|
+| Instant | "Hello there!" / "What is 12 * 8?" | none (template / safe math) | <1s |
 | Trivial / factual | "How many days are in a week?" | fast "simple" model | ~5-10s |
-| Reasoning | "Prove sqrt(2) is irrational" | selected reasoning model, time-boxed | max ~90s |
+| Reasoning | "Prove sqrt(2) is irrational" | selected reasoning model | ~1-4 min on CPU |
 | Repeat | any question you already asked | answer cache | ~0s |
 
 Model routing tiers (the first **installed** candidate of the right tier is
@@ -113,12 +114,15 @@ used):
 | `medium` | `phi3:3.8b`, `qwen2.5:3b`, `gemma2:9b` |
 | `complex` (selected) | `qwen2.5:7b`, `qwen2.5:14b`, `llama3.2`, `deepseek-llm:7b` |
 
-Hard reasoning is streamed and cut off after ~90s of wall-clock instead of
-hanging; a real answer cut mid-sentence gets one short continuation pass, and
-a model that only produced reasoning gets returned as-is. When a call fails it
-degrades gracefully — optimized → plain retry → raw generator → a neutral
-`"I couldn't finish, please retry"`. Answers are always the model's real final
-`response`, not its hidden reasoning text.
+Hard reasoning on a thinking model uses a generous token budget and wall-clock
+cap so the model can finish its (hidden) chain of thought and emit the real
+final answer — measured: qwen3:4b needs ~2000+ hidden tokens on GSM8K, so a
+short box returned truncated reasoning and scored 0/3, while letting it finish
+scores 3/3 (raw baseline: 2/3). An answer cut mid-sentence still gets one short
+continuation pass. When a call fails it degrades gracefully — optimized → plain
+retry → raw generator → a neutral `"I couldn't finish, please retry"`. Answers
+are always the model's real final `response`, not its hidden reasoning text.
+Repeat questions are served from cache in ~0ms.
 
 ---
 

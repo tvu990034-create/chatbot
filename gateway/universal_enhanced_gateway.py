@@ -668,8 +668,9 @@ class UniversalEnhancedGateway:
                 1 for m in messages if m.get("role") == "assistant"
             )
 
-        # Instant greeting responses
-        if query_lower in ["hello", "hi", "hey", "greetings"]:
+        # Instant greeting responses (tolerant of "hello there!", "hi there.")
+        if re.fullmatch(r"(?:hello|hi|hey|greetings|yo)(?:\s+there)?[!.,]*",
+                        query_lower):
             if num_prior_turns > 0:
                 return None
             import random
@@ -3249,6 +3250,11 @@ Code:"""
                          or query_analysis.is_complex
                          or query_analysis.expected_response_length == "long")
 
+        # Keep the user's original question: the cache read path keys on it, so
+        # storing under the prompt-decorated ``query`` (below) would guarantee a
+        # permanent cache miss on every repeat.
+        original_query = query
+
         is_thinking = any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS)
         # Adaptive budget + timeout: small for chat, generous for reasoning.
         # Bypasses litellm entirely (which adds overhead and is a timeout trap
@@ -3266,8 +3272,15 @@ Code:"""
         easy_is_thinking = is_thinking
         if reasoning:
             active_model = self.model_name
-            budget = 900
-            hard_deadline = 90
+            # qwen3:4b needs ~2000+ hidden-reasoning tokens (measured ~212s on
+            # CPU) before it emits the final answer in the "response" field.
+            # A 900-token / 90s box cut it off mid-thought and returned the
+            # truncated chain-of-thought as the answer (gsm8k: 0/3).  The
+            # budget/deadline below let the answer actually land; repeat queries
+            # are then served instantly from cache.  Correctness first: a wrong
+            # fast answer is worse than a slower right one.
+            budget = 3072
+            hard_deadline = 240
             use_stream = True
         else:
             easy_model = routed_model if (routed_model
@@ -3297,14 +3310,15 @@ Code:"""
             if easy_is_thinking:
                 query = f"{query} /no_think"
         # Reasoning queries on THINKING models that do NOT need code or long
-        # prose: ask for a few-sentence think + one-sentence answer.  Measured:
-        # qwen3+concise hit 3/4 on the hard tail in ~63s each (vs 1/4 verbose)
-        # yet phi3 regressioned 3/4 -> 2/4, so this stays thinking-model-only
-        # and is never applied to coding/long-output requests.
+        # prose: ask for a short final answer.  NOTE: do NOT instruct the model
+        # to "think for a few sentences" — qwen3's reasoning is a hidden
+        # "thinking" field, so that clause only inflates the hidden CoT (we
+        # measured single gsm8k items ballooning past 240s / 3000 tokens and
+        # getting cut before the answer).  The prompt itself already asks for
+        # the answer; adding length pressure just made it slower and wrong.
         elif (is_thinking and not query_analysis.is_coding
               and query_analysis.expected_response_length != "long"):
-            query = (f"{query}\n\nThink for a few sentences, then answer in "
-                     f"exactly one short sentence.")
+            query = f"{query}\n\nAnswer in exactly one short sentence."
 
         # Single raw call — always fast, always non-empty.
         if use_stream:
@@ -3342,7 +3356,7 @@ Code:"""
 
         if self.enable_all_optimizations:
             response_text = self._apply_response_constraints(response_text, query_analysis)
-        self._store_balanced_response(response_text, query, messages, query_analysis)
+        self._store_balanced_response(response_text, original_query, messages, query_analysis)
         duration = time.time() - start_time
         self._update_performance_metrics(duration, query_analysis)
         return response_text
@@ -3411,9 +3425,13 @@ Code:"""
         ``response`` stream (a thinking-only fallback is not resumable).
         """
         import requests as _requests
+        # NOTE: never send options["think"] on the streaming endpoint.  With
+        # stream=True, options.think=False makes qwen3 emit an EMPTY "response"
+        # and dump its chain-of-thought into "thinking"; the caller would then
+        # return that truncated reasoning as the final answer (gsm8k: 0/3).
+        # Omitting it yields the clean separated final answer in "response".
+        _ = think
         options = {"num_predict": budget}
-        if think is not None:
-            options["think"] = think
         stop_at = time.time() + deadline
         resp_parts: List[str] = []
         think_parts: List[str] = []
