@@ -163,13 +163,27 @@ import ast
 
 import numpy as np
 
-import litellm
-from litellm import completion
-from litellm.exceptions import (
-    APIConnectionError,
-    RateLimitError,
-    ServiceUnavailableError,
-)
+# LiteLLM is imported LAZILY.  Importing it costs ~7s (it pulls openai,
+# anthropic, tokenizers, ...) and balanced mode never uses it: every request
+# goes through the raw ollama /api/generate generator below.  The legacy
+# paths call ``completion(...)``, which loads litellm on first use only.
+_litellm_completion = None
+
+
+def _ensure_litellm():
+    global _litellm_completion
+    if _litellm_completion is None:
+        import litellm
+        litellm.set_verbose = False
+        litellm.drop_params = True  # Drop unsupported params for speed
+        from litellm import completion as _c
+        _litellm_completion = _c
+    return _litellm_completion
+
+
+def completion(*args, **kwargs):
+    """Lazy litellm.completion proxy (see note above)."""
+    return _ensure_litellm()(*args, **kwargs)
 
 from config import settings
 from .opt_core import (
@@ -576,9 +590,8 @@ class UniversalEnhancedGateway:
                 "num_predict": 768
             }
         
-        # Configure LiteLLM for Ollama with maximum speed
-        litellm.set_verbose = False
-        litellm.drop_params = True  # Drop unsupported params for speed
+        # LiteLLM is configured lazily on first legacy completion() call so
+        # constructing the gateway never pays its ~7s import cost.
         
         # Ultra-aggressive intelligent cache warming with predictive queries
         if enable_all_optimizations and self.cache is not None:
@@ -3409,9 +3422,10 @@ Code:"""
         timed_out = False
         try:
             with _requests.post(
-                    "http://localhost:11434/api/generate",
+                    "http://127.0.0.1:11434/api/generate",
                     json={"model": self.model_name, "prompt": query,
-                          "stream": True, "options": options},
+                          "stream": True, "keep_alive": "30m",
+                          "options": options},
                     timeout=deadline + 15,
                     stream=True) as resp:
                 for line in resp.iter_lines(decode_unicode=False):
@@ -3470,9 +3484,9 @@ Code:"""
         try:
             import requests as _requests
             r = _requests.post(
-                "http://localhost:11434/api/generate",
+                "http://127.0.0.1:11434/api/generate",
                 json={"model": self.model_name, "prompt": prompt,
-                      "stream": False,
+                      "stream": False, "keep_alive": "30m",
                       "options": {"num_predict": budget,
                                   "temperature": 0.2}},
                 timeout=timeout,
@@ -3508,9 +3522,9 @@ Code:"""
             if think is not None:
                 options["think"] = think
             r = _requests.post(
-                "http://localhost:11434/api/generate",
+                "http://127.0.0.1:11434/api/generate",
                 json={"model": model or self.model_name, "prompt": query,
-                      "stream": False,
+                      "stream": False, "keep_alive": "30m",
                       "options": options},
                 timeout=timeout,
             )
@@ -3552,8 +3566,9 @@ Code:"""
             import requests as _requests
             query = messages[-1]["content"][:1200]
             r = _requests.post(
-                "http://localhost:11434/api/generate",
+                "http://127.0.0.1:11434/api/generate",
                 json={"model": self.model_name, "prompt": query, "stream": False,
+                      "keep_alive": "30m",
                       "options": {"num_predict": 768}},
                 timeout=timeout,
             )
