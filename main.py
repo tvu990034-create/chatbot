@@ -117,6 +117,32 @@ app.add_typer(turbo_app, name="turbo",
 # Helpers
 # ---------------------------------------------------------------------------
 
+def _resolve_local_model(explicit: Optional[str] = None) -> str:
+    """Pick the local Ollama model for a one-shot chat.
+
+    Precedence: ``--model`` > ``DEFAULT_MODEL`` > ``LOCAL_MODEL_NAME``.  Each
+    candidate is stripped of the LiteLLM ``ollama/`` prefix and the first one
+    actually installed in Ollama is used.  If none match (e.g. a fresh
+    ``.env.example`` whose LOCAL_MODEL_NAME is a HuggingFace repo id) we fall
+    back to any installed model so the README workflow still runs.
+    """
+    from gateway.opt_core import check_model_available
+
+    def _clean(name: Optional[str]) -> str:
+        return (name or "").replace("ollama/", "").strip()
+
+    primary = _clean(explicit or settings.default_model or settings.local_model_name)
+    if primary and check_model_available(primary):
+        return primary
+
+    for candidate in (settings.local_model_name, "phi3:mini", "qwen3:4b"):
+        candidate = _clean(candidate)
+        if candidate and check_model_available(candidate):
+            return candidate
+
+    return primary or "phi3:mini"
+
+
 def _start_api_server(host: str, port: int, reload: bool) -> None:
     """Run the FastAPI server (blocking)."""
     import uvicorn
@@ -291,7 +317,7 @@ def chat(
     # repeat questions, time-box slow generations).  This replaces the old
     # LiteLLM chat_stream call that returned empty/slow answers.
     from gateway.universal_enhanced_gateway import get_universal_gateway
-    selected = model or settings.local_model_name or "phi3:mini"
+    selected = _resolve_local_model(model)
     gw = get_universal_gateway(
         selected, enable_all_optimizations=True, performance_mode="balanced")
     reply = gw.chat([{"role": "user", "content": message}])
@@ -309,6 +335,7 @@ def status() -> None:
     table.add_column("Value", style="white")
 
     table.add_row("Default model",    settings.default_model)
+    table.add_row("Chat model",       _resolve_local_model())
     table.add_row("Local backend",    settings.local_backend.value)
     table.add_row("Local model",      settings.local_model_name)
     table.add_row("RAG provider",     settings.rag_provider.value)

@@ -1,5 +1,11 @@
 """
-Test LiteLLM gateway functionality.
+Test the LiteLLM gateway and the shared optimization helpers it relies on.
+
+This module was previously written against symbols that no longer exist on
+``gateway.litellm_gateway`` (``chat_stream``, ``_cache_key``,
+``_trim_history_eq1``, ``_metrics``).  It now exercises the current public
+surface: the chat entry points plus the canonical helpers in
+``gateway.opt_core``.
 """
 
 import pytest
@@ -7,58 +13,62 @@ from unittest.mock import patch, MagicMock
 
 
 def test_gateway_imports():
-    """Test that gateway module can be imported."""
-    try:
-        from gateway.litellm_gateway import chat, chat_stream
-        assert chat is not None
-        assert chat_stream is not None
-    except ImportError as e:
-        pytest.fail(f"Failed to import gateway: {e}")
+    """Gateway exposes the current chat entry points."""
+    from gateway.litellm_gateway import chat, achat, achat_stream
+
+    assert callable(chat)
+    assert callable(achat)
+    assert callable(achat_stream)
 
 
-def test_cache_key_generation():
-    """Test that cache keys are generated correctly."""
-    from gateway.litellm_gateway import _cache_key
-    
+def test_cache_identity_generation():
+    """make_cache_identity returns a stable, non-empty key scoped to the model."""
+    from gateway.opt_core import make_cache_identity
+
     messages = [
         {"role": "user", "content": "Hello"},
         {"role": "assistant", "content": "Hi there"},
     ]
-    
-    key = _cache_key(messages)
-    assert isinstance(key, str)
-    assert len(key) > 0
+
+    key1 = make_cache_identity("Hello", model="phi3:mini", messages=messages)
+    key2 = make_cache_identity("Hello", model="phi3:mini", messages=messages)
+    key3 = make_cache_identity("Hello", model="qwen3:4b", messages=messages)
+
+    assert isinstance(key1, str)
+    assert len(key1) == 64  # sha256 hex digest
+    assert key1 == key2
+    assert key1 != key3  # the model is part of the identity
 
 
 def test_history_trimming():
-    """Test that conversation history is trimmed correctly."""
-    from gateway.litellm_gateway import _trim_history_eq1
-    
-    # Create messages with enough content to trigger trimming
+    """build_context_messages trims a long history to the token budget."""
+    from gateway.opt_core import build_context_messages
+
     messages = [
-        {"role": "user", "content": f"This is a longer message number {i} with more text to ensure it uses more tokens"} 
+        {"role": "user", "content": f"message number {i} " * 20}
         for i in range(20)
     ]
-    
-    # Trim to small token budget - should significantly reduce message count
-    trimmed = _trim_history_eq1(messages, max_history_tokens=100)
-    assert len(trimmed) < len(messages)  # Should trim some messages
-    assert len(trimmed) >= 1              # Should keep at least the last message
+
+    built = build_context_messages(
+        messages, context_limit=8192, budget=100, always_keep_n_history=2)
+
+    assert len(built.messages) < len(messages)  # should trim some messages
+    assert len(built.messages) >= 1              # should keep at least one
 
 
 @patch('gateway.litellm_gateway.completion')
 def test_chat_call_mocked(mock_completion):
     """Test chat function with mocked LiteLLM."""
     from gateway.litellm_gateway import chat
-    
+
     # Mock the LiteLLM response
     mock_response = MagicMock()
     mock_response.choices = [MagicMock()]
     mock_response.choices[0].message.content = "Test response"
     mock_completion.return_value = mock_response
-    
+
     messages = [{"role": "user", "content": "Hello"}]
-    
+
     # This should not make a real API call
     try:
         response = chat(messages, use_cache=False, use_router=False)
@@ -68,16 +78,12 @@ def test_chat_call_mocked(mock_completion):
         pytest.skip(f"Test skipped due to: {e}")
 
 
-def test_metrics_function():
-    """Test that metrics function returns expected structure."""
-    # Test that the metrics components exist without calling gateway_metrics
-    # which may hang due to router/cache initialization issues
-    from gateway.litellm_gateway import _metrics, _batch_tracker
-    
-    # Test individual components instead
-    assert _metrics is not None
-    assert _batch_tracker is not None
-    
-    # Test that they have the expected methods
-    assert hasattr(_metrics, 'summary')
-    assert hasattr(_batch_tracker, 'report')
+def test_optimization_stats_function():
+    """get_optimization_stats returns the expected structure."""
+    from gateway.litellm_gateway import get_optimization_stats
+
+    stats = get_optimization_stats()
+
+    assert isinstance(stats, dict)
+    assert "optimizations" in stats
+    assert "total_optimizations" in stats

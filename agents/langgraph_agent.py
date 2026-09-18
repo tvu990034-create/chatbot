@@ -405,7 +405,7 @@ def build_agent(extra_tools: list | None = None):
                     final_max_tokens,
                     getattr(settings, "generation_timeout", 15),
                 ),
-                "api_base": settings.litellm_api_base or "http://localhost:11434",
+                "api_base": settings.litellm_api_base or "http://127.0.0.1:11434",
             }
 
             # Pass top_p and top_k from generation policy (unless speed mode)
@@ -422,6 +422,15 @@ def build_agent(extra_tools: list | None = None):
             actual_model = response_obj.model if hasattr(response_obj, 'model') else model_to_use
             usage = getattr(response_obj, "usage", None)
             out_tokens = int(getattr(usage, "completion_tokens", 0) or 0)
+
+            # Thinking models (e.g. qwen3): litellm maps the reasoning stream to
+            # an empty ``content`` when the budget is consumed by reasoning, so
+            # the agent would return a blank reply.  Fall back to the gateway's
+            # raw, thinking-aware generator to recover the real answer.
+            if not (response.content or "").strip():
+                _gw = _get_agent_gateway(model_to_use)
+                reply_text = await asyncio.to_thread(_gw.chat, formatted_msgs)
+                response = AIMessage(content=(reply_text or "").strip())
         finally:
             router_state.record_end(model_to_use)
 
@@ -677,6 +686,22 @@ def get_agent():
     return _agent
 
 
+def _run_coroutine_blocking(coro):
+    """Run *coro* to completion from synchronous code.
+
+    Uses ``asyncio.run`` when no loop is running; if called from within an
+    active event loop it runs the coroutine on a private thread, so we never
+    call ``asyncio.run`` inside a running loop.
+    """
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        return asyncio.run(coro)
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        return pool.submit(asyncio.run, coro).result()
+
+
 def chat(user_message: str, history: list[dict] | None = None, *,
          model: str | None = None, temperature: float | None = None,
          max_tokens: int | None = None, system_prompt: str | None = None,
@@ -753,9 +778,11 @@ def chat(user_message: str, history: list[dict] | None = None, *,
         "_req_ctx": _req_ctx, "_tool_call_counts": {},
     }
 
-    result = agent.invoke(
-        invoke_kwargs,
-        config={"recursion_limit": settings.agent_recursion_limit},
+    result = _run_coroutine_blocking(
+        agent.ainvoke(
+            invoke_kwargs,
+            config={"recursion_limit": settings.agent_recursion_limit},
+        )
     )
     reply = getattr(result["messages"][-1], "content", "")
 
@@ -802,6 +829,26 @@ def _ensure_wiring() -> None:
             logger.warning("optimization wiring install failed", exc_info=True)
         finally:
             _wiring_installed = True
+
+
+_AGENT_GATEWAYS: dict = {}
+
+
+def _get_agent_gateway(model_id: str):
+    """Return a cached balanced gateway for the agent's model (raw ollama path).
+
+    ``litellm.acompletion`` returns an empty ``content`` for thinking models
+    like qwen3 (all output lands in the reasoning stream), so the agent uses
+    the gateway's raw, thinking-aware generator instead.
+    """
+    name = (model_id or "").replace("ollama/", "")
+    gw = _AGENT_GATEWAYS.get(name)
+    if gw is None:
+        from gateway.universal_enhanced_gateway import get_universal_gateway
+        gw = get_universal_gateway(
+            name, enable_all_optimizations=True, performance_mode="balanced")
+        _AGENT_GATEWAYS[name] = gw
+    return gw
 
 
 async def achat(user_message: str, history: list[dict] | None = None, *,

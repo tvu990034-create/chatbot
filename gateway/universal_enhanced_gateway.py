@@ -839,7 +839,6 @@ class UniversalEnhancedGateway:
         query_analysis = self._intelligent_query_analysis_with_complexity(query)
         
         # Step 5: RouteLLM model routing: Route to appropriate model based on complexity
-        original_model_name = self.model_name
         selected_model = self._route_to_model(query_analysis)
         if selected_model and selected_model != self.model_name:
             logger.info(f"RouteLLM: Routed to {selected_model} (complexity: {query_analysis.complexity_score:.2f})")

@@ -22,7 +22,7 @@ import ast
 import asyncio
 import sys
 import time
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -147,13 +147,13 @@ class TestRepeatedToolCalls:
         # Mock everything to avoid real LLM call
         with patch("agents.langgraph_agent.get_agent") as mock_get_agent:
             mock_agent = MagicMock()
-            mock_agent.invoke.return_value = {
+            mock_agent.ainvoke = AsyncMock(return_value={
                 "messages": [MagicMock(content="ok", type="ai")],
                 "rag_context": "", "rag_fetch_time": 0.0,
                 "advanced_reasoning_used": False, "reasoning_metadata": {},
                 "model_used": "test", "generation_policy": "",
                 "input_tokens": 10,
-            }
+            })
             mock_get_agent.return_value = mock_agent
             with patch("agents.langgraph_agent._get_langgraph") as mock_lg:
                 mock_lg.return_value = (
@@ -170,7 +170,7 @@ class TestRepeatedToolCalls:
                     except Exception:
                         pass
             # Verify _tool_call_counts was passed
-            call_kwargs = mock_agent.invoke.call_args[0][0]
+            call_kwargs = mock_agent.ainvoke.call_args[0][0]
             assert "_tool_call_counts" in call_kwargs
             assert call_kwargs["_tool_call_counts"] == {}
 
@@ -527,12 +527,12 @@ class TestCodeAgentModelRef:
     """_execute_code_agent must reference self.model_name, not undefined var."""
 
     def test_code_agent_uses_self_model(self):
-        """Verify the source uses self.model_name."""
+        """Verify the source uses self.model_name and defines model_to_use."""
         import inspect
         from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
         src = inspect.getsource(UniversalEnhancedGateway._execute_code_agent)
         assert "self.model_name" in src
-        assert "model_to_use" not in src
+        assert "model_to_use =" in src, "model_to_use must be assigned before use"
 
 
 # ===================================================================

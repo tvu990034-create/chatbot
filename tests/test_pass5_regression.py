@@ -170,21 +170,27 @@ class TestAppActualModelInit(unittest.TestCase):
 # 6. Request isolation — self.model_name restored after routing
 # ---------------------------------------------------------------------------
 class TestModelNameRestore(unittest.TestCase):
-    """self.model_name must be saved before routing and restored in finally."""
+    """chat() must isolate routing per request via a local variable.
 
-    def test_model_name_save_and_restore(self):
+    The current design never mutates ``self.model_name`` (older code saved and
+    restored it in a finally block); instead routing uses a local
+    ``model_to_use`` so concurrent requests cannot leak a routed model.
+    """
+
+    def test_routing_uses_local_model_variable(self):
         from gateway import universal_enhanced_gateway as mod
         src = inspect.getsource(mod.UniversalEnhancedGateway.chat)
-        self.assertIn("original_model_name = self.model_name", src,
-                      "chat() must save original model name before routing")
-        self.assertIn("self.model_name = original_model_name", src,
-                      "chat() must restore original model name in finally block")
+        self.assertIn("model_to_use =", src,
+                      "chat() must route via a local model variable")
+        self.assertNotIn("self.model_name = selected_model", src,
+                         "chat() must not mutate self.model_name when routing")
 
-    def test_finally_block_exists(self):
+    def test_no_shared_model_mutation(self):
         from gateway import universal_enhanced_gateway as mod
         src = inspect.getsource(mod.UniversalEnhancedGateway.chat)
-        self.assertIn("finally:", src,
-                      "chat() must have a finally block for model_name restore")
+        # The routed model must never be written back onto the instance.
+        self.assertNotIn("self.model_name = ", src,
+                         "chat() must not reassign self.model_name")
 
 
 # ---------------------------------------------------------------------------
