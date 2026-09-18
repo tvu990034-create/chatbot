@@ -1,513 +1,124 @@
-# 🤖 Local Chatbot
+# 🤖 Local Chatbot — CLI
 
-A fully local, production-grade AI chatbot that integrates the best open-source
-libraries into one cohesive application with advanced performance optimizations.
-
-| Component | Library | Role |
-|---|---|---|
-| LLM serving (GPU) | **vLLM** / **SGLang** | High-throughput local inference |
-| LLM gateway | **LiteLLM** | Unified API for 100+ providers |
-| Agent orchestration | **LangGraph** | Stateful, tool-using agent |
-| RAG (option A) | **LlamaIndex** | Document ingestion + retrieval |
-| RAG (option B) | **Haystack** | Pipeline-based RAG |
-| Vector store | **ChromaDB** | Persistent embedding store |
-| Code awareness | **Aider** (optional) | Repo map, file read, code search |
-| REST API | **FastAPI** | OpenAI-compatible HTTP backend |
-| Chat UI | **Gradio** | Interactive web interface |
+A fully local AI chatbot run from the terminal. It talks to a local Ollama
+model through a **balanced mode** that routes trivial questions to a fast
+model, hard reasoning to a strong reasoning model, caches repeat questions,
+and time-boxes slow generations so a request never hangs. No API keys, no
+cloud, no GPU required.
 
 ---
 
-## Performance & correctness status (updated 2026-09)
+## Quick start
 
-Everything is combined into ONE unified **balanced mode** (default). It replaces
-the old smart/speed staircase with a single adaptive raw `/api/generate` call
-per query (no litellm at all). Easy chat is routed to the fast non-thinking
-model; hard reasoning runs on the selected model with a generous budget.
-Answers are cached so repeat queries short-circuit in ~0s.
+### 1. Install Ollama + a model pair
 
-**Answers are the model's real final answer.** ollama returns a thinking
-model's reasoning in `thinking` and its answer in `response`; earlier builds
-concatenated the two, so a scorer could "find" the gold phrase inside the
-model's rambling while the actual answer was wrong. Balanced now returns the
-`response` field (falling back to `thinking` only when no answer was emitted),
-making both the answer and our correctness numbers honest.
-
-**Hard reasoning is TIME-BOXED** (streaming + ~90s wall-clock): a slow
-generation never hangs the request — it returns whatever real text it
-produced, and the retry ladder is clamped to 60s+60s, so worst case is
-bounded (~90s) instead of the old 240s single-call that could cascade into
-900s+.
-
-**Easy chat uses the routed fast model.** A reasoning model spends ~20-40s on
-hidden thinking even for trivia ("What is the capital of France?"), so the
-RouteLLM picker's installed fast model is used for simple queries:
-qwen3:4b -> phi3:mini answered a trivia question in **6.8s** with a clean
-31-char answer (vs ~47s of rambling). Falls back to the selected model when no
-fast model is installed.
-
-Correctness (gold final-answer match on the HLE subset, `_balance_compare.py`):
-
-| Model | HLE correct (raw → balanced) | Notes |
-|---|---|---|
-| `phi3:mini` (3.8B) | 1/4 → **3/4** | genuine: phi3 answers are clean (no thinking field) |
-| `qwen3:4b` (4B) | ≤1/4 → ≤1/4 | no reliable gain; earlier "2/4" was a reasoning-text artifact |
-
-- **phi3 is the real smartness win:** 1/4 → **3/4** correct on the HLE subset,
-  with complete answers.
-- **qwen3 is a speed + reliability win, not an accuracy win.** Balanced drops
-  it from 382s to **~120s average** (3x faster; latency was dominated by
-  litellm >600s timeouts with empty answers), returns clean final answers, and
-  never hangs — but a 4B reasoning model still can't answer frontier-exam HLE
-  items, in any mode.
-- **`options["think"]` is ignored by ollama** (it is a top-level field), so the
-  old "think:false" never actually suppressed reasoning. qwen3 now uses its own
-  `/no_think` directive plus a concise-answer suffix on reasoning queries.
-- **Litellm was a root-cause latency/empty-answer bug for qwen3** (6/6 param
-  variants timed out >600s on hard reasoning). Balanced bypasses it for every
-  query.
-- **Empty responses and canned apologies are eliminated.** When any optimized
-  path fails, execution degrades gracefully: optimized → plain retry → raw
-  generator → neutral `"I couldn't finish, please retry"` (no fake apology).
-- Known limit (model-level, not optimizer): a 3-4B local model does not know
-  most frontier-exam (HLE/AIME) gold answers in *any* mode.
-
-### Latest routing fixes (2026-09)
-
-- **Trivial questions no longer burn the slow reasoning path.** The old cue
-  list flagged *every* question containing "how" as deep reasoning, so
-  "How many days are in a week?" went to the medium tier → slow reasoning
-  model → **47s of rambling**. A bare "how" is no longer a reasoning trigger
-  unless the question actually asks for an explanation (how to / how do /
-  why / prove / explain / compare). Same question now routes to the fast
-  model and returns a clean **"There are 7 days in a week." in ~8s**.
-- **Router falls back to installed fast models.** When the suggested tier has
-  nothing installed, the router now falls back to the "simple"-tier (fast)
-  candidates for non-reasoning queries instead of leaving the request on the
-  slow default model. Genuine why/prove/code questions are never downgraded.
-- **Hard reasoning stays honest AND bounded.** The single raw streaming call is
-  capped at a ~90s wall-clock; a real answer cut mid-sentence gets exactly ONE
-  small continuation pass (≤45s, ≤256 tokens). Thinking-only fallbacks
-  (model ran out of time while still reasoning) are returned as-is, so the
-  resume budget is never wasted on them. Worst case ≈ 90s, not 141s+.
-
----
-
-## How to use it (balanced mode)
-
-**Balanced mode is the default.** It replaces the old smart/speed staircase
-with ONE adaptive raw ollama call per question — no LiteLLM, no fallback
-chains — plus an answer cache. Each query is classified, routed, and
-answered on its own:
-
-| Query type | Example | Goes to | Latency |
-|---|---|---|---|
-| Trivial / factual | "How many days are in a week?" | Fast "simple" model | ~5-10s |
-| Medium / long | a long factual question | Fast model (or selected) | ~10-20s |
-| Reasoning | "Prove sqrt(2) is irrational" | Selected reasoning model, time-boxed | ≤~90s |
-| Repeat | any already-asked question | Answer cache | ~0s |
-
-### Then how do you pick which models to install?
-
-The registry maps models to tiers; the router uses the first **installed**
-candidate of the right tier for easy chat:
-
-| Tier | Models | Use case |
-|---|---|---|
-| `simple` | `phi3:mini`, `gemma2:2b`, `qwen2.5:0.5b`, `tinyllama` | trivial/factual chat, fastest |
-| `medium` | `phi3:3.8b`, `qwen2.5:3b`, `gemma2:9b` | mid-complexity |
-| `complex` (selected) | `qwen2.5:7b`, `qwen2.5:14b`, `llama3.2`, `deepseek-llm:7b`, or your reasoning model | hard reasoning |
-
-Recommended pairing on a CPU/CRU box (~4GB class):
+Download Ollama from https://ollama.com, then pull the recommended pair:
 
 ```bash
-ollama pull qwen3:4b    # strong small reasoning model ("selected" model)
-ollama pull phi3:mini   # fast simple-model for trivia (auto-detected)
+ollama pull qwen3:4b    # strong small reasoning model (for hard questions)
+ollama pull phi3:mini   # fast model for trivia (auto-detected)
 ```
 
-Set `DEFAULT_MODEL=ollama/qwen3:4b` (or list the tier model you pulled) and
-`PERFORMANCE_MODE=balanced` in `.env`. Run everything with `python main.py
-chat "your question"`, `python main.py ui`, or the REST API — no other
-configuration needed. Anything you ask twice comes back instantly from cache.
+Only pulling one model is fine too — simple chat will just use that model.
 
----
-
-## ✨ What's New
-
-- **Simplified Configuration** - Streamlined `.env.example` with advanced options separated
-- **Modular Architecture** - Refactored gateway into focused, maintainable modules
-- **Optional Performance Features** - Advanced optimizations can be toggled on/off
-- **Enhanced Code Tools** - Lightweight code awareness without full Aider dependency
-- **Test Suite** - Basic test structure for core functionality
-- **Better Documentation** - Comprehensive development guide
-- **Advanced ML Optimizations** - Safe implementations of cutting-edge concepts (HRR, MoSE, Koopman, Neural ODE)
-
----
-
-## Project structure
-
-```
-local-chatbot/
-├── main.py                  # CLI entry point (Typer)
-├── config.py                # All settings via Pydantic + .env
-├── .env.example             # Template – copy to .env
-├── requirements.txt
-├── pyproject.toml
-├── Dockerfile
-├── docker-compose.yml
-│
-├── gateway/
-│   └── litellm_gateway.py   # LiteLLM wrapper (sync + async, streaming, fallback)
-│
-├── backends/
-│   └── model_server.py      # vLLM / SGLang / Ollama subprocess launcher
-│
-├── rag/
-│   ├── llama_index_rag.py   # LlamaIndex vector index + query engine
-│   └── haystack_pipeline.py # Haystack indexing + query pipelines
-│
-├── agents/
-│   └── langgraph_agent.py   # LangGraph graph (RAG node + agent node + tools)
-│
-├── tools/
-│   └── aider_tool.py        # RepoMapTool, FileReadTool, CodeSearchTool, AiderEditTool
-│
-├── server/
-│   └── app.py               # FastAPI app with REST endpoints
-│
-├── ui/
-│   └── gradio_ui.py         # Gradio Blocks UI
-│
-└── data/
-    ├── docs/                # Drop documents here for RAG ingestion
-    ├── indexes/             # LlamaIndex persistent index
-    └── chroma/              # ChromaDB persistent store
-```
-
----
-
-## Quick start (CPU, no GPU needed)
-
-### 1. Install dependencies
+### 2. Install dependencies
 
 ```bash
 cd local-chatbot
 python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
+.venv\Scripts\activate        # Windows
+source .venv/bin/activate     # macOS / Linux
 
 pip install -r requirements.txt
 ```
 
-**Optional:** For enhanced code awareness capabilities:
-```bash
-pip install -r requirements-code-tools.txt
-```
-
-```bash
-cd local-chatbot
-python -m venv .venv
-# Windows
-.venv\Scripts\activate
-# macOS / Linux
-source .venv/bin/activate
-
-pip install -r requirements.txt
-```
-
-### 2. Configure
+### 3. Configure
 
 ```bash
 cp .env.example .env
-# The defaults use Ollama with llama3 – no API keys required
 ```
 
-For advanced performance tuning, see `.env.advanced.example` and copy relevant sections to your `.env` file.
+In `.env` ensure:
 
-### 3. Install and start Ollama
-
-Download Ollama from https://ollama.com, then:
-
-```bash
-ollama pull llama3
+```
+DEFAULT_MODEL=ollama/qwen3:4b
+PERFORMANCE_MODE=balanced
 ```
 
-### 4. Launch
-
-```bash
-# Gradio UI only (http://localhost:7860)
-python main.py ui
-
-# FastAPI only (http://localhost:8000)
-python main.py api
-
-# Both at the same time
-python main.py both
-```
+That is all — balanced mode is the default and needs nothing else.
 
 ---
 
-## Using a GPU backend (vLLM or SGLang)
-
-### vLLM
-
-```bash
-pip install vllm          # NVIDIA GPU + CUDA required
-```
-
-In `.env`:
+## CLI usage
 
 ```
-LOCAL_BACKEND=vllm
-LOCAL_MODEL_NAME=meta-llama/Meta-Llama-3-8B-Instruct
-LOCAL_BACKEND_PORT=8080
-DEFAULT_MODEL=openai/meta-llama/Meta-Llama-3-8B-Instruct
-LITELLM_API_BASE=http://localhost:8080/v1
-```
-
-Start the backend first, then launch the chatbot:
-
-```bash
-python main.py status   # check config
-python main.py both
-```
-
-### SGLang
-
-```bash
-pip install sglang        # NVIDIA / AMD GPU required
-```
-
-In `.env`:
-
-```
-LOCAL_BACKEND=sglang
-LOCAL_MODEL_NAME=meta-llama/Meta-Llama-3-8B-Instruct
-LOCAL_BACKEND_PORT=8080
-DEFAULT_MODEL=openai/meta-llama/Meta-Llama-3-8B-Instruct
-LITELLM_API_BASE=http://localhost:8080/v1
-```
-
----
-
-## Using cloud models (OpenAI / Anthropic / OpenRouter)
-
-Add the relevant key to `.env` and set the model:
-
-```bash
-OPENAI_API_KEY=sk-...
-DEFAULT_MODEL=openai/gpt-4o
-```
-
-```bash
-ANTHROPIC_API_KEY=sk-ant-...
-DEFAULT_MODEL=anthropic/claude-3-5-sonnet-20241022
-```
-
-LiteLLM handles all routing — no other code changes needed.
-
----
-
-## RAG (document retrieval)
-
-### Add documents
-
-Drop any `.txt`, `.pdf`, `.md`, `.py` files into `data/docs/`, then:
-
-```bash
-python main.py ingest
-```
-
-Or upload via the **Documents** tab in the UI, or POST to the API:
-
-```bash
-curl -X POST http://localhost:8000/rag/ingest \
-  -F "files=@my-document.pdf"
-```
-
-### Switch RAG provider
-
-In `.env`:
-
-```
-RAG_PROVIDER=llama_index   # or: haystack | both | none
-```
-
----
-
-## CLI reference
-
-```
-python main.py --help
+python main.py <command>
 
 Commands:
-  ui         Launch Gradio chat UI
-  api        Launch FastAPI REST server
-  both       Launch API + UI concurrently
-  ingest     Ingest documents into the RAG index
-  chat       Send a single message (terminal)
+  chat       Ask a single question (terminal)
   status     Show config and backend health
-  benchmark  Run hardware benchmark and model recommendations
+  benchmark  Benchmark hardware and get model recommendations
 ```
 
+### Chat
+
 ```bash
-# Examples
-python main.py ui --share                         # public Gradio link
-python main.py api --reload                       # dev mode with auto-reload
-python main.py chat "Explain RAG in one sentence"
-python main.py ingest --path ./my-docs --rebuild
+python main.py chat "How many days are in a week?"
+python main.py chat "Prove that sqrt(2) is irrational"
+```
+
+### Status
+
+```bash
 python main.py status
-python main.py benchmark                        # show CPU recommendations
-python main.py benchmark --gpu "RTX 4090"        # simulate GPU
+```
+
+### Benchmark
+
+```bash
+python main.py benchmark                        # CPU recommendations
+python main.py benchmark --gpu "RTX 4090"        # simulate a GPU
 python main.py benchmark --gpu "RTX 4090" --top 3 --speed fast
 python main.py benchmark --json                  # JSON output
 ```
 
----
-
-## REST API reference
-
-| Method | Path | Description |
-|--------|------|-------------|
-| GET | `/` | App info |
-| GET | `/health` | Liveness probe |
-| GET | `/models` | List available models |
-| POST | `/chat` | Single-turn chat (JSON) |
-| POST | `/chat/stream` | Streaming chat (SSE) |
-| POST | `/rag/ingest` | Upload + ingest documents |
-| POST | `/rag/query` | Direct RAG query |
-| GET | `/backend/status` | Local backend health |
-
-Interactive docs: http://localhost:8000/docs
-
-### Example chat request
-
-```bash
-curl -X POST http://localhost:8000/chat \
-  -H "Content-Type: application/json" \
-  -d '{
-    "message": "What is PagedAttention?",
-    "use_rag": true,
-    "use_agent": true
-  }'
-```
-
-### Streaming (SSE)
-
-```bash
-curl -X POST http://localhost:8000/chat/stream \
-  -H "Content-Type: application/json" \
-  -d '{"message": "Tell me about LangGraph"}' \
-  --no-buffer
-```
+Run `python main.py --help` for the full list of options.
 
 ---
 
-## Docker deployment
+## How balanced mode answers questions
 
-```bash
-# CPU stack (Ollama + ChromaDB + FastAPI + Gradio)
-docker compose up -d
+Every question makes ONE adaptive call to the local model (no fallback
+chains), classified and routed on the fly:
 
-# Pull a model into Ollama
-docker compose exec ollama ollama pull llama3
+| Query type | Example | Model | Latency |
+|---|---|---|---|
+| Trivial / factual | "How many days are in a week?" | fast "simple" model | ~5-10s |
+| Reasoning | "Prove sqrt(2) is irrational" | selected reasoning model, time-boxed | max ~90s |
+| Repeat | any question you already asked | answer cache | ~0s |
 
-# View logs
-docker compose logs -f chatbot-api
+Model routing tiers (the first **installed** candidate of the right tier is
+used):
 
-# Stop everything
-docker compose down
-```
+| Tier | Models |
+|---|---|
+| `simple` | `phi3:mini`, `gemma2:2b`, `qwen2.5:0.5b`, `tinyllama` |
+| `medium` | `phi3:3.8b`, `qwen2.5:3b`, `gemma2:9b` |
+| `complex` (selected) | `qwen2.5:7b`, `qwen2.5:14b`, `llama3.2`, `deepseek-llm:7b` |
 
-For GPU (vLLM or SGLang), uncomment the relevant service block in
-`docker-compose.yml` and ensure `nvidia-container-toolkit` is installed.
-
----
-
-## Configuration reference
-
-All settings live in `.env` (or environment variables). Key options:
-
-| Variable | Default | Description |
-|---|---|---|
-| `DEFAULT_MODEL` | `ollama/llama3` | LiteLLM model string |
-| `LOCAL_BACKEND` | `ollama` | `vllm` / `sglang` / `ollama` / `none` |
-| `LOCAL_MODEL_NAME` | `meta-llama/Meta-Llama-3-8B-Instruct` | HuggingFace model ID |
-| `LITELLM_API_BASE` | _(auto)_ | Override provider base URL |
-| `RAG_PROVIDER` | `llama_index` | `llama_index` / `haystack` / `both` / `none` |
-| `EMBEDDING_MODEL` | `BAAI/bge-small-en-v1.5` | Sentence-transformers model |
-| `EMBEDDING_DEVICE` | `cpu` | `cpu` / `cuda` / `mps` |
-| `RAG_CHUNK_SIZE` | `512` | Tokens per chunk |
-| `RAG_TOP_K` | `5` | Chunks retrieved per query |
-| `AGENT_MAX_ITERATIONS` | `10` | LangGraph max tool calls |
-| `AIDER_REPO_PATH` | _(cwd)_ | Repo for code tools |
-| `AIDER_READ_ONLY` | `true` | Disable file writes |
-| `OPENAI_API_KEY` | _(blank)_ | OpenAI key (optional) |
-| `ANTHROPIC_API_KEY` | _(blank)_ | Anthropic key (optional) |
-
-See `.env.example` for the full list. For advanced performance tuning options, see `.env.advanced.example`.
+Hard reasoning is streamed and cut off after ~90s of wall-clock instead of
+hanging; a real answer cut mid-sentence gets one short continuation pass, and
+a model that only produced reasoning gets returned as-is. When a call fails it
+degrades gracefully — optimized → plain retry → raw generator → a neutral
+`"I couldn't finish, please retry"`. Answers are always the model's real final
+`response`, not its hidden reasoning text.
 
 ---
 
-## Development
-
-For development setup, testing, and contribution guidelines, see [DEVELOPMENT.md](DEVELOPMENT.md).
-
-### Advanced ML Optimizations
-
-The chatbot includes safe implementations of advanced ML optimization concepts:
-
-- **HRR-Inspired History Compression** - Fixed-size conversation context
-- **MoSE-Inspired Request Segmentation** - Parallel processing of long inputs  
-- **Koopman-Inspired Context Mixing** - Unified RAG result aggregation
-- **Neural ODE-Inspired Adaptive Iterations** - Convergence-based agent loops
-
-⚠️ **Important:** These optimizations apply concepts to the orchestration layer only and do NOT modify LLM architectures. All are disabled by default. See [ADVANCED_OPTIMIZATIONS.md](ADVANCED_OPTIMIZATIONS.md) for details.
-
-### Running Tests
+## Tests
 
 ```bash
-# Run all tests
 pytest
-
-# Run specific test file
-pytest tests/test_config.py
-
-# Run with coverage
-pytest --cov=. --cov-report=html
-```
-
----
-
-## Architecture overview
-
-```
-User
- │
- ▼
-Gradio UI (port 7860)
- │    or
- ▼
-FastAPI (port 8000)
- │
- ▼
-LangGraph Agent
- ├── RAG node  ──► LlamaIndex ──► ChromaDB
- │               └► Haystack  ──► InMemory store
- │
- ├── Agent node ──► LiteLLM gateway
- │                   ├── Ollama  (local CPU)
- │                   ├── vLLM   (local GPU)
- │                   ├── SGLang (local GPU)
- │                   ├── OpenAI (cloud)
- │                   └── Anthropic / OpenRouter / …
- │
- └── Tool node
-      ├── RepoMapTool   (Aider repomap)
-      ├── FileReadTool  (safe file reader)
-      ├── CodeSearchTool (grep / regex)
-      └── AiderEditTool  (write mode only)
 ```
 
 ---
