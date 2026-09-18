@@ -71,6 +71,64 @@ Correctness (gold final-answer match on the HLE subset, `_balance_compare.py`):
 - Known limit (model-level, not optimizer): a 3-4B local model does not know
   most frontier-exam (HLE/AIME) gold answers in *any* mode.
 
+### Latest routing fixes (2026-09)
+
+- **Trivial questions no longer burn the slow reasoning path.** The old cue
+  list flagged *every* question containing "how" as deep reasoning, so
+  "How many days are in a week?" went to the medium tier → slow reasoning
+  model → **47s of rambling**. A bare "how" is no longer a reasoning trigger
+  unless the question actually asks for an explanation (how to / how do /
+  why / prove / explain / compare). Same question now routes to the fast
+  model and returns a clean **"There are 7 days in a week." in ~8s**.
+- **Router falls back to installed fast models.** When the suggested tier has
+  nothing installed, the router now falls back to the "simple"-tier (fast)
+  candidates for non-reasoning queries instead of leaving the request on the
+  slow default model. Genuine why/prove/code questions are never downgraded.
+- **Hard reasoning stays honest AND bounded.** The single raw streaming call is
+  capped at a ~90s wall-clock; a real answer cut mid-sentence gets exactly ONE
+  small continuation pass (≤45s, ≤256 tokens). Thinking-only fallbacks
+  (model ran out of time while still reasoning) are returned as-is, so the
+  resume budget is never wasted on them. Worst case ≈ 90s, not 141s+.
+
+---
+
+## How to use it (balanced mode)
+
+**Balanced mode is the default.** It replaces the old smart/speed staircase
+with ONE adaptive raw ollama call per question — no LiteLLM, no fallback
+chains — plus an answer cache. Each query is classified, routed, and
+answered on its own:
+
+| Query type | Example | Goes to | Latency |
+|---|---|---|---|
+| Trivial / factual | "How many days are in a week?" | Fast "simple" model | ~5-10s |
+| Medium / long | a long factual question | Fast model (or selected) | ~10-20s |
+| Reasoning | "Prove sqrt(2) is irrational" | Selected reasoning model, time-boxed | ≤~90s |
+| Repeat | any already-asked question | Answer cache | ~0s |
+
+### Then how do you pick which models to install?
+
+The registry maps models to tiers; the router uses the first **installed**
+candidate of the right tier for easy chat:
+
+| Tier | Models | Use case |
+|---|---|---|
+| `simple` | `phi3:mini`, `gemma2:2b`, `qwen2.5:0.5b`, `tinyllama` | trivial/factual chat, fastest |
+| `medium` | `phi3:3.8b`, `qwen2.5:3b`, `gemma2:9b` | mid-complexity |
+| `complex` (selected) | `qwen2.5:7b`, `qwen2.5:14b`, `llama3.2`, `deepseek-llm:7b`, or your reasoning model | hard reasoning |
+
+Recommended pairing on a CPU/CRU box (~4GB class):
+
+```bash
+ollama pull qwen3:4b    # strong small reasoning model ("selected" model)
+ollama pull phi3:mini   # fast simple-model for trivia (auto-detected)
+```
+
+Set `DEFAULT_MODEL=ollama/qwen3:4b` (or list the tier model you pulled) and
+`PERFORMANCE_MODE=balanced` in `.env`. Run everything with `python main.py
+chat "your question"`, `python main.py ui`, or the REST API — no other
+configuration needed. Anything you ask twice comes back instantly from cache.
+
 ---
 
 ## ✨ What's New

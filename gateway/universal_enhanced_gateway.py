@@ -1274,7 +1274,18 @@ class UniversalEnhancedGateway:
         if quick_word_problem(query) is not None:
             analysis.is_math = True
         
-        if any(word in query_lower for word in ["why", "how", "explain", "reason", "because"]):
+        # Reasoning detection.  A bare "how" used to flag every question
+        # (e.g. "How many days are in a week?") as deep reasoning, which pushed
+        # trivial trivia onto the slow hard path.  Only treat "how" as a
+        # reasoning cue when it is not a simple factual quantifier.
+        _how_factual = re.search(
+            r'\bhow (many|much|old|long|far|tall|big|common|often|wide|deep)\b',
+            query_lower)
+        _reasoning_cues = ("why", "explain", "reason", "because", "prove",
+                           "derive", "analyze", "analyse", "compare",
+                           "evaluate", "step by step", "trade-off", "tradeoff")
+        if (any(word in query_lower for word in _reasoning_cues)
+                or ("how" in query_lower and not _how_factual)):
             analysis.needs_reasoning = True
         
         # RouteLLM complexity scoring (0-1)
@@ -1319,22 +1330,30 @@ class UniversalEnhancedGateway:
         tier = analysis.suggested_model
         available = self.available_models.get(tier, [])
         
-        if available:
-            # Pick the first candidate that is actually present on the backend.
-            # check_model_available is TTL-cached so this is cheap after the
-            # first call per (api_base, model).
-            for candidate in available:
+        # Build the candidate tier list.  If the suggested tier has nothing
+        # installed, a fast simple-tier model still beats leaving the request
+        # on a slow reasoning model.  Only do this for non-complex queries so
+        # genuine hard reasoning keeps the stronger model.
+        candidate_tiers = [tier]
+        if (tier != "simple" and complexity < 0.6
+                and not (analysis.needs_reasoning or analysis.is_coding
+                         or analysis.is_math)):
+            candidate_tiers.append("simple")
+        
+        for _tier in candidate_tiers:
+            for candidate in self.available_models.get(_tier, []):
+                # Pick the first candidate that is actually present on the
+                # backend.  check_model_available is TTL-cached so this is
+                # cheap after the first call per (api_base, model).
                 try:
                     if check_model_available(ollama_model_id(candidate)):
                         return candidate
                 except Exception:
                     continue
-            # None of the tier candidates are installed -> keep the default model
-            # instead of crashing inference.
-            logger.warning(
-                "RouteLLM: tier '%s' candidates unavailable (%s); using default model",
-                tier, ", ".join(available))
-        
+        # Nothing installed anywhere -> keep the default model.
+        logger.warning(
+            "RouteLLM: tier '%s' candidates unavailable (%s); using default model",
+            tier, ", ".join(available))
         return None
     
     def _execute_tool_calls(self, query: str, analysis: QueryAnalysis) -> Optional[str]:
@@ -2586,7 +2605,14 @@ Provide the final synthesized response."""
         if quick_word_problem(query) is not None:
             analysis.is_math = True
         
-        if any(word in query_lower for word in ["why", "how", "explain", "reason", "because"]):
+        _how_factual = re.search(
+            r'\bhow (many|much|old|long|far|tall|big|common|often|wide|deep)\b',
+            query_lower)
+        _reasoning_cues = ("why", "explain", "reason", "because", "prove",
+                           "derive", "analyze", "analyse", "compare",
+                           "evaluate", "step by step", "trade-off", "tradeoff")
+        if (any(word in query_lower for word in _reasoning_cues)
+                or ("how" in query_lower and not _how_factual)):
             analysis.needs_reasoning = True
         
         return analysis
@@ -3270,14 +3296,16 @@ Code:"""
 
         # Single raw call — always fast, always non-empty.
         if use_stream:
-            response_text, was_cut = self._timeboxed_raw_call(
+            response_text, was_cut, from_response = self._timeboxed_raw_call(
                 query, budget=budget, deadline=hard_deadline,
                 think=False if is_thinking else None)
             # Bounded resume pass: time-boxed answer cut mid-sentence gets
             # ONE small continuation (<=45s, <=256 tokens) so hard answers
             # finish instead of shipping truncated.  Worst case stays
-            # ~deadline + ~45s; never loops.
-            if was_cut and response_text:
+            # ~deadline + ~45s; never loops.  Skip it when the text is a
+            # thinking-only fallback (e.g. qwen3 ran out of time while still
+            # reasoning) — resuming that just wastes the time budget.
+            if was_cut and from_response and response_text:
                 cont = self._continue_answer(query, response_text)
                 if cont:
                     response_text = f"{response_text}\n\n{cont}"
@@ -3363,10 +3391,12 @@ Code:"""
 
         Reads /api/generate with stream=True and accumulates response tokens
         until EITHER num_predict tokens are produced OR ``deadline`` seconds
-        elapse.  Returns (text, was_cut): text is whatever real content
-        accumulated (never empty from a slow generation), was_cut=True when
-        the wall-clock hit before the model finished — so the caller can run
-        a bounded resume pass instead of shipping a mid-sentence answer.
+        elapse.  Returns (text, was_cut, from_response): text is whatever real
+        content accumulated (never empty from a slow generation), was_cut=True
+        when the wall-clock hit before the model finished — so the caller can
+        run a bounded resume pass instead of shipping a mid-sentence answer —
+        and from_response=True only when text came from the model's final
+        ``response`` stream (a thinking-only fallback is not resumable).
         """
         import requests as _requests
         options = {"num_predict": budget}
@@ -3407,15 +3437,20 @@ Code:"""
         except Exception as e:
             logger.info("Timeboxed raw call failed: %s", e)
         # Prefer the final answer (response field); fall back to the reasoning
-        # stream only when the model never emitted a response.
-        out = "".join(resp_parts).strip() or "".join(think_parts).strip()
+        # stream only when the model never emitted a response.  ``from_response``
+        # tells the caller whether the text is a real answer (resumable) or a
+        # thinking-only fallback (where a resume pass is useless).
+        out = "".join(resp_parts).strip()
+        from_response = bool(out)
+        if not out:
+            out = "".join(think_parts).strip()
         if out:
-            return out, (not done and timed_out)
+            return out, (not done and timed_out), from_response
         # Nothing streamed (e.g. instant error) — fall back to non-stream so
         # we still surface a real error/targeted message instead of empty.
         return (self._raw_reasoning_call(query, budget=budget,
                                          timeout=max(deadline, 60), think=think),
-                False)
+                False, False)
 
     def _continue_answer(self, query: str, partial: str, budget: int = 256,
                          timeout: int = 45) -> Optional[str]:
