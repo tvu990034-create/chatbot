@@ -268,32 +268,35 @@ def ingest(
 
 @app.command()
 def chat(
-    message: str = typer.Argument(..., help="Message to send to the chatbot"),
-    model:   Optional[str] = typer.Option(None, "--model", "-m"),
-    no_rag:  bool = typer.Option(False, "--no-rag",   help="Disable RAG retrieval"),
-    no_agent:bool = typer.Option(False, "--no-agent", help="Skip LangGraph agent"),
-    stream:  bool = typer.Option(True,  "--stream/--no-stream"),
+    message:   str = typer.Argument(..., help="Message to send to the chatbot"),
+    model:     Optional[str] = typer.Option(None, "--model", "-m"),
+    no_rag:    bool = typer.Option(False, "--no-rag",   help="Disable RAG retrieval"),
+    no_agent:  bool = typer.Option(False, "--no-agent", help="(deprecated) direct balanced call — this is the default"),
+    use_agent: bool = typer.Option(False, "--use-agent", help="Route through the LangGraph agent (tools/RAG)"),
+    stream:    bool = typer.Option(True,  "--stream/--no-stream"),
 ) -> None:
     """Send a single message to the chatbot and print the reply."""
     _print_banner()
 
-    if no_agent:
-        # Direct LiteLLM call
-        from gateway.litellm_gateway import chat_stream, chat as gw_chat
-        msgs = [{"role": "user", "content": message}]
-        if stream:
-            console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
-            for chunk in chat_stream(msgs, model=model or None):
-                console.print(chunk, end="", highlight=False)
-            console.print()
-        else:
-            reply = gw_chat(msgs, model=model or None)
-            console.print(f"[bold cyan]Assistant:[/bold cyan] {reply}")
-    else:
+    if use_agent:
+        # Agent flow (LangGraph tools/RAG).
         from agents.langgraph_agent import chat as agent_chat
         console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
         reply = agent_chat(message)
         console.print(reply)
+        return
+
+    # Direct path: one adaptive raw ollama call through the balanced gateway
+    # (route trivial -> fast model, hard reasoning -> selected model, cache
+    # repeat questions, time-box slow generations).  This replaces the old
+    # LiteLLM chat_stream call that returned empty/slow answers.
+    from gateway.universal_enhanced_gateway import get_universal_gateway
+    selected = model or settings.local_model_name or "phi3:mini"
+    gw = get_universal_gateway(
+        selected, enable_all_optimizations=True, performance_mode="balanced")
+    reply = gw.chat([{"role": "user", "content": message}])
+    reply = (reply or "").strip()
+    console.print(f"[bold cyan]Assistant:[/bold cyan] {reply}")
 
 
 @app.command()

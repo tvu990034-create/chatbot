@@ -65,7 +65,14 @@ Commands:
 ```bash
 python main.py chat "How many days are in a week?"
 python main.py chat "Prove that sqrt(2) is irrational"
+python main.py chat --model qwen3:4b "Why is the sky blue?"   # use a specific model
+python main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent (tools/RAG)
+python main.py chat --no-rag "..."                            # skip RAG retrieval
 ```
+
+Each `chat` call runs the balanced gateway: trivial questions answer in
+seconds on a fast model, hard reasoning is time-boxed to ~90s, and the answer
+is the model's real final reply.
 
 ### Status
 
