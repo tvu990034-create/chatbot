@@ -3496,24 +3496,33 @@ Code:"""
                                          timeout=max(deadline, 60), think=think),
                 False, False)
 
-    def _concise_answer(self, messages, max_tokens: int = 96,
-                        timeout: float = 90.0) -> Optional[str]:
-        """Non-stream think-off re-ask, bounded ~90s.
+    def _concise_answer(self, messages, max_tokens: int = 160,
+                        timeout: float = 120.0) -> Optional[str]:
+        """Non-stream think-off re-ask, hard-bounded.
 
         qwen3 sometimes rambles its hidden chain-of-thought past every wall
         clock on a single hard item, leaving the stream empty of a "response".
-        In that case the SAME question in think-off mode converges fast and
-        cleanly (the short-reasoning mode that the raw baseline uses), so the
-        tool retries it once instead of shipping truncated reasoning.
+        The SAME question in think-off mode converges fast and cleanly (the
+        short-reasoning mode the raw baseline uses), so the tool retries it
+        once instead of shipping truncated reasoning.  Called directly with a
+        fixed timeout (literature: ~90-160s); the general chat() adapter would
+        re-apply the full generation_timeout and silently unbind this retry.
         """
-        from gateway.litellm_gateway import chat
+        import requests as _requests
+        prompt = messages[-1].get("content", "")
+        payload = {
+            "model": self.model_name,
+            "prompt": prompt,
+            "stream": False,
+            "keep_alive": "30m",
+            "think": False,
+            "options": {"num_predict": int(max_tokens)},
+        }
         try:
-            kwargs = dict(messages=messages, model=self.model_name,
-                          max_tokens=max_tokens, use_cache=False)
-            kwargs["options"] = {"think": False, "num_predict": int(max_tokens)}
-            resp, *_ = chat(**kwargs)
-            text = (resp or "").strip()
-            return text or None
+            r = _requests.post("http://127.0.0.1:11434/api/generate",
+                               json=payload, timeout=float(timeout))
+            text = ((r.json().get("response") or "").strip() or None)
+            return text
         except Exception as e:  # noqa: BLE001
             logger.info("Concise fallback failed: %s", e)
             return None
