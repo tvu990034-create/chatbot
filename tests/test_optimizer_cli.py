@@ -188,6 +188,16 @@ def test_extract_number_from_prediction():
     assert optimizer_cli._extract_number("no numbers here") is None
 
 
+def test_extract_number_prefers_main_clause_over_parentheticals():
+    assert optimizer_cli._extract_number(
+        "The hospital makes a profit of $10,000 per day by calculating total "
+        "revenue ($40,000) from patients minus total costs ($30,000) for "
+        "doctor time.") == "10000"
+    assert optimizer_cli._extract_number("#### 10000") == "10000"
+    assert optimizer_cli._extract_number(
+        "resulting in $1,040 x $1.20 = $1,248.") == "1248"
+
+
 def test_answer_equal_parses_floats():
     assert optimizer_cli._answer_equal("105", "105.0") is True
     assert optimizer_cli._answer_equal("7 apples", "7") is True

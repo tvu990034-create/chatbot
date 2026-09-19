@@ -567,7 +567,18 @@ def _answer_equal(pred: Optional[str], gold: Optional[str]) -> bool:
 def _extract_number(text: str) -> Optional[str]:
     if not text:
         return None
-    found = _NUM_RE.findall(text)
+    clean = text.strip()
+    # A trailing bare-number line ("#### 10000", "10000.") is the strongest
+    # signal — cheap and exact for the classic lookup-and-output format.
+    for line in reversed(clean.splitlines()):
+        m = re.fullmatch(r"#*\s*(\d[\d,]*(?:\.\d+)?)\s*[:.]*", line.strip())
+        if m:
+            return m.group(1).replace(",", "")
+    # Otherwise prefer the number in the main clause over parenthetical asides:
+    # "... a profit of $10,000 per day by ... ($40,000 revenue, $30,000 costs)"
+    # must extract 10000, not the last number 30000.
+    stripped = re.sub(r"\([^()]*\)", "", clean)
+    found = _NUM_RE.findall(stripped) or _NUM_RE.findall(clean)
     if not found:
         return None
     return found[-1].replace(",", "")
