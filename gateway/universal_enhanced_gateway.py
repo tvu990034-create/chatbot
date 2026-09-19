@@ -3279,8 +3279,12 @@ Code:"""
             # budget/deadline below let the answer actually land; repeat queries
             # are then served instantly from cache.  Correctness first: a wrong
             # fast answer is worse than a slower right one.
-            budget = 3072
-            hard_deadline = 240
+            # Deadlines/budgets follow the configured generation_timeout so
+            # eval harnesses can raise headroom for very slow CPU items; the
+            # default settings value (15s) keeps the production CLI at 240s.
+            hard_deadline = max(
+                240, int(getattr(settings, "generation_timeout", 240)))
+            budget = max(3072, hard_deadline * 28)
             use_stream = True
         else:
             easy_model = routed_model if (routed_model
@@ -3331,6 +3335,15 @@ Code:"""
             # ~deadline + ~45s; never loops.  Skip it when the text is a
             # thinking-only fallback (e.g. qwen3 ran out of time while still
             # reasoning) — resuming that just wastes the time budget.
+            if was_cut and not from_response and reasoning:
+                # The model used all its time still thinking and never
+                # delivered a final answer.  Re-ask ONCE in concise think-off
+                # mode (bounded below) instead of shipping the truncated
+                # reasoning; qwen3 converges on these fast without the hidden
+                # CoT.  A completed concise answer is not resumable further.
+                concise = self._concise_answer(messages)
+                if concise:
+                    response_text, was_cut, from_response = concise, False, True
             if was_cut and from_response and response_text:
                 cont = self._continue_answer(query, response_text)
                 if cont:
@@ -3482,6 +3495,28 @@ Code:"""
         return (self._raw_reasoning_call(query, budget=budget,
                                          timeout=max(deadline, 60), think=think),
                 False, False)
+
+    def _concise_answer(self, messages, max_tokens: int = 96,
+                        timeout: float = 90.0) -> Optional[str]:
+        """Non-stream think-off re-ask, bounded ~90s.
+
+        qwen3 sometimes rambles its hidden chain-of-thought past every wall
+        clock on a single hard item, leaving the stream empty of a "response".
+        In that case the SAME question in think-off mode converges fast and
+        cleanly (the short-reasoning mode that the raw baseline uses), so the
+        tool retries it once instead of shipping truncated reasoning.
+        """
+        from gateway.litellm_gateway import chat
+        try:
+            kwargs = dict(messages=messages, model=self.model_name,
+                          max_tokens=max_tokens, use_cache=False)
+            kwargs["options"] = {"think": False, "num_predict": int(max_tokens)}
+            resp, *_ = chat(**kwargs)
+            text = (resp or "").strip()
+            return text or None
+        except Exception as e:  # noqa: BLE001
+            logger.info("Concise fallback failed: %s", e)
+            return None
 
     def _continue_answer(self, query: str, partial: str, budget: int = 256,
                          timeout: int = 45) -> Optional[str]:
