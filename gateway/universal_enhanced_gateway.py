@@ -3326,6 +3326,14 @@ Code:"""
         if reasoning:
             response_text = self._thinkoff_call(
                 query, budget=budget)
+            if response_text is None:
+                # First attempt hit the generation_timeout.  Retry ONCE — a
+                # cold/bloated first decode is transient (probe: tail items
+                # converge on attempt two, usually in <150s) while genuinely
+                # impossible items are rare.  Two attempts keep the tail
+                # bounded at ~2x generation_timeout and never loop.
+                response_text = self._thinkoff_call(
+                    query, budget=budget)
             was_cut, from_response = (not bool(response_text),
                                       bool(response_text))
         elif use_stream:
