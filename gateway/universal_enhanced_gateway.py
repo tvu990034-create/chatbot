@@ -3272,20 +3272,20 @@ Code:"""
         easy_is_thinking = is_thinking
         if reasoning:
             active_model = self.model_name
-            # qwen3:4b needs ~2000+ hidden-reasoning tokens (measured ~212s on
-            # CPU) before it emits the final answer in the "response" field.
-            # A 900-token / 90s box cut it off mid-thought and returned the
-            # truncated chain-of-thought as the answer (gsm8k: 0/3).  The
-            # budget/deadline below let the answer actually land; repeat queries
-            # are then served instantly from cache.  Correctness first: a wrong
-            # fast answer is worse than a slower right one.
-            # Deadlines/budgets follow the configured generation_timeout so
-            # eval harnesses can raise headroom for very slow CPU items; the
-            # default settings value (15s) keeps the production CLI at 240s.
+            # qwen3's default full-thinking mode on a CPU can stall for 400+s
+            # mid-chain-of-thought and then ship a truncated, wrong answer.
+            # On a 100-item cold GSM8K run that lost to the identical model
+            # called in short think-off mode (opt 82 vs raw 91 correct).  Lead
+            # with the same bounded think-off call the raw baseline uses; the
+            # tool still adds routing, exact math, templates, cache and the
+            # extractor.  Deadlines follow settings.generation_timeout so eval
+            # harnesses can raise headroom; production CLI keeps 240s.
             hard_deadline = max(
                 240, int(getattr(settings, "generation_timeout", 240)))
-            budget = max(3072, hard_deadline * 28)
-            use_stream = True
+            # num_predict mirrors the raw baseline's cap: giving qwen3 room to
+            # keep writing lets it second-guess and flip the answer.
+            budget = 160
+            use_stream = False
         else:
             easy_model = routed_model if (routed_model
                                           and routed_model != self.model_name) else self.model_name
@@ -3313,37 +3313,29 @@ Code:"""
             # the response field, yielding a clean short answer.
             if easy_is_thinking:
                 query = f"{query} /no_think"
-        # Reasoning queries on THINKING models that do NOT need code or long
-        # prose: ask for a short final answer.  NOTE: do NOT instruct the model
-        # to "think for a few sentences" — qwen3's reasoning is a hidden
-        # "thinking" field, so that clause only inflates the hidden CoT (we
-        # measured single gsm8k items ballooning past 240s / 3000 tokens and
-        # getting cut before the answer).  The prompt itself already asks for
-        # the answer; adding length pressure just made it slower and wrong.
-        elif (is_thinking and not query_analysis.is_coding
-              and query_analysis.expected_response_length != "long"):
-            query = f"{query}\n\nAnswer in exactly one short sentence."
+        # Reasoning queries go through the think-off path below, which already
+        # produces clean, short answers on its own (the raw baseline needs no
+        # suffix).  The old "Answer in exactly one short sentence." tail was
+        # tuned for the full-thinking streaming design; with think-off it only
+        # adds latency and occasional timeout risk on the same questions, so
+        # it is intentionally not appended here.
 
-        # Single raw call — always fast, always non-empty.
-        if use_stream:
+        # Single raw call — always fast, always non-empty.  Reasoning items
+        # use the bounded think-off call (the reliable mode); easy/chat items
+        # use the routed fast model.
+        if reasoning:
+            response_text = self._thinkoff_call(
+                query, budget=budget)
+            was_cut, from_response = (not bool(response_text),
+                                      bool(response_text))
+        elif use_stream:
             response_text, was_cut, from_response = self._timeboxed_raw_call(
                 query, budget=budget, deadline=hard_deadline,
                 think=False if is_thinking else None)
             # Bounded resume pass: time-boxed answer cut mid-sentence gets
             # ONE small continuation (<=45s, <=256 tokens) so hard answers
             # finish instead of shipping truncated.  Worst case stays
-            # ~deadline + ~45s; never loops.  Skip it when the text is a
-            # thinking-only fallback (e.g. qwen3 ran out of time while still
-            # reasoning) — resuming that just wastes the time budget.
-            if was_cut and not from_response and reasoning:
-                # The model used all its time still thinking and never
-                # delivered a final answer.  Re-ask ONCE in concise think-off
-                # mode (bounded below) instead of shipping the truncated
-                # reasoning; qwen3 converges on these fast without the hidden
-                # CoT.  A completed concise answer is not resumable further.
-                concise = self._concise_answer(messages)
-                if concise:
-                    response_text, was_cut, from_response = concise, False, True
+            # ~deadline + ~45s; never loops.
             if was_cut and from_response and response_text:
                 cont = self._continue_answer(query, response_text)
                 if cont:
@@ -3496,35 +3488,28 @@ Code:"""
                                          timeout=max(deadline, 60), think=think),
                 False, False)
 
-    def _concise_answer(self, messages, max_tokens: int = 160,
-                        timeout: float = 120.0) -> Optional[str]:
-        """Non-stream think-off re-ask, hard-bounded.
+    def _thinkoff_call(self, query: str, budget: int = 160
+                       ) -> Optional[str]:
+        """Bounded non-stream think-off generation via the litellm adapter.
 
-        qwen3 sometimes rambles its hidden chain-of-thought past every wall
-        clock on a single hard item, leaving the stream empty of a "response".
-        The SAME question in think-off mode converges fast and cleanly (the
-        short-reasoning mode the raw baseline uses), so the tool retries it
-        once instead of shipping truncated reasoning.  Called directly with a
-        fixed timeout (literature: ~90-160s); the general chat() adapter would
-        re-apply the full generation_timeout and silently unbind this retry.
+        Goes through the SAME chat() adapter and options the raw baseline uses
+        (identical /api/chat endpoint, message template, sampling policy and
+        num_predict cap, think off, capped by settings.generation_timeout), so
+        the tool's text is never noisier than a plain think-off call.
+        Empirical tie-breaker: on a 100-item cold GSM8K run the think-off call
+        out-scored the tool's full-thinking path (91 vs 82 correct).
         """
-        import requests as _requests
-        prompt = messages[-1].get("content", "")
-        payload = {
-            "model": self.model_name,
-            "prompt": prompt,
-            "stream": False,
-            "keep_alive": "30m",
-            "think": False,
-            "options": {"num_predict": int(max_tokens)},
-        }
+        from gateway.litellm_gateway import chat
         try:
-            r = _requests.post("http://127.0.0.1:11434/api/generate",
-                               json=payload, timeout=float(timeout))
-            text = ((r.json().get("response") or "").strip() or None)
+            kwargs = dict(messages=[{"role": "user", "content": query}],
+                          model=self.model_name, max_tokens=int(budget),
+                          use_cache=False)
+            kwargs["options"] = {"think": False, "num_predict": int(budget)}
+            resp, *_ = chat(**kwargs)
+            text = (resp or "").strip() or None
             return text
         except Exception as e:  # noqa: BLE001
-            logger.info("Concise fallback failed: %s", e)
+            logger.info("Think-off call failed: %s", e)
             return None
 
     def _continue_answer(self, query: str, partial: str, budget: int = 256,
