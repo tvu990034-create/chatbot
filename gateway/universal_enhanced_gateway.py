@@ -3327,13 +3327,16 @@ Code:"""
             response_text = self._thinkoff_call(
                 query, budget=budget)
             if response_text is None:
-                # First attempt hit the generation_timeout.  Retry ONCE — a
-                # cold/bloated first decode is transient (probe: tail items
-                # converge on attempt two, usually in <150s) while genuinely
-                # impossible items are rare.  Two attempts keep the tail
-                # bounded at ~2x generation_timeout and never loop.
-                response_text = self._thinkoff_call(
-                    query, budget=budget)
+                # First attempt hit the generation_timeout.  Retry ONCE
+                # through the plain ollama /api/generate transport instead of
+                # re-hitting the same litellm session (which can stay wedged
+                # after a timeout; 100-item run: 10 items burned a second
+                # full 420s window for nothing, raw solved most in one shot).
+                # A fresh session usually converges (probe: tail items finish
+                # on attempt two in <350s).  Same 160-token think-off budget
+                # and the same window as attempt one; never loops.
+                response_text = self._raw_reasoning_call(
+                    query, budget=budget, think=False)
             was_cut, from_response = (not bool(response_text),
                                       bool(response_text))
         elif use_stream:
