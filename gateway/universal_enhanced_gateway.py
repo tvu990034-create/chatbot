@@ -486,6 +486,12 @@ SMART_REASONING_MAX_TOKENS = 768
 # they are trusted (long drafts already wrote out a real answer).
 _SPEED_VERIFY_MAX_CHARS = 350
 
+# Eq 36 (usefulness floor): a retry is only worth launching if the shared
+# per-item deadline still has at least this many seconds left.  Below it the
+# attempt is skipped entirely — a retry that can barely start is a waste of a
+# cancellation-free single-threaded server.
+_MIN_USEFUL_RETRY_S = 15
+
 # Clear corrupted cache on module load
 _global_cache.clear()
 logger.info("Global cache cleared on module load")
@@ -3393,30 +3399,37 @@ Code:"""
         # use the bounded think-off call (the reliable mode); easy/chat items
         # use the routed fast model.
         if reasoning:
+            # Shared absolute per-item deadline (Eq 1/2/9): the cap is taken
+            # ONCE, here, as a wall-clock anchor, and every attempt (primary
+            # AND retry) is charged to the SAME deadline — the retry inherits
+            # only what the primary left over, never a fresh window (Eq 9/33:
+            # remaining = C - elapsed).  A pure timeout consumed ~C, so the
+            # retry is skipped per Eq 36; a FAST failure (connection/reset/
+            # wedged session) leaves the whole window, so the retry still
+            # rescues those without ever extending the tail.  Worst case per
+            # item == the configured cap, exactly.
+            _t0 = time.monotonic()
             response_text = self._thinkoff_call(
                 query, budget=budget)
             if response_text is None:
-                # First attempt hit the generation_timeout.  Retry ONCE
-                # through plain ollama /api/generate with TOP-LEVEL think=False
-                # (options.think is ignored by that endpoint — probing showed
-                # it would silently run the slow full-thinking mode) instead of
-                # re-hitting the possibly-wedged litellm session (100-item run:
-                # 10 items burned a second full 420s window for nothing).
-                # A fresh session usually converges quickly.  The retry window
-                # is capped BELOW the primary's (240s) so a wedged-origin
-                # retry can never double the tail; never loops.  EqSet-T:
-                # the retry must not push the ITEM past a configured
-                # settings.item_budget — retry = min(240, item_budget - t1_max),
-                # where t1_max = adaptive_generation_timeout(budget, to) = to
-                # for these budgets.  Default item_budget = to + 240 preserves
-                # the historical worst case; eval sets item_budget=to for a
-                # strict per-item cap (660s -> 420s).
-                item_budget = int(getattr(settings, "item_budget", 0) or 0)
-                if item_budget:
-                    retry_cap = max(0, min(240, item_budget - int(hard_deadline)))
+                # First attempt failed.  Whatever is left of the SAME deadline
+                # is the only thing the retry may spend (Eq 33/34).
+                remaining = max(0.0, float(hard_deadline)
+                                - (time.monotonic() - _t0))
+                retry_cap = int(min(240.0, remaining))
+                if retry_cap < _MIN_USEFUL_RETRY_S:
+                    # Eq 36: not enough budget left to bother — skip.
+                    response_text = None
                 else:
-                    retry_cap = min(240, int(hard_deadline))
-                if retry_cap:
+                    # Retry ONCE through plain ollama /api/generate with
+                    # TOP-LEVEL think=False (options.think is ignored by that
+                    # endpoint — probing showed it would silently run the slow
+                    # full-thinking mode) instead of re-hitting the
+                    # possibly-wedged litellm session (100-item run: 10 items
+                    # burned a second full 420s window for nothing).  A fresh
+                    # session usually converges quickly.  Never loops; the
+                    # window is `remaining`, so the item can never exceed its
+                    # configured cap.
                     response_text = self._raw_reasoning_call(
                         query, budget=budget, think=False, timeout=retry_cap)
             was_cut, from_response = (not bool(response_text),

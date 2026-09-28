@@ -989,13 +989,34 @@ class TestDirectSolverRefinement:
         assert gw._apply_chain_composition(q, a) is None
 
 
-class TestEquationRunnerRetryBudget:
-    """EqSet-T: the retry window must NOT push an item past the configured
-    settings.item_budget.  retry_cap = max(0, min(240, item_budget - t1_max))
-    with t1_max = hard_deadline = max(240, generation_timeout) in the default
-    (level) test env.  Never loops: at most one retry, only on primary None.
+class _MonotonicClock:
+    """Controllable substitute for time.monotonic in retry-budget tests.
+
+    Each call returns a monotonically increasing value; successive calls move
+    forward by the next delta in ``deltas`` (then hold steady).  The first
+    call anchors the primary's start time, so delta[k] becomes the elapsed
+    seconds measured between the primary and the retry decision.
     """
-    def _call(self, monkeypatch, item_budget):
+    def __init__(self, deltas):
+        self._deltas = list(deltas)
+        self._now = 1000.0
+
+    def __call__(self):
+        now = self._now
+        if self._deltas:
+            self._now += self._deltas.pop(0)
+        return now
+
+
+class TestEquationRunnerRetryBudget:
+    """Eq 1/2/9/33/36: the retry shares the SAME absolute per-item deadline as
+    the primary and may only spend remaining = C - elapsed.  A pure timeout has
+    no budget left, so the retry is skipped; a FAST failure leaves the window,
+    so the retry still runs — worst item == generation_timeout, exactly.  Never
+    loops: at most one retry, only on primary None.
+    """
+    def _call(self, monkeypatch, clock_deltas, generation_timeout=240,
+              primary_result=None):
         from unittest.mock import patch
         from gateway.universal_enhanced_gateway import (
             UniversalEnhancedGateway, QueryAnalysis)
@@ -1003,8 +1024,7 @@ class TestEquationRunnerRetryBudget:
         gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
         calls = {}
 
-        def _fake_thinkoff(query, budget=160):
-            return None
+        fake_clock = _MonotonicClock(clock_deltas)
 
         def _fake_raw(query, budget=900, timeout=480, think=None,
                       model=None):
@@ -1012,15 +1032,22 @@ class TestEquationRunnerRetryBudget:
             calls["count"] = calls.get("count", 0) + 1
             return "42"
 
+        def _fake_thinkoff(query, budget=160):
+            return primary_result
+
         import config
+        old_to = getattr(config.settings, "generation_timeout", None)
         old_budget = getattr(config.settings, "item_budget", None)
-        config.settings.item_budget = item_budget
+        config.settings.generation_timeout = generation_timeout
+        config.settings.item_budget = None
         try:
             a = QueryAnalysis()
             a.is_math = True
             a.expected_response_length = "long"
             q = f"essay about triple arithmetic check {uuid.uuid4().hex}"
-            with patch.object(gw, "_thinkoff_call", _fake_thinkoff), \
+            with patch("gateway.universal_enhanced_gateway.time.monotonic",
+                       side_effect=fake_clock), \
+                 patch.object(gw, "_thinkoff_call", _fake_thinkoff), \
                  patch.object(gw, "_raw_reasoning_call", _fake_raw):
                 r = gw._unified_generate(
                     [{"role": "user", "content": q}], q, a)
@@ -1029,55 +1056,36 @@ class TestEquationRunnerRetryBudget:
                 del config.settings.item_budget
             else:
                 config.settings.item_budget = old_budget
+            if old_to is None:
+                del config.settings.generation_timeout
+            else:
+                config.settings.generation_timeout = old_to
         return r, calls
 
-    def test_retry_respects_item_budget_remaining(self, monkeypatch):
-        # item_budget 300, t1_max 240 -> retry_cap 60
-        r, calls = self._call(monkeypatch, 300)
+    def test_fast_failure_gets_full_remaining_window(self, monkeypatch):
+        # Primary fails in 1s (Eq 33: remaining = C - 1), cap 240 -> retry 239.
+        r, calls = self._call(monkeypatch, [1.0], 240, primary_result=None)
         assert r == "42"
         assert calls.get("count") == 1
-        assert calls.get("timeout") == 60
+        assert calls.get("timeout") == 239
 
-    def test_retry_disabled_when_no_budget_remains(self, monkeypatch):
-        # item_budget == t1_max -> zero retry, still a (None) response
-        r, calls = self._call(monkeypatch, 240)
+    def test_timeout_consumed_cap_skips_retry(self, monkeypatch):
+        # Primary burns the whole 240s cap (Eq 36: remaining < 15) -> no retry.
+        r, calls = self._call(monkeypatch, [239.0], 240, primary_result=None)
         assert calls.get("count", 0) == 0
 
-    def test_default_budget_keeps_full_retry_window(self, monkeypatch):
-        # item_budget None (= "not configured") -> historical behavior:
-        # min(240, hard_deadline) = 240.
-        from unittest.mock import patch
-        from gateway.universal_enhanced_gateway import (
-            UniversalEnhancedGateway, QueryAnalysis)
-        import uuid, importlib
-        import config
-        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
-        calls = {}
-
-        def _fake_raw(query, budget=900, timeout=480, think=None,
-                      model=None):
-            calls["timeout"], calls["count"] = timeout, calls.get("count", 0) + 1
-            return "42"
-
-        a = QueryAnalysis()
-        a.is_math = True
-        a.expected_response_length = "long"
-        q = f"essay about retry window {uuid.uuid4().hex}"
-        old_budget = getattr(config.settings, "item_budget", None)
-        config.settings.item_budget = None
-        try:
-            with patch.object(gw, "_thinkoff_call",
-                              lambda query, budget=160: None), \
-                 patch.object(gw, "_raw_reasoning_call", _fake_raw):
-                r = gw._unified_generate([{"role": "user", "content": q}], q, a)
-        finally:
-            if old_budget is None:
-                del config.settings.item_budget
-            else:
-                config.settings.item_budget = old_budget
-        assert r == "42"
+    def test_remaining_clamped_to_240_retry_max(self, monkeypatch):
+        # Cap 420, primary fails in 1s: remaining 419, clamp to min(240, ·) = 240.
+        r, calls = self._call(monkeypatch, [1.0], 420, primary_result=None)
+        assert "42" == r
         assert calls.get("count") == 1
         assert calls.get("timeout") == 240
+
+    def test_successful_primary_never_retries(self, monkeypatch):
+        # Primary answered -> retry untouched, regardless of remaining.
+        r, calls = self._call(monkeypatch, [1.0], 240, primary_result="7")
+        assert r == "7"
+        assert calls.get("count", 0) == 0
 
 
 class TestWholeCodebaseImportIntegrity:

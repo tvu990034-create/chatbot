@@ -331,13 +331,14 @@ class Settings(BaseSettings):
         15,
         description="Timeout in seconds for LLM generation calls"
     )
-    # Per-item total budget (EqSet-T).  Zero = unset: retry keeps the default
-    # min(240, generation_timeout) window and worst item = to + 240.  When set,
-    # the retry is capped at max(0, min(240, item_budget - primary_timeout)) so
-    # the whole item (primary + retry) never exceeds item_budget.
+    # Per-item total cap in seconds.  This is the ONE shared deadline (Eq 1/2/9):
+    # the retry inherits only remaining = cap - elapsed (Eq 33) and is skipped
+    # entirely when less than _MIN_USEFUL_RETRY_S is left (Eq 36).  Worst case
+    # per item == generation_timeout, exactly.  Kept for compat; the runtime no
+    # longer reads it.
     item_budget: int = Field(
         0,
-        description="Total per-query budget in seconds; 0 = unset (default retry window)"
+        description="Deprecated: superseded by the shared-deadline rule; worst item == generation_timeout"
     )
     # Tool timeout - for tool execution
     tool_timeout: int = Field(
