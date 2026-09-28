@@ -109,11 +109,18 @@ class BoundedTTLCache:
 
     def set(self, key: str, value: Any, ttl: Optional[float] = None, metadata: Optional[Dict[str, Any]] = None) -> None:
         ttl = self.default_ttl if ttl is None else ttl
+        if ttl <= 0:
+            # ttl <= 0 means "do not cache" (already expired).  Previously this
+            # stored expires_at=None, i.e. an IMMORTAL entry that was never
+            # evicted by TTL and streamed the same value forever.
+            with self._lock:
+                self._data.pop(key, None)
+            return
         now = time.time()
         with self._lock:
             self._data[key] = {
                 "value": value,
-                "expires_at": now + ttl if ttl and ttl > 0 else None,
+                "expires_at": now + ttl,
                 "created_at": now,
                 "metadata": metadata or {},
             }
@@ -715,7 +722,7 @@ def ollama_model_id(model: str) -> str:
     return model if model.startswith("ollama/") else f"ollama/{model}"
 
 
-_model_avail_cache: Dict[str, tuple[float, bool]] = {}
+_model_avail_cache: Dict[str, tuple[float, Optional[list[str]]]] = {}
 _MODEL_AVAIL_TTL = 60.0  # seconds
 
 
@@ -727,11 +734,14 @@ def clear_model_availability_cache() -> None:
 def check_model_available(model: str, api_base: str = "http://127.0.0.1:11434") -> bool:
     """Check if a model exists in the Ollama backend. Returns True if available.
 
-    Results are cached with a TTL (``_MODEL_AVAIL_TTL``) so the HTTP
-    round-trip is NOT performed on every request — only once per
-    (api_base, model) per TTL window.  Network failures are cached as True
-    (assume available) for the same window so a flaky backend does not stall
-    the event loop with repeated 3-second timeouts.
+    The ``/api/tags`` payload is keyed per api_base (it lists ALL models), so
+    the cached value is the parsed name-set and ONE round-trip serves every
+    candidate model checked within a ``_MODEL_AVAIL_TTL`` window.  (Previously
+    the cache key was ``api_base|model``, so N candidate models issued N
+    identical HTTP GETs every window.)  Network failures are cached as a
+    sentinel for the same window so a flaky backend does not stall callers
+    with repeated 3-second timeouts, and are reported as True (assume
+    available / don't block inference).
 
     Uses 127.0.0.1 instead of "localhost": on Windows the latter resolves via
     IPv6 first and can stall ~2s per call before falling back to IPv4, which
@@ -739,31 +749,35 @@ def check_model_available(model: str, api_base: str = "http://127.0.0.1:11434") 
     """
     # Normalise every call site (many pass "localhost") to the fast literal.
     api_base = api_base.replace("localhost", "127.0.0.1")
-    key = f"{api_base}|{model}"
     now = time.time()
-    cached = _model_avail_cache.get(key)
+    cached = _model_avail_cache.get(api_base)
     if cached is not None and (now - cached[0]) < _MODEL_AVAIL_TTL:
-        return cached[1]
-    import urllib.request
-    import json as _json
-    try:
-        url = f"{api_base.rstrip('/')}/api/tags"
-        req = urllib.request.Request(url, method="GET")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = _json.loads(resp.read())
-            names = [m.get("name", "") for m in data.get("models", [])]
-            # Exact match, or prefix+dangling-colon match so that asking for a
-            # tag-less name like "phi3" also matches "phi3:mini" (default tag)
-            # while "phi3:3.8b" does NOT match "phi3:mini".
-            bare = model.replace("ollama/", "")
-            available = any(
-                n == bare or (bare and not bare.endswith(":") and n.startswith(bare + ":"))
-                for n in names
-            )
-    except Exception:
-        available = True  # Assume available if we can't check (don't block inference)
-    _model_avail_cache[key] = (now, available)
-    return available
+        names = cached[1]
+    else:
+        names = None
+        import urllib.request
+        import json as _json
+        try:
+            url = f"{api_base.rstrip('/')}/api/tags"
+            req = urllib.request.Request(url, method="GET")
+            with urllib.request.urlopen(req, timeout=3) as resp:
+                data = _json.loads(resp.read())
+                names = [m.get("name", "") for m in data.get("models", [])]
+        except Exception:
+            names = None  # Assume available if we can't check (don't block inference)
+        # Stamp with the time the payload was actually fetched, not the pre-request
+        # `now` above, so a slow round-trip does not shrink the TTL window.
+        _model_avail_cache[api_base] = (time.time(), names)
+    if names is None:
+        return True
+    # Exact match, or prefix+dangling-colon match so that asking for a
+    # tag-less name like "phi3" also matches "phi3:mini" (default tag)
+    # while "phi3:3.8b" does NOT match "phi3:mini".
+    bare = model.replace("ollama/", "")
+    return any(
+        n == bare or (bare and not bare.endswith(":") and n.startswith(bare + ":"))
+        for n in names
+    )
 
 
 # ---------------------------------------------------------------------------

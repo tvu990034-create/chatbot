@@ -204,6 +204,32 @@ def test_answer_equal_parses_floats():
     assert optimizer_cli._answer_equal("8", "9") is False
 
 
+def test_run_eval_restores_global_generation_timeout():
+    """run_eval raises settings.generation_timeout to 240 during the loop but
+    must restore the original value afterwards, so the leak of a 240s floor
+    into every later model call in the same process is fixed."""
+    from config import settings
+    original = settings.generation_timeout
+    try:
+        settings.generation_timeout = 37
+        samples = [{"question": "what is 2+2?", "answer": "4 #### 4"}]
+
+        class G:
+            cache_hits = 0
+            cache_misses = 1
+
+            def chat(self, messages):
+                return "4"
+
+        summary = optimizer_cli.run_eval(
+            n=1, gateway=G(), raw=lambda m, model=None, max_tokens=None: ("4", False, None),
+            samples=samples, show=False, use_baseline=True)
+        assert summary["optimized"]["answered"] == 1
+        assert settings.generation_timeout == 37, f"leaked {settings.generation_timeout}"
+    finally:
+        settings.generation_timeout = original
+
+
 def test_run_eval_hermetic():
     class ContentGateway:
         cache_hits = 0

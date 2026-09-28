@@ -151,6 +151,31 @@ class TestModelAvailabilityCache:
             assert calls["n"] == 2
         opt_core.clear_model_availability_cache()
 
+    def test_multiple_models_share_one_fetch_per_window(self):
+        """/api/tags lists ALL models, so checking several candidate models
+        within one TTL window must reuse a single HTTP GET per api_base.
+        Previously the key was api_base|model and every candidate re-fetched."""
+        from gateway import opt_core
+        opt_core.clear_model_availability_cache()
+        opt_core._MODEL_AVAIL_TTL = 60.0
+        calls = {"n": 0}
+
+        def fake_urlopen(*a, **k):
+            calls["n"] += 1
+            import io
+            import json
+            payload = json.dumps({
+                "models": [{"name": "phi3:mini"}, {"name": "qwen3:4b"}],
+            }).encode()
+            return io.BytesIO(payload)
+
+        with patch("urllib.request.urlopen", side_effect=fake_urlopen):
+            assert opt_core.check_model_available("phi3:mini") is True
+            assert opt_core.check_model_available("qwen3:4b") is True
+            assert opt_core.check_model_available("nope:1b") is False
+            assert calls["n"] == 1, f"expected 1 GET, saw {calls['n']}"
+        opt_core.clear_model_availability_cache()
+
     def test_cache_expiry_invalidates(self):
         from gateway import opt_core
         opt_core.clear_model_availability_cache()

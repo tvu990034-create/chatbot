@@ -13,6 +13,7 @@ import logging
 import os
 import tempfile
 import threading
+import time
 from typing import Dict, Optional
 from pathlib import Path
 
@@ -67,7 +68,20 @@ class SimpleCache:
         items = list(raw.items())[-self._max_size:]
         for key, entry in items:
             if isinstance(entry, dict) and "response" in entry:
-                self._store.set(key, entry)
+                # Honouring the persisted expiry prevents a restart from
+                # resurrecting already-expired answers: the remaining TTL is
+                # restored, not the full default TTL.
+                expires = entry.get("expires_at")
+                if isinstance(expires, (int, float)):
+                    remaining = float(expires) - time.time()
+                    if remaining <= 0:
+                        continue
+                    self._store.set(key, {"response": entry["response"],
+                                          "metadata": entry.get("metadata", {})},
+                                    ttl=remaining)
+                else:  # legacy/corrupt entries: rely on default TTL
+                    self._store.set(key, {"response": entry["response"],
+                                          "metadata": entry.get("metadata", {})})
             elif isinstance(entry, str):
                 self._store.set(key, {"response": entry, "metadata": {}})
 
@@ -83,7 +97,13 @@ class SimpleCache:
             return
         try:
             self.cache_dir.mkdir(exist_ok=True)
-            snapshot = {k: v["value"] for k, v in self._store.items_snapshot()}
+            snapshot = {}
+            for k, v in self._store.items_snapshot():
+                val = dict(v["value"]) if isinstance(v["value"], dict) else v["value"]
+                if isinstance(val, dict):
+                    val = dict(val)
+                    val["expires_at"] = v.get("expires_at")
+                snapshot[k] = val
             # Write to a temporary file in the same directory (same filesystem
             # so os.replace can work).
             fd, tmp_path = tempfile.mkstemp(

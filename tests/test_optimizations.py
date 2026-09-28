@@ -349,6 +349,34 @@ class TestSimpleCacheAPI:
         cache = SimpleCache(persist=False, max_size=100)
         assert cache.get("nonexistent") is None
 
+    def test_restart_honours_persisted_expiry(self):
+        """A persisted entry must NOT get a fresh full TTL after a restart:
+        the remaining lifetime (not the full default_ttl) is restored."""
+        from gateway.simple_cache import SimpleCache
+        import tempfile
+        import time
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as tmpdir:
+            c1 = SimpleCache(cache_dir=tmpdir, persist=True, max_size=100,
+                             default_ttl=3600.0)
+            c1.set("q_live", "keep", context={"model": "m", "system_prompt": "s"})
+            live_key = c1._get_key("q_live", {"model": "m", "system_prompt": "s"})
+            c1._store.set(live_key, {"response": "keep", "metadata": {}},
+                          ttl=60.0)
+            c1._dirty = True
+            c1.save_now()
+            assert Path(tmpdir, "response_cache.json").exists()
+            c2 = SimpleCache(cache_dir=tmpdir, persist=True, max_size=100,
+                             default_ttl=3600.0)
+            assert c2.get("q_live", context={"model": "m", "system_prompt": "s"}) == "keep"
+            # Restart must restore the SHORT remaining TTL (<=60s), not a fresh
+            # 3600s default — that would resurrect stale answers forever.
+            now = time.time()
+            entry = dict(c2._store.items_snapshot()).get(live_key)
+            assert entry is not None
+            remaining = float(entry.get("expires_at")) - now
+            assert 0 <= remaining <= 120.0, f"remaining TTL was {remaining}"
+
 
 # ---------------------------------------------------------------------------
 # Bug 8 (universal_enhanced_gateway): quick_response uses safe math

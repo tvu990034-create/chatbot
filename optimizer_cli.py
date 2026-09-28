@@ -745,6 +745,7 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
         samples = load_dataset(dataset, config, split, n, seed)
     samples = samples[:max(1, n)]
     from config import settings
+    prev_timeout = getattr(settings, "generation_timeout", None)
     settings.generation_timeout = max(
         int(getattr(settings, "generation_timeout", 15)), 240)
     gw = gateway if gateway is not None else make_optimized_gateway(model, mode)
@@ -754,39 +755,42 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
     scored = extract != "latency"
 
     rows: List[Dict[str, Any]] = []
-    for item in samples:
-        question = str(item.get("question", ""))
-        run_mode = _guess_extract_mode(item) if extract == "auto" else extract
-        if run_mode == "latency":
-            scored = False
-        gold = _gold_value(item, run_mode) if scored else None
-        content = _eval_prompt(question, item, run_mode)
-        msgs = [{"role": "user", "content": content}]
-        row: Dict[str, Any] = {"question": question, "gold": gold,
-                               "extract_mode": run_mode}
-        t0 = time.perf_counter()
-        try:
-            pred = gw.chat(msgs)
-            row["optimized_ms"] = (time.perf_counter() - t0) * 1000.0
-            row["optimized_pred"] = pred
-            if scored:
-                row["optimized_extracted"] = _pred_value(pred, run_mode)
-                row["optimized_correct"] = _is_correct(
-                    row["optimized_extracted"], gold, run_mode)
-        except Exception as exc:  # noqa: BLE001
-            row["optimized_error"] = f"{type(exc).__name__}: {exc}"
-        if use_baseline:
+    try:
+        for item in samples:
+            question = str(item.get("question", ""))
+            run_mode = _guess_extract_mode(item) if extract == "auto" else extract
+            if run_mode == "latency":
+                scored = False
+            gold = _gold_value(item, run_mode) if scored else None
+            content = _eval_prompt(question, item, run_mode)
+            msgs = [{"role": "user", "content": content}]
+            row: Dict[str, Any] = {"question": question, "gold": gold,
+                                   "extract_mode": run_mode}
             t0 = time.perf_counter()
             try:
-                resp, _hit, _used = raw_fn(msgs, model=model_name, max_tokens=max_tokens)
-                row["baseline_ms"] = (time.perf_counter() - t0) * 1000.0
-                row["baseline_pred"] = resp
+                pred = gw.chat(msgs)
+                row["optimized_ms"] = (time.perf_counter() - t0) * 1000.0
+                row["optimized_pred"] = pred
                 if scored:
-                    row["baseline_correct"] = _is_correct(
-                        _pred_value(resp, run_mode), gold, run_mode)
+                    row["optimized_extracted"] = _pred_value(pred, run_mode)
+                    row["optimized_correct"] = _is_correct(
+                        row["optimized_extracted"], gold, run_mode)
             except Exception as exc:  # noqa: BLE001
-                row["baseline_error"] = f"{type(exc).__name__}: {exc}"
-        rows.append(row)
+                row["optimized_error"] = f"{type(exc).__name__}: {exc}"
+            if use_baseline:
+                t0 = time.perf_counter()
+                try:
+                    resp, _hit, _used = raw_fn(msgs, model=model_name, max_tokens=max_tokens)
+                    row["baseline_ms"] = (time.perf_counter() - t0) * 1000.0
+                    row["baseline_pred"] = resp
+                    if scored:
+                        row["baseline_correct"] = _is_correct(
+                            _pred_value(resp, run_mode), gold, run_mode)
+                except Exception as exc:  # noqa: BLE001
+                    row["baseline_error"] = f"{type(exc).__name__}: {exc}"
+            rows.append(row)
+    finally:
+        settings.generation_timeout = prev_timeout
 
     def _stats(key_ms: str, key_correct: str) -> Dict[str, Any]:
         done = [r for r in rows if key_ms in r]
