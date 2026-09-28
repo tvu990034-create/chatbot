@@ -331,6 +331,14 @@ class Settings(BaseSettings):
         15,
         description="Timeout in seconds for LLM generation calls"
     )
+    # Per-item total budget (EqSet-T).  Zero = unset: retry keeps the default
+    # min(240, generation_timeout) window and worst item = to + 240.  When set,
+    # the retry is capped at max(0, min(240, item_budget - primary_timeout)) so
+    # the whole item (primary + retry) never exceeds item_budget.
+    item_budget: int = Field(
+        0,
+        description="Total per-query budget in seconds; 0 = unset (default retry window)"
+    )
     # Tool timeout - for tool execution
     tool_timeout: int = Field(
         10,

@@ -404,3 +404,52 @@ def test_load_dataset_normalizes_choices(monkeypatch):
     items = optimizer_cli.load_dataset("x/y", "z", "test", n=3, seed=2)
     assert items[0]["choices"] == list("abcd")
     assert items[0]["answer_index"] in (0, 1, 2, 3)
+
+
+# ---------------------------------------------------------------------------
+# EqSet-U / EqSet-V (SPEED_MATH_WISHES.md): unit-tolerance + chain verifier
+# ---------------------------------------------------------------------------
+
+
+def test_eqset_u_trailing_unit_lines_stay_bare_numbers():
+    # EqSet-U: a single whitelisted unit on the trailing number line must not
+    # defeat the bare-number verdict.
+    assert optimizer_cli._extract_number("40 chickens.") == "40"
+    assert optimizer_cli._extract_number("the answer is 40 dollars") == "40"
+    assert optimizer_cli._extract_number("#### 60 cups") == "60"
+    assert optimizer_cli._extract_number("she gave 60 cups.") == "60"
+    assert optimizer_cli._extract_number("Total $1,248.") == "1248"
+    # a unit must NOT be required: plain lines still short-circuit
+    assert optimizer_cli._extract_number("#### 10000") == "10000"
+
+
+def test_eqset_u_disjoint_from_parenthetical_logic():
+    # Parenthetical priorities are unchanged by the unit whitelist.
+    assert optimizer_cli._extract_number(
+        "profit of $10,000 per day ($40,000 revenue, $30,000 costs)") == "10000"
+
+
+def test_eqset_v_verifies_valid_chain():
+    ok, end = optimizer_cli._verify_arithmetic_chain(
+        "He gave 20 * 3 = 60 cups total.")
+    assert ok is True
+    assert end == 60.0
+
+
+def test_eqset_v_flags_wrong_identity():
+    ok, end = optimizer_cli._verify_arithmetic_chain("20 * 3 = 600")
+    assert ok is False
+    assert end == 60.0
+
+
+def test_eqset_v_handles_no_triple():
+    ok, end = optimizer_cli._verify_arithmetic_chain("no arithmetic here")
+    assert ok is True
+    assert end is None
+
+
+def test_eqset_v_verifies_multiple_triples_with_x_notation():
+    ok, end = optimizer_cli._verify_arithmetic_chain(
+        "8 x 2 = 16; 16 + 4 = 20")
+    assert ok is True
+    assert end == 20.0

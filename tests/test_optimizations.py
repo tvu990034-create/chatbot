@@ -989,6 +989,97 @@ class TestDirectSolverRefinement:
         assert gw._apply_chain_composition(q, a) is None
 
 
+class TestEquationRunnerRetryBudget:
+    """EqSet-T: the retry window must NOT push an item past the configured
+    settings.item_budget.  retry_cap = max(0, min(240, item_budget - t1_max))
+    with t1_max = hard_deadline = max(240, generation_timeout) in the default
+    (level) test env.  Never loops: at most one retry, only on primary None.
+    """
+    def _call(self, monkeypatch, item_budget):
+        from unittest.mock import patch
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        import uuid
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        calls = {}
+
+        def _fake_thinkoff(query, budget=160):
+            return None
+
+        def _fake_raw(query, budget=900, timeout=480, think=None,
+                      model=None):
+            calls["timeout"] = timeout
+            calls["count"] = calls.get("count", 0) + 1
+            return "42"
+
+        import config
+        old_budget = getattr(config.settings, "item_budget", None)
+        config.settings.item_budget = item_budget
+        try:
+            a = QueryAnalysis()
+            a.is_math = True
+            a.expected_response_length = "long"
+            q = f"essay about triple arithmetic check {uuid.uuid4().hex}"
+            with patch.object(gw, "_thinkoff_call", _fake_thinkoff), \
+                 patch.object(gw, "_raw_reasoning_call", _fake_raw):
+                r = gw._unified_generate(
+                    [{"role": "user", "content": q}], q, a)
+        finally:
+            if old_budget is None:
+                del config.settings.item_budget
+            else:
+                config.settings.item_budget = old_budget
+        return r, calls
+
+    def test_retry_respects_item_budget_remaining(self, monkeypatch):
+        # item_budget 300, t1_max 240 -> retry_cap 60
+        r, calls = self._call(monkeypatch, 300)
+        assert r == "42"
+        assert calls.get("count") == 1
+        assert calls.get("timeout") == 60
+
+    def test_retry_disabled_when_no_budget_remains(self, monkeypatch):
+        # item_budget == t1_max -> zero retry, still a (None) response
+        r, calls = self._call(monkeypatch, 240)
+        assert calls.get("count", 0) == 0
+
+    def test_default_budget_keeps_full_retry_window(self, monkeypatch):
+        # item_budget None (= "not configured") -> historical behavior:
+        # min(240, hard_deadline) = 240.
+        from unittest.mock import patch
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        import uuid, importlib
+        import config
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        calls = {}
+
+        def _fake_raw(query, budget=900, timeout=480, think=None,
+                      model=None):
+            calls["timeout"], calls["count"] = timeout, calls.get("count", 0) + 1
+            return "42"
+
+        a = QueryAnalysis()
+        a.is_math = True
+        a.expected_response_length = "long"
+        q = f"essay about retry window {uuid.uuid4().hex}"
+        old_budget = getattr(config.settings, "item_budget", None)
+        config.settings.item_budget = None
+        try:
+            with patch.object(gw, "_thinkoff_call",
+                              lambda query, budget=160: None), \
+                 patch.object(gw, "_raw_reasoning_call", _fake_raw):
+                r = gw._unified_generate([{"role": "user", "content": q}], q, a)
+        finally:
+            if old_budget is None:
+                del config.settings.item_budget
+            else:
+                config.settings.item_budget = old_budget
+        assert r == "42"
+        assert calls.get("count") == 1
+        assert calls.get("timeout") == 240
+
+
 class TestWholeCodebaseImportIntegrity:
     def test_rag_self_rag_imports(self):
         from unittest.mock import patch, MagicMock

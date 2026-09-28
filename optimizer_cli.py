@@ -564,14 +564,32 @@ def _answer_equal(pred: Optional[str], gold: Optional[str]) -> bool:
         return pred_num.rstrip(".") == gold_num.rstrip(".")
 
 
+# EqSet-U: whitelist of trailing units a bare-number final line may carry
+# ("40 chickens.", "40 dollars", "$40") while still being treated as a pure
+# number line.  Applied identically to opt and raw so comparisons are fair.
+UNIT_TOKENS = frozenset({
+    "dollars", "dollar", "$", "usd", "rupees", "cents", "cent",
+    "percent", "%", "apples", "chickens", "people", "persons", "feet",
+    "miles", "mile", "km", "kilometers", "kilometer", "metres", "metre",
+    "meters", "meter", "m/s", "km/h", "cups", "years", "year", "months",
+    "month", "weeks", "week", "days", "day", "hours", "hour", "minutes",
+    "minute", "seconds", "second",
+})
+_UNIT_TAIL = r"(?:\s+(?:" + "|".join(
+    re.escape(u) for u in sorted(UNIT_TOKENS, key=len, reverse=True)) + r"))?"
+_TRAILING_NUM_LINE = re.compile(
+    r"#*\s*(\d[\d,]*(?:\.\d+)?)\s*[:.]*" + _UNIT_TAIL + r"\s*$")
+
+
 def _extract_number(text: str) -> Optional[str]:
     if not text:
         return None
     clean = text.strip()
-    # A trailing bare-number line ("#### 10000", "10000.") is the strongest
-    # signal — cheap and exact for the classic lookup-and-output format.
+    # A trailing bare-number line ("#### 10000", "10000.", "40 chickens.") is
+    # the strongest signal — cheap and exact for the classic lookup-and-output
+    # format.  EqSet-U lets a single whitelisted unit ride along (line 567).
     for line in reversed(clean.splitlines()):
-        m = re.fullmatch(r"#*\s*(\d[\d,]*(?:\.\d+)?)\s*[:.]*", line.strip())
+        m = _TRAILING_NUM_LINE.match(line.strip())
         if m:
             return m.group(1).replace(",", "")
     # Otherwise prefer the number in the main clause over parenthetical asides:
@@ -582,6 +600,51 @@ def _extract_number(text: str) -> Optional[str]:
     if not found:
         return None
     return found[-1].replace(",", "")
+
+
+def _verify_arithmetic_chain(text: str):
+    """EqSet-V: extract `A <op> B = C` triples and verify every one.
+
+    Returns (consistent, chain_end): consistent=False when the model wrote ANY
+    arithmetically wrong identity in ``text`` (unreliable output); chain_end is
+    the RHS value of the rightmost (last) found triple, or None if no triple.
+    Pure local math: no model call.  Used to annotate eval rows so verdicts can
+    separate 'valid arithmetic, wrong target quantity' from 'garbled math'.
+    NOTE (measured on ms100): a verifier CANNOT repair a wrong final number —
+    the failed rows (i=16 "20 * 3 = 60", gold 20; i=94, gold 40) contain VALID
+    arithmetic for a different sub-quantity of the word problem, so two numbers
+    are each provably consistent and the problem answer is undecidable
+    locally.  Repair is only safe in the degenerate case handled by the
+    extractor itself (final line is the last number), so V is diagnostic.
+    """
+    triples = re.findall(
+        r"(-?\d[\d,]*(?:\.\d+)?)\s*([*xX/+])\s*"
+        r"(-?\d[\d,]*(?:\.\d+)?)\s*=\s*(-?\d[\d,]*(?:\.\d+)?)", text)
+    chain_end = None
+    if not triples:
+        return True, None
+    for a, op, b, c in triples:
+        try:
+            a_, b_, c_ = (float(v.replace(",", "")) for v in (a, b, c))
+        except ValueError:
+            continue
+        op = "*" if op in "xX" else op
+        if op == "+":
+            val = a_ + b_
+        elif op == "-":
+            val = a_ - b_
+        elif op == "*":
+            val = a_ * b_
+        elif op == "/":
+            if b_ == 0.0:
+                continue
+            val = a_ / b_
+        else:  # pragma: no cover - regex constrains ops
+            continue
+        chain_end = round(val, 9)
+        if abs(val - c_) > 1e-9 * max(1.0, abs(c_)):
+            return False, chain_end
+    return True, chain_end
 
 
 def _guess_extract_mode(item: Dict[str, Any]) -> str:
