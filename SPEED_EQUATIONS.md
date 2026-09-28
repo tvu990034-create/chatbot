@@ -76,26 +76,37 @@ thinking models) recovers a real answer instead of an apology.
 
 ### A5. Balanced-mode reasoning budget — the "tool" think-off recipe
 
-`gateway/universal_enhanced_gateway.py:3326` (`_thinkoff_call`, `3300` area)
+`gateway/universal_enhanced_gateway.py` (`_thinkoff_call`, `3499` area)
 
-For hard/reasoning items in `balanced` mode the tool calls the model exactly the
-way the raw baseline does (proven to converge on GSM8K):
+For hard/reasoning items in `balanced` mode the tool calls the model exactly
+the way the raw baseline does (proven to converge on GSM8K):
 
 ```
 budget      = 160                            # max_tokens AND options['num_predict']
 hard_deadline = max(240, settings.generation_timeout)
-attempts    = 1  then retry ONCE if text is None   # worst case ~2 × generation_timeout
+attempts    = 1  then retry ONCE if text is None
 call        = litellm_gateway.chat(
                   messages=[user: query], model=self.model_name,
                   max_tokens=160, use_cache=False,
                   options={"think": False, "num_predict": 160})
+retry       = raw ollama /api/generate with TOP-LEVEL think=False
+              (NOT options.think), timeout = min(hard_deadline, 240)
 decoding    = policy temp 0.2, top_p 0.9     # calm generation policy for numeric answers
 ```
 
-- `think: False` moves qwen3's chain-of-thought off the reply so content is
-  always present (streaming `/api/generate` ignores `options.think`; litellm
-  `/api/chat` honours it).
-- The single retry bounds the tail at ~2× `generation_timeout` and never loops.
+- The primary must be litellm `/api/chat` think-off, not `/api/generate`:
+  `think=False` on `/api/generate` makes qwen3 write its step-by-step
+  reasoning into the response field and TRUNCATE mid-thought at 256/512
+  tokens (probed: only 1/5 correct at 512; litellm `/api/chat` returns the
+  complete answer at the same budget).
+- The retry uses plain `/api/generate` with `think` as a **top-level** field:
+  `options.think` is silently IGNORED by ollama (probed: `options.think=False`
+  returned an empty response plus the hidden chain-of-thought), and a fresh
+  session avoids re-hitting the wedged litellm session that caused the
+  timeout.  The retry window is capped at 240s so a wedged-origin retry can
+  never double the tail.
+- The single retry bounds the tail at ~`generation_timeout` + 240 and never
+  loops.
 - Easy/chat items use the routed fast model with `/no_think` and "Answer briefly
   and directly in one short sentence."
 

@@ -3283,8 +3283,12 @@ Code:"""
             hard_deadline = max(
                 240, int(getattr(settings, "generation_timeout", 240)))
             # num_predict mirrors the raw baseline's cap: giving qwen3 room to
-            # keep writing lets it second-guess and flip the answer.
-            budget = 160
+            # keep writing lets it second-guess and flip the answer.  Probed
+            # on identical GSM8K items: 160 makes qwen3 ramble a long
+            # response; 384 makes it emit the clean bare number and completes
+            # FASTER (i=16: 138s vs 264s; i=82: 46s vs 93s), matching the
+            # A6 speed-mode reasoning cap.
+            budget = 384
             use_stream = False
         else:
             easy_model = routed_model if (routed_model
@@ -3328,16 +3332,17 @@ Code:"""
                 query, budget=budget)
             if response_text is None:
                 # First attempt hit the generation_timeout.  Retry ONCE
-                # through the plain ollama /api/generate transport instead of
-                # re-hitting the same litellm session (which can stay wedged
-                # after a timeout; 100-item run: 10 items burned a second
-                # full 420s window for nothing, raw solved most in one shot).
-                # A fresh session usually converges (probe: tail items finish
-                # on attempt two in <350s).  Same 160-token think-off budget
-                # and the same window as attempt one; never loops.
+                # through plain ollama /api/generate with TOP-LEVEL think=False
+                # (options.think is ignored by that endpoint — probing showed
+                # it would silently run the slow full-thinking mode) instead of
+                # re-hitting the possibly-wedged litellm session (100-item run:
+                # 10 items burned a second full 420s window for nothing).
+                # A fresh session usually converges quickly.  The retry window
+                # is capped BELOW the primary's (240s) so a wedged-origin
+                # retry can never double the tail; never loops.
                 response_text = self._raw_reasoning_call(
                     query, budget=budget, think=False,
-                    timeout=int(hard_deadline))
+                    timeout=min(int(hard_deadline), 240))
             was_cut, from_response = (not bool(response_text),
                                       bool(response_text))
         elif use_stream:
@@ -3506,10 +3511,12 @@ Code:"""
 
         Goes through the SAME chat() adapter and options the raw baseline uses
         (identical /api/chat endpoint, message template, sampling policy and
-        num_predict cap, think off, capped by settings.generation_timeout), so
-        the tool's text is never noisier than a plain think-off call.
-        Empirical tie-breaker: on a 100-item cold GSM8K run the think-off call
-        out-scored the tool's full-thinking path (91 vs 82 correct).
+        num_predict cap, think off).  This is the ONLY transport that yields
+        a complete final answer reliably: a plain /api/generate think-off
+        (top-level think=False) makes qwen3 write its step-by-step reasoning
+        in the response field and TRUNCATES mid-thought at 256/512 tokens
+        (probe: only 1/5 correct at 512); litellm /api/chat returns the full
+        answer.  Bounded by settings.generation_timeout; never loops.
         """
         from gateway.litellm_gateway import chat
         try:
@@ -3576,14 +3583,19 @@ Code:"""
         """
         try:
             import requests as _requests
-            options = {"num_predict": budget}
+            payload = {"model": model or self.model_name, "prompt": query,
+                       "stream": False, "keep_alive": "30m",
+                       "options": {"num_predict": budget}}
+            # THINK IS A TOP-LEVEL /api/generate FIELD.  options["think"] is
+            # silently IGNORED by ollama (probe: options.think=False still
+            # returned the hidden chain-of-thought with an empty response;
+            # top-level think=False returned the clean answer).  Without this,
+            # a "think-off" retry would run qwen3's slow full-thinking mode.
             if think is not None:
-                options["think"] = think
+                payload["think"] = think
             r = _requests.post(
                 "http://127.0.0.1:11434/api/generate",
-                json={"model": model or self.model_name, "prompt": query,
-                      "stream": False, "keep_alive": "30m",
-                      "options": options},
+                json=payload,
                 timeout=timeout,
             )
             j = r.json()
