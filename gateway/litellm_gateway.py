@@ -154,7 +154,10 @@ def chat(
     if api_base:
         kwargs["api_base"] = api_base
     else:
-        kwargs["api_base"] = "http://localhost:11434"
+        # Never default to `localhost` on Windows: it resolves IPv6-first and
+        # stalls ~2s per call (opt_core normalizes for the same reason).
+        kwargs["api_base"] = getattr(settings, "litellm_api_base", None) \
+            or "http://127.0.0.1:11434"
     
     try:
         start_time = time.time()

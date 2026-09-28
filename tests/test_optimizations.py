@@ -1088,6 +1088,77 @@ class TestEquationRunnerRetryBudget:
         assert calls.get("count", 0) == 0
 
 
+class TestCacheKeyDecimalCollision:
+    """Bug: _generate_cache_key stripped every '.' — '1.5 + 2.5' and '15 + 25'
+    normalized to the same key, so a cached answer for one was served to a
+    different arithmetic query and the correct computation never ran.  Interior
+    decimals must survive; only trailing sentence terminals are stripped."""
+
+    def test_decimal_and_integer_queries_differ(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        ctx = {"model": "phi3:mini", "performance_mode": "speed"}
+        k1 = gw._generate_cache_key("1.5 + 2.5", ctx)
+        k2 = gw._generate_cache_key("15 + 25", ctx)
+        assert k1 != k2
+
+    def test_percent_decimal_differs(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        ctx = {"model": "phi3:mini", "performance_mode": "speed"}
+        k1 = gw._generate_cache_key("1.5% of 200", ctx)
+        k2 = gw._generate_cache_key("15% of 200", ctx)
+        assert k1 != k2
+
+    def test_trailing_period_still_stripped(self):
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        gw = UniversalEnhancedGateway.__new__(UniversalEnhancedGateway)
+        ctx = {"model": "phi3:mini", "performance_mode": "speed"}
+        assert gw._generate_cache_key("22 plus 20.", ctx) == \
+            gw._generate_cache_key("22 plus 20", ctx)
+
+
+class TestBalancedCacheSkipsDegradedText:
+    """Bug: _store_balanced_response cached any truthy string for 3600s —
+    including '[ERROR] <msg>' from _raw_reasoning_call and the canned
+    "couldn't finish" fallback — so a transient failure became a permanent
+    degraded cache hit and the retry ladder was unreachable for the whole TTL."""
+
+    @staticmethod
+    def _store(text, gw=None):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        if gw is None:
+            gw = UniversalEnhancedGateway(
+                "phi3:mini", enable_all_optimizations=True)
+        a = QueryAnalysis()
+        return gw._store_balanced_response(text, "q", [], a)
+
+    def test_error_marker_not_cached(self):
+        assert self._store("[ERROR] connection refused") is None
+
+    def test_mathematics_fallback_not_cached(self):
+        assert self._store(
+            "I couldn't finish that calculation in time. Please retry with "
+            "a simpler expression.") is None
+
+    def test_trouble_processing_not_cached(self):
+        assert self._store(
+            "I'm having trouble processing that request right now.") is None
+
+    def test_real_answer_still_cached(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis, _cache_lock)
+        gw = UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True)
+        a = QueryAnalysis()
+        gw._store_balanced_response("twenty-two", "q", [], a)
+        with _cache_lock:
+            hits = [v for v in gw.cache.values()
+                    if v.get("response") == "twenty-two"]
+        assert hits
+
+
 class TestWholeCodebaseImportIntegrity:
     def test_rag_self_rag_imports(self):
         from unittest.mock import patch, MagicMock

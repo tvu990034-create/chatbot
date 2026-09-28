@@ -1940,21 +1940,12 @@ You have access to the following tools:
         if not _modelcache_enabled:
             return None
         
-        # For now, use keyword-based similarity (embeddings would require sentence-transformers)
-        # In a full implementation, use local embedding model
-        query_words = set(query.lower().split())
-        
-        with _code_cache_lock:
-            for cached_query, cached_response in _code_semantic_cache.items():
-                cached_words = set(cached_query.lower().split())
-                overlap = len(query_words & cached_words)
-                
-                # Higher threshold for ModelCache (60%)
-                if overlap > 0 and overlap / len(query_words) > 0.6:
-                    _code_semantic_cache_hits += 1
-                    logger.info(f"ModelCache: Semantic cache hit (similarity: {overlap/len(query_words):.2f})")
-                    return cached_response
-        
+        # The cache is keyed by _generate_cache_key() = md5 hex digests
+        # (no spaces), so a word-overlap scan against those keys could
+        # never match — yet it ran for EVERY request, iterating up to
+        # _code_semantic_cache_max_size entries while holding the lock.
+        # The exact-key path (_check_code_semantic_cache) already fires
+        # before this; keep only that.
         return None
     
     def _generate_code_candidates(self, query: str, num_candidates: int = 3) -> List[Dict[str, Any]]:
@@ -3276,7 +3267,8 @@ Code:"""
                 messages=messages,
                 **params,
                 timeout=timeout,
-                api_base="http://localhost:11434"
+                api_base=getattr(settings, "litellm_api_base", None)
+                or "http://127.0.0.1:11434"
             )
             text = response.choices[0].message.content
             if text and text.strip() and "apologize" not in text.lower():
@@ -3353,6 +3345,7 @@ Code:"""
             # harnesses can raise headroom; production CLI keeps 240s.
             hard_deadline = max(
                 240, int(getattr(settings, "generation_timeout", 240)))
+            deadline = float(hard_deadline)
             # num_predict mirrors the raw baseline's cap: giving qwen3 room to
             # keep writing lets it second-guess and flip the answer.  Probed
             # on identical GSM8K items: 160 makes qwen3 ramble a long
@@ -3374,6 +3367,12 @@ Code:"""
             budget = 512 if easy_is_thinking else 96
             timeout = 75 if easy_is_thinking else 45
             hard_deadline = None
+            # Easy queries are supposed to be fast; give them a real shared
+            # deadline equal to the primary generation window so the
+            # degradation ladder below can never tack 60+60 fresh seconds
+            # onto a trivial question.  Only a FAST failure (elapsed << 75)
+            # leaves budget for the retries.
+            deadline = float(timeout)
             use_stream = False
 
         # Easy/chat queries: force a concise direct answer.
@@ -3398,6 +3397,7 @@ Code:"""
         # Single raw call — always fast, always non-empty.  Reasoning items
         # use the bounded think-off call (the reliable mode); easy/chat items
         # use the routed fast model.
+        _t0 = time.monotonic()  # shared per-item anchor (Eq 1/2/9)
         if reasoning:
             # Shared absolute per-item deadline (Eq 1/2/9): the cap is taken
             # ONCE, here, as a wall-clock anchor, and every attempt (primary
@@ -3408,7 +3408,6 @@ Code:"""
             # wedged session) leaves the whole window, so the retry still
             # rescues those without ever extending the tail.  Worst case per
             # item == the configured cap, exactly.
-            _t0 = time.monotonic()
             response_text = self._thinkoff_call(
                 query, budget=budget)
             if response_text is None:
@@ -3457,11 +3456,21 @@ Code:"""
         else:
             response_text = None
 
-        # Graceful degradation — TIME-BOXED so worst case is bounded, not 900s.
-        if not response_text:
-            response_text = self._plain_retry(messages, max_seconds=60)
-        if not response_text:
-            response_text = self._raw_fallback_retry(messages, timeout=60)
+        # Graceful degradation — TIME-BOXED and charged to the SAME per-item
+        # deadline (Eq 1/2/9/33): each fallback may spend only what the
+        # primary left of the cap (remaining = deadline - elapsed), never a
+        # fresh window; skipped entirely when less than _MIN_USEFUL_RETRY_S
+        # is left (Eq 36).  Worst case per item == its configured deadline —
+        # this was the tail overshoot that let a wedged easy query burn
+        # 45 + 60 + 60 = 165s for a trivial question.
+        _remaining = max(0.0, deadline - (time.monotonic() - _t0))
+        if not response_text and _remaining >= _MIN_USEFUL_RETRY_S:
+            response_text = self._plain_retry(
+                messages, max_seconds=int(min(60.0, _remaining)))
+        _remaining = max(0.0, deadline - (time.monotonic() - _t0))
+        if not response_text and _remaining >= _MIN_USEFUL_RETRY_S:
+            response_text = self._raw_fallback_retry(
+                messages, timeout=int(min(60.0, _remaining)))
         if not response_text:
             response_text = self._generate_fallback_response(query, query_analysis)
 
@@ -3485,6 +3494,16 @@ Code:"""
         if not (response_text and isinstance(response_text, str) and response_text.strip()):
             return
         if not self.enable_all_optimizations:
+            return
+        # Never cache degraded texts: error markers, apologies and canned
+        # fallbacks look truthy but are NOT model answers — storing them for
+        # 3600s turns a transient failure into a permanent degraded hit and
+        # makes the retry ladder unreachable for the whole TTL.
+        _low = response_text.lower()
+        if (response_text.startswith('[') or 'trouble processing' in _low
+                or 'apologize' in _low
+                or "couldn't finish" in _low
+                or "couldn't complete" in _low):
             return
         try:
             # Main TTL cache (read path: Step 3, model-scoped key).
@@ -3872,7 +3891,12 @@ Code:"""
         """
         normalized = query.lower().strip()
         normalized = ' '.join(normalized.split())
-        normalized = normalized.replace('?', '').replace('!', '').replace('.', '')
+        # Strip sentence terminals ONLY.  Never strip interior '.' — decimals
+        # are arithmetic ("1.5 + 2.5" must differ from "15 + 25"); stripping
+        # every period collapsed distinct numeric queries into ONE cache key
+        # and served wrong cached answers across them.
+        normalized = normalized.replace('?', '').replace('!', '')
+        normalized = normalized.rstrip('.')
 
         if cache_context:
             ctx_parts = [
