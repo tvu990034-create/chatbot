@@ -2871,7 +2871,11 @@ Code:"""
         """LangChain-style tool use: Solve math directly using Python for accuracy."""
         if not self.enable_all_optimizations:
             return None
-        
+
+        def _num(v: float) -> str:
+            """'4.0' -> '4', '8.5' -> '8.5': clean, stable answer strings."""
+            return str(int(v)) if float(v).is_integer() else str(float(v))
+
         try:
             import re
 
@@ -2944,14 +2948,56 @@ Code:"""
                 a, op, b = calc.groups()
                 a, b = float(a), float(b)
                 if op == '+':
-                    return f"{a + b}"
+                    return _num(a + b)
                 elif op == '-':
-                    return f"{a - b}"
+                    return _num(a - b)
                 elif op == '*':
-                    return f"{a * b}"
+                    return _num(a * b)
                 elif op == '/':
-                    return f"{a / b}"
-            
+                    return _num(a / b)
+
+            # Pattern 3b: CHAINED arithmetic with precedence and parentheses,
+            # e.g. "3 * (4 + 5) - 2", "12 / 4 * 2", "10 + 5 * 6".  Evaluated
+            # through a whitelisted AST walker (no eval(), no code execution),
+            # still only when the whole query IS the expression.
+            import ast
+            normalized = stripped.replace("^", "**").replace("x", "*").replace("X", "*")
+            candidates = []
+            if any(op in normalized for op in ("+", "-", "*", "/")):
+                try:
+                    tree = ast.parse(normalized, mode="eval")
+                except (SyntaxError, ValueError):
+                    tree = None
+                if tree is not None:
+                    def _walk(node):
+                        if isinstance(node, ast.Expression):
+                            return _walk(node.body)
+                        if isinstance(node, ast.Constant) and isinstance(node.value, (int, float)):
+                            return float(node.value)
+                        if isinstance(node, ast.BinOp):
+                            left = _walk(node.left)
+                            right = _walk(node.right)
+                            if left is None or right is None:
+                                return None
+                            if isinstance(node.op, ast.Add):
+                                return left + right
+                            if isinstance(node.op, ast.Sub):
+                                return left - right
+                            if isinstance(node.op, ast.Mult):
+                                return left * right
+                            if isinstance(node.op, ast.Div) and right != 0:
+                                return left / right
+                            return None
+                        if isinstance(node, ast.UnaryOp) and isinstance(node.op, (ast.UAdd, ast.USub)):
+                            val = _walk(node.operand)
+                            if val is None:
+                                return None
+                            return val if isinstance(node.op, ast.UAdd) else -val
+                        return None
+                    result = _walk(tree)
+                    if result is not None:
+                        return _num(result)
+
         except Exception as e:
             pass
         
@@ -3254,6 +3300,25 @@ Code:"""
         # storing under the prompt-decorated ``query`` (below) would guarantee a
         # permanent cache miss on every repeat.
         original_query = query
+
+        # DETERMINISTIC MATH FIRST: pure arithmetic ("solve 2x+5=-7", "15% of
+        # 200", "12 * 8", "x + 3 = 5") resolves in <1ms, EXACTLY, with zero
+        # model cost and zero latency — strictly faster AND smarter than any
+        # LLM call, and immune to the model's arithmetic drift.  The old
+        # balanced path never reached _solve_equation_directly (it returned
+        # early into _unified_generate first), so these queries burned a
+        # 60-260s model call for what is a one-line computation.  Never fires
+        # on multiple-choice (a number inside prose would be the wrong answer)
+        # and only matches when the WHOLE query is a calculation.
+        if self.enable_all_optimizations and not is_multiple_choice_query(original_query):
+            direct = self._solve_equation_directly(original_query)
+            if direct:
+                if getattr(self, "_store_balanced_response", None) is not None:
+                    self._store_balanced_response(
+                        direct, original_query, messages, query_analysis)
+                self._update_performance_metrics(time.time() - start_time,
+                                                 query_analysis)
+                return direct
 
         is_thinking = any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS)
         # Adaptive budget + timeout: small for chat, generous for reasoning.

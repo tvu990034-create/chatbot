@@ -918,9 +918,15 @@ class TestDirectSolverRefinement:
 
     def test_pure_arithmetic_still_resolves(self):
         gw = self._gw()
-        assert gw._solve_equation_directly("12 * 8") == "96.0"
-        assert gw._solve_equation_directly("8 / 4") == "2.0"
+        assert gw._solve_equation_directly("12 * 8") == "96"
+        assert gw._solve_equation_directly("8 / 4") == "2"
         assert gw._solve_equation_directly("15% of 200") == "30.0"
+
+    def test_chained_arithmetic_precedence(self):
+        gw = self._gw()
+        assert gw._solve_equation_directly("3 * (4 + 5) - 2") == "25"
+        assert gw._solve_equation_directly("10 + 5 * 6") == "40"
+        assert gw._solve_equation_directly("12 / 4 * 2") == "6"
 
     def test_word_problem_never_short_circuits(self):
         gw = self._gw()
@@ -938,6 +944,39 @@ class TestDirectSolverRefinement:
         assert is_multiple_choice_query("What is 2 + 2?") is False
         assert is_multiple_choice_query(
             "He gave 1/2 of his pencils to Brando.") is False
+
+    def test_balanced_path_resolves_math_without_model_call(self):
+        """BUG: balanced mode (_unified_generate) returned early to the model
+        and never reached _solve_equation_directly, so pure arithmetic burned
+        a 60-260s LLM call for a <1ms computation."""
+        from unittest.mock import patch
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        a = QueryAnalysis()
+        a.is_math = True
+        a.expected_response_length = "long"
+        with patch.object(gw, "_raw_reasoning_call") as model:
+            r = gw._unified_generate(
+                [{"role": "user", "content": "solve 2x + 5 = 15"}],
+                "solve 2x + 5 = 15", a)
+        assert r == "x = 5"
+        model.assert_not_called()
+
+    def test_balanced_path_resolves_chained_arithmetic(self):
+        from unittest.mock import patch
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway, QueryAnalysis)
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        a = QueryAnalysis()
+        a.is_math = True
+        a.expected_response_length = "long"
+        with patch.object(gw, "_raw_reasoning_call") as model:
+            r = gw._unified_generate(
+                [{"role": "user", "content": "3 * (4 + 5) - 2"}],
+                "3 * (4 + 5) - 2", a)
+        assert r == "25"
+        model.assert_not_called()
 
     def test_chain_skips_multiple_choice_math(self):
         from gateway.universal_enhanced_gateway import (
