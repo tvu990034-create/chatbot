@@ -3336,7 +3336,8 @@ Code:"""
                 # on attempt two in <350s).  Same 160-token think-off budget
                 # and the same window as attempt one; never loops.
                 response_text = self._raw_reasoning_call(
-                    query, budget=budget, think=False)
+                    query, budget=budget, think=False,
+                    timeout=int(hard_deadline))
             was_cut, from_response = (not bool(response_text),
                                       bool(response_text))
         elif use_stream:

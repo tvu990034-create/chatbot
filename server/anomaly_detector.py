@@ -245,7 +245,7 @@ def get_anomaly_detector() -> PerEndpointAnomalyDetector:
             _anomaly_detector = PerEndpointAnomalyDetector(
                 slo_threshold_ms=getattr(settings, "slo_threshold_ms", 1000.0),
                 window_size=getattr(settings, "anomaly_window_size", 200),
-                min_samples=getattr(settings, "anomaly_min_samples", 50),
+                min_samples=getattr(settings, "anomaly_min_samples", 20),
                 k_factor=getattr(settings, "anomaly_k_factor", 3.0),
                 cooldown_seconds=getattr(settings, "anomaly_cooldown_seconds", 300.0),
                 dry_run=getattr(settings, "anomaly_dry_run", True),
