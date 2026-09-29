@@ -9,6 +9,7 @@ contain the actual mathematical formulations for the performance optimizations.
 """
 
 import logging
+from collections import deque
 from typing import Optional
 from dataclasses import dataclass
 
@@ -146,24 +147,46 @@ class Eq9AnomalyDetector:
         self.min_samples = min_samples
         self.k = k_factor or k
         self.cooldown_seconds = cooldown_seconds
-        self.samples = []
+        self.samples = deque(maxlen=window_size)
         self.last_alert_time = 0
-    
+        self._count = 0
+        self._sum = 0.0
+        self._sumsq = 0.0
+
     def add_sample(self, latency_ms: float) -> None:
+        # Deque with maxlen does the eviction in O(1); a list pop(0) would
+        # shift the tail on every sample.  Running sums keep is_anomaly() and
+        # rolling_stats() O(1) instead of re-summing the window each request.
+        if self._count == self.window_size:
+            old = self.samples[0]
+            self._count -= 1
+            self._sum -= old
+            self._sumsq -= old * old
         self.samples.append(latency_ms)
-        if len(self.samples) > self.window_size:
-            self.samples.pop(0)
-    
+        self._count += 1
+        self._sum += latency_ms
+        self._sumsq += latency_ms * latency_ms
+
     def observe(self, latency_ms: float) -> bool:
         """Add a sample and return True if it's an anomaly."""
         self.add_sample(latency_ms)
         return self.is_anomaly()
-    
+
+    def reset(self) -> None:
+        """Clear all samples and running stats (also used by the FastAPI
+        reset endpoint via PerEndpointAnomalyDetector)."""
+        self.samples.clear()
+        self._count = 0
+        self._sum = 0.0
+        self._sumsq = 0.0
+        self.last_alert_time = 0
+
     def is_anomaly(self) -> bool:
-        if len(self.samples) < self.min_samples:
+        if self._count < self.min_samples:
             return False
-        avg = sum(self.samples) / len(self.samples)
-        std = (sum((x - avg) ** 2 for x in self.samples) / len(self.samples)) ** 0.5
+        avg = self._sum / self._count
+        variance = max(0.0, self._sumsq / self._count - avg * avg)
+        std = variance ** 0.5
         latest = self.samples[-1]
         import time
         # Check cooldown
@@ -173,15 +196,15 @@ class Eq9AnomalyDetector:
         if is_anomalous:
             self.last_alert_time = time.time()
         return is_anomalous
-    
+
     def rolling_stats(self) -> dict:
         """Return rolling statistics."""
-        if len(self.samples) < 2:
-            return {"mean": 0.0, "stdev": 0.0, "samples": len(self.samples)}
-        avg = sum(self.samples) / len(self.samples)
-        variance = sum((x - avg) ** 2 for x in self.samples) / len(self.samples)
+        if self._count < 2:
+            return {"mean": 0.0, "stdev": 0.0, "samples": self._count}
+        avg = self._sum / self._count
+        variance = max(0.0, self._sumsq / self._count - avg * avg)
         std = variance ** 0.5
-        return {"mean": avg, "stdev": std, "samples": len(self.samples)}
+        return {"mean": avg, "stdev": std, "samples": self._count}
 
 
 def eq18_query_complexity(query: str) -> float:

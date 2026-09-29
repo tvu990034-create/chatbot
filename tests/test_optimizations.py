@@ -489,6 +489,63 @@ class TestBoundedTTLCache:
         time.sleep(0.05)
         assert c.get("a") is None
 
+    def test_zero_ttl_means_do_not_cache(self):
+        """ttl<=0 must never produce an immortal entry: set() evicts any
+        existing entry and forgets the new value."""
+        from gateway.opt_core import BoundedTTLCache
+        c = BoundedTTLCache(max_size=10, default_ttl=3600.0)
+        c.set("a", 1, ttl=0)
+        assert c.get("a") is None
+        assert len(c) == 0
+        # Evicts an existing value too (no stale immortal entry left behind)
+        c.set("b", 2, ttl=60.0)
+        c.set("b", 3, ttl=0)
+        assert c.get("b") is None
+
+
+# ---------------------------------------------------------------------------
+# Eq9AnomalyDetector (perf_math) — reset + O(1) stats
+# ---------------------------------------------------------------------------
+
+class TestEq9AnomalyDetector:
+    """Eq9AnomalyDetector must support reset() (the FastAPI PerEndpoint
+    detector calls it) and keep stats in a bounded deque with O(1) adds."""
+
+    def _make(self, window=30, min_samples=3, k=3.0, slo=100.0):
+        from gateway.perf_math import Eq9AnomalyDetector
+        return Eq9AnomalyDetector(slo_threshold_ms=slo, window_size=window,
+                                  min_samples=min_samples, k_factor=k)
+
+    def test_reset_clears_everything(self):
+        det = self._make()
+        for _ in range(min(50, det.window_size)):
+            det.add_sample(5.0)
+        assert det._count > 0
+        assert len(det.samples) > 0
+        det.reset()
+        assert det._count == 0
+        assert len(det.samples) == 0
+        assert det.last_alert_time == 0
+        assert det.rolling_stats()["samples"] == 0
+
+    def test_window_stays_bounded(self):
+        det = self._make(window=8)
+        for i in range(100):
+            det.add_sample(float(i))
+        assert len(det.samples) == 8
+        assert det._count == 8
+        # mean tracks the last 8 samples (0..6 evicted, oldest kept 92..99)
+        avg = det.rolling_stats()["mean"]
+        assert abs(avg - sum(range(92, 100)) / 8.0) < 1e-9
+
+    def test_anomaly_trigger_respects_k(self):
+        det = self._make(window=10, min_samples=4, k=2.0, slo=50.0)
+        for i in range(9):
+            det.add_sample(10.0)
+        # 9 normal samples + 1 huge outlier -> anomaly fires
+        fired = det.observe(500.0)
+        assert fired is True
+
 
 # ---------------------------------------------------------------------------
 # resolve_generation_policy (Bug 7)
