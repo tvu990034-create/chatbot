@@ -259,8 +259,10 @@ def test_run_eval_hermetic():
     assert optimized["accuracy"] == 1.0
     assert baseline["accuracy"] == 0.5
     assert len(summary["rows"]) == 2
-    assert len(calls) == 2
-    assert calls[0][-1]["role"] == "user"
+    # 2 samples + 1 warmup probe (run_eval warms the model so the first row
+    # does not include the cold model-load time)
+    assert len(calls) == 3
+    assert calls[-1][-1]["role"] == "user"
 
 
 def test_run_eval_never_aborts_on_bad_sample():

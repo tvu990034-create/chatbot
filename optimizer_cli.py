@@ -756,6 +756,19 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
 
     rows: List[Dict[str, Any]] = []
     try:
+        # Warm the model ONCE before the timed loop so the first row measures
+        # per-query cost, not the ~60s cold model-load that otherwise pollutes
+        # the optimized/baseline averages.  Same pattern as run_bench().
+        probe = [{"role": "user", "content": "warmup"}]
+        try:
+            gw.chat(probe)
+        except Exception:  # noqa: BLE001
+            pass
+        if use_baseline and scored:
+            try:
+                raw_fn(probe, model=model_name, max_tokens=max_tokens)
+            except Exception:  # noqa: BLE001
+                pass
         for item in samples:
             question = str(item.get("question", ""))
             run_mode = _guess_extract_mode(item) if extract == "auto" else extract
