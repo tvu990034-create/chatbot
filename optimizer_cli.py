@@ -296,11 +296,13 @@ def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
             cold = f"{row['cold_ms']:.0f}" if "cold_ms" in row else "[red]err[/red]"
             warm = f"{row['warm_ms']:.0f}" if "warm_ms" in row else "[red]err[/red]"
             if use_baseline:
-                if "baseline_ms" in row:
+                if "baseline_ms" in row and "cold_ms" in row:
                     ratio = row["cold_ms"] / max(row["baseline_ms"], 0.001)
-                    base = f"{row['baseline_ms']:.0f}" if "baseline_ms" in row else "[red]err[/red]"
-                    table.add_row(row["question"], cold, warm, base,
-                                  (f"{ratio:.2f}x" if "cold_ms" in row else "[red]-[/red]"))
+                    table.add_row(row["question"], cold, warm,
+                                  f"{row['baseline_ms']:.0f}", f"{ratio:.2f}x")
+                elif "baseline_ms" in row:
+                    table.add_row(row["question"], cold, warm,
+                                  f"{row['baseline_ms']:.0f}", "[red]-[/red]")
                 else:
                     table.add_row(row["question"], cold, warm, "[red]err[/red]", "[red]-[/red]")
             else:
@@ -772,9 +774,12 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
         for item in samples:
             question = str(item.get("question", ""))
             run_mode = _guess_extract_mode(item) if extract == "auto" else extract
-            if run_mode == "latency":
-                scored = False
-            gold = _gold_value(item, run_mode) if scored else None
+            # Per-row scored flag: a latency-mode row disables grading for
+            # THAT row only.  Mutating the shared `scored` here flipped every
+            # subsequent row to unscored — the first latency row silently
+            # stripped accuracy reporting from the whole remaining eval.
+            row_scored = scored and run_mode != "latency"
+            gold = _gold_value(item, run_mode) if row_scored else None
             content = _eval_prompt(question, item, run_mode)
             msgs = [{"role": "user", "content": content}]
             row: Dict[str, Any] = {"question": question, "gold": gold,
@@ -784,7 +789,7 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
                 pred = gw.chat(msgs)
                 row["optimized_ms"] = (time.perf_counter() - t0) * 1000.0
                 row["optimized_pred"] = pred
-                if scored:
+                if row_scored:
                     row["optimized_extracted"] = _pred_value(pred, run_mode)
                     row["optimized_correct"] = _is_correct(
                         row["optimized_extracted"], gold, run_mode)
@@ -796,7 +801,7 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
                     resp, _hit, _used = raw_fn(msgs, model=model_name, max_tokens=max_tokens)
                     row["baseline_ms"] = (time.perf_counter() - t0) * 1000.0
                     row["baseline_pred"] = resp
-                    if scored:
+                    if row_scored:
                         row["baseline_correct"] = _is_correct(
                             _pred_value(resp, run_mode), gold, run_mode)
                 except Exception as exc:  # noqa: BLE001
@@ -807,11 +812,15 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
 
     def _stats(key_ms: str, key_correct: str) -> Dict[str, Any]:
         done = [r for r in rows if key_ms in r]
+        # Only rows that carry the per-row correctness field count toward
+        # accuracy: latency-mode rows have timing but no gold answer, so they
+        # must not dilute the denominator in mixed auto-mode runs.
+        scorable = [r for r in done if key_correct in r] if scored else []
         ms = [r[key_ms] for r in done]
         cache_hits = sum(1 for r in done if r[key_ms] < 50)
-        if scored:
-            correct = sum(1 for r in done if r.get(key_correct))
-            accuracy = (correct / len(done)) if done else 0.0
+        if scorable:
+            correct = sum(1 for r in scorable if r.get(key_correct))
+            accuracy = correct / len(scorable) if scorable else 0.0
         else:
             correct = None
             accuracy = None

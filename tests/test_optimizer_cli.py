@@ -337,7 +337,10 @@ def test_run_eval_latency_mode():
     summary = optimizer_cli.run_eval(n=2, gateway=Gateway(), raw=fake_raw,
                                      samples=samples, show=False,
                                      use_baseline=True)
-    assert summary["scored"] is False
+    # extract="auto": run-level scored stays True (the mode supports grading),
+    # but per-row row_scored is False because every sample is latency — no row
+    # carries a correctness verdict and accuracy is None.
+    assert summary["scored"] is True
     assert summary["optimized"]["accuracy"] is None
     assert summary["baseline"]["accuracy"] is None
     row = summary["rows"][0]
@@ -481,3 +484,76 @@ def test_eqset_v_verifies_multiple_triples_with_x_notation():
         "8 x 2 = 16; 16 + 4 = 20")
     assert ok is True
     assert end == 20.0
+
+
+def test_run_bench_cold_error_preserves_baseline_ratio():
+    """Bugfix: run_bench computed `row["cold_ms"] / baseline_ms` even when the
+    cold call errored (no cold_ms key), raising KeyError and killing the whole
+    bench report.  A failed cold + warm + OK baseline must render, not crash."""
+
+    class FlakyGateway:
+        cache_hits = 0
+        cache_misses = 1
+
+        def __init__(self):
+            self.calls = 0
+
+        def chat(self, messages):
+            self.calls += 1
+            if self.calls == 1:
+                raise TimeoutError("cold timed out")
+            return "pong"
+
+    def fake_raw(messages, model=None, max_tokens=None):
+        return ("base", False, model)
+
+    summary = optimizer_cli.run_bench(n=1, gateway=FlakyGateway(), raw=fake_raw,
+                                      use_baseline=True, show=False,
+                                      warmup=False)
+    row = summary["rows"][0]
+    assert "cold_error" in row
+    assert "cold_ms" not in row
+    assert "baseline_ms" in row
+
+
+def test_run_eval_latency_row_does_not_flip_scored_for_rest():
+    """Bugfix: run_eval mutated the shared `scored` flag when a latency-mode
+    row appeared, silently stripping accuracy reporting from every LATER row.
+    A scored row following a latency row must still be graded."""
+
+    class OneShotCorrectGateway:
+        cache_hits = 0
+        cache_misses = 1
+
+        def chat(self, messages):
+            return "yes"
+
+    def sample(q, answer=None):
+        item = {"question": q}
+        if answer is not None:
+            item["answer"] = answer
+        return item
+
+    samples = [
+        sample("just time me.", None),          # latency mode (no gold)
+        sample("is 2 prime?", "yes"),          # word mode — must stay scored
+        sample("is 3 prime?", "yes"),
+    ]
+
+    def fake_raw(messages, model=None, max_tokens=None):
+        return ("no", False, model)
+
+    summary = optimizer_cli.run_eval(n=3, gateway=OneShotCorrectGateway(),
+                                     raw=fake_raw, samples=samples, show=False,
+                                     use_baseline=True)
+    # Run-level scored flag comes from extract != "latency" (auto here).
+    assert summary["scored"] is True
+    latency, scored1, scored2 = summary["rows"]
+    assert latency["extract_mode"] == "latency"
+    assert "optimized_correct" not in latency
+    assert scored1["optimized_correct"] is True
+    assert scored2["optimized_correct"] is True
+    # Accuracy denominator counts scorable rows, not diluted by latency row.
+    assert summary["optimized"]["answered"] == 3
+    assert summary["optimized"]["correct"] == 2
+    assert summary["optimized"]["accuracy"] == 1.0

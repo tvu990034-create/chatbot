@@ -7,6 +7,7 @@ use ``threading.Lock`` to avoid lost writes.  JSON persistence writes to a
 temporary file and atomically replaces the original via ``os.replace``.
 """
 
+import atexit
 import hashlib
 import json
 import logging
@@ -97,6 +98,8 @@ class SimpleCache:
             return
         try:
             self.cache_dir.mkdir(exist_ok=True)
+            with self._counter_lock:
+                writes_marker = self._writes
             snapshot = {}
             for k, v in self._store.items_snapshot():
                 val = dict(v["value"]) if isinstance(v["value"], dict) else v["value"]
@@ -123,7 +126,12 @@ class SimpleCache:
                 raise
             os.replace(tmp_path, self.cache_file)
             with self._counter_lock:
-                self._dirty = False
+                # Only clear the dirty flag when NO writes landed while the
+                # snapshot was taken.  Clearing unconditionally lost tail
+                # writes that slid in mid-save (dirty=False + a cache entry
+                # that never reached disk = silent data loss on exit).
+                if self._writes == writes_marker:
+                    self._dirty = False
                 self._pending_save = False
         except Exception as e:
             logger.warning("Failed to persist response cache to %s: %s", self.cache_file, e)
@@ -311,3 +319,23 @@ def get_cache() -> SimpleCache:
             if _cache_instance is None:
                 _cache_instance = SimpleCache()
     return _cache_instance
+
+
+def _flush_cache_on_exit() -> None:
+    """Persist any dirty tail writes at interpreter shutdown.
+
+    set() only schedules a save every 10 writes, so 1-9 pending writes can sit
+    unpersisted when the process exits; without this a benched warm cache is
+    silently lost.  Guarded against re-entry and side-effect-free if clean.
+    """
+    inst = None
+    with _cache_lock:
+        inst = _cache_instance
+    if inst is not None:
+        try:
+            inst.save_now()
+        except Exception:  # noqa: BLE001
+            pass
+
+
+atexit.register(_flush_cache_on_exit)

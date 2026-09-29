@@ -139,7 +139,11 @@ class SemanticCache:
             item = wrapped.get("value") or {}
             if not isinstance(item, dict):
                 continue
-            if want_model and item.get("model") not in ("", want_model):
+            # Legacy persisted entries predate the 'model' tag and have no key;
+            # treat them as model-agnostic ("") so they stay matchable rather
+            # than being silently excluded from semantic lookup.
+            item_model = item.get("model") or ""
+            if want_model and item_model not in ("", want_model):
                 continue
             emb = item.get("embedding")
             if not emb:

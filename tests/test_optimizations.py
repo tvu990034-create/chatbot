@@ -1244,6 +1244,148 @@ class TestBalancedCacheSkipsDegradedText:
         assert hits
 
 
+class TestRawReasoningCallReturnsNoneOnError:
+    """Bugfix: _raw_reasoning_call returned a truthy '[ERROR] <msg>' string on
+    ollama error responses.  Callers gate the retry ladder on
+    `if not response_text`, so a truthy marker was served to the user and the
+    plain/raw fallbacks were never reached."""
+
+    @staticmethod
+    def _build_gw():
+        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+        return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+
+    def test_error_body_returns_none(self):
+        from unittest.mock import patch, MagicMock
+        from gateway import universal_enhanced_gateway as g
+        gw = self._build_gw()
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {"error": "model not found"}
+        with patch.object(g.logger, "info") as _info:
+            with patch("requests.post", return_value=fake_resp) as post:
+                out = gw._raw_reasoning_call("q", budget=10, timeout=1)
+        assert out is None
+        post.assert_called_once()
+
+    def test_success_still_returns_text(self):
+        from unittest.mock import patch, MagicMock
+        gw = self._build_gw()
+        fake_resp = MagicMock()
+        fake_resp.json.return_value = {"response": "the answer"}
+        with patch("requests.post", return_value=fake_resp):
+            out = gw._raw_reasoning_call("q", budget=10, timeout=1)
+        assert out == "the answer"
+
+
+class TestCacheWriteKeyMatchesReadKey:
+    """Bugfix: the Step 11 cache write keyed the response by `model_to_use`
+    (the ollama/-prefixed or routed model) while the Step 3 read looks up by
+    `self.model_name` — every write was a permanent miss on a routed request.
+    The write key must equal the read key."""
+
+    def test_simple_cache_write_and_read_keys_agree(self):
+        from gateway.universal_enhanced_gateway import (
+            UniversalEnhancedGateway)
+        gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        q = "what is 2+2?"
+        ctx = {"model": gw.model_name, "performance_mode": gw.performance_mode}
+        read_key = gw._generate_cache_key(q, ctx)
+        write_ctx = {"model": gw.model_name, "performance_mode": gw.performance_mode}
+        write_key = gw._generate_cache_key(q, write_ctx)
+        assert write_key == read_key
+
+    def test_staircase_write_never_uses_routed_model(self):
+        # Source-level regression: the Step 11 (staircase) write key and the
+        # Step 11.1 prefix-gen_id must be built from self.model_name, not the
+        # routed model_to_use.
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        seg = "if use_cache and self.cache is not None and _cacheable:"
+        assert seg in src
+        after = src.split(seg, 1)[1]
+        # The simple-cache write key (before _cache_ttl) uses self.model_name.
+        assert '"model": self.model_name' in after
+        assert '"model": model_to_use' not in after
+        # The prefix write must not override gen_id with the routed model:
+        # _current_gen_identity() already uses self.model_name.
+        assert "gen_id[\"model\"] = model_to_use" not in src
+
+
+class TestSimpleCacheDirtyRace:
+    """Bugfix: _save_cache cleared _dirty unconditionally, so a write that
+    landed mid-save was marked clean and never persisted until the next save.
+    The dirty flag must survive until a save that actually captured the write."""
+
+    def test_dirty_survives_concurrent_write(self, tmp_path):
+        from gateway.simple_cache import SimpleCache
+        cache = SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=100)
+        cache.set("q1", "a1")
+        cache.set("q2", "a2")
+        cache.save_now()
+        assert cache._dirty is False
+        # Simulate a write landing MID-SAVE: after the _writes marker is read
+        # (start of _save_cache) but before the snapshot is taken.  The save
+        # must NOT clear the dirty flag for a write it could not have captured.
+        cache.set("q3", "a3")  # dirty=True going INTO the save
+        original_snapshot = cache._store.items_snapshot
+
+        def racing_snapshot():
+            cache.set("q4", "a4")  # lands during the save, after the marker
+            return original_snapshot()
+        cache._store.items_snapshot = racing_snapshot
+        cache.save_now()
+        # q4 arrived after the marker (3): the save could not capture it, so
+        # the dirty flag must survive so a later save/atexit flush persists it.
+        assert cache._dirty is True, (cache._dirty, cache._writes)
+        # And the at-exit flush / next save persists that tail write.
+        cache.save_now()
+        fresh = SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=100)
+        assert fresh.get("q4") == "a4"
+
+
+class TestAtExitFlush:
+    def test_dirty_tail_is_flushed_on_exit(self, tmp_path, monkeypatch):
+        # _flush_cache_on_exit must persist a dirty cache without a %10
+        # scheduled save (1-9 pending writes), and be a no-op when clean.
+        import threading
+        import gateway.simple_cache as sc
+        cache = sc.SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=100)
+        cache.set("q1", "a1")
+        cache.set("q2", "a2")
+        with monkeypatch.context() as m:
+            m.setattr(sc, "_cache_instance", cache)
+            m.setattr(sc, "_cache_lock", threading.RLock())
+            sc._flush_cache_on_exit()
+        reloaded = sc.SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=100)
+        assert reloaded.get("q1") == "a1"
+
+
+class TestSemanticCacheLegacyEntriesMatchable:
+    """Bugfix: legacy persisted entries predating the 'model' tag have no
+    'model' key; `item.get("model") not in ("", want_model)` excluded them
+    from semantic lookup entirely.  Missing model should not block a lookup
+    that does not demand a specific model."""
+
+    def test_legacy_no_model_entry_matches(self, tmp_path):
+        from gateway.semantic_cache import SemanticCache
+
+        dirname = str(tmp_path)
+        cache = SemanticCache(cache_dir=dirname, persist=False, max_size=10)
+        cache.set("what is the capital of france", "paris")
+        key = cache._exact_key("what is the capital of france", {})
+        e = cache._store.get(key)
+        assert e is not None and e.get("model") == ""
+        # Boot a fresh cache whose _store holds a model-less legacy entry.
+        fresh = SemanticCache(cache_dir=dirname, persist=False, max_size=10,
+                              similarity_threshold=0.4)
+        legacy = dict(e)
+        legacy.pop("model", None)
+        fresh._store.set(key, legacy)
+        out = fresh.get("capital of france?")  # near-duplicate, no model demand
+        assert out == "paris"
+
+
 class TestWholeCodebaseImportIntegrity:
     def test_rag_self_rag_imports(self):
         from unittest.mock import patch, MagicMock

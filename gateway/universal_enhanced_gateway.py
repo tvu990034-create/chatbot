@@ -1071,11 +1071,14 @@ class UniversalEnhancedGateway:
                           and 'trouble processing' not in response_text.lower()
                           and 'apologize' not in response_text.lower())
             if use_cache and self.cache is not None and _cacheable:
-                # Must match the model-scoped read key in Step 3.
-                # Use the ACTUAL model that generated the response (may be
-                # different from self.model_name when routing is active).
+                # The read path (Step 3) computes this key with
+                # `self.model_name` BEFORE routing, so the write MUST use the
+                # same model string or a routed response is stored under a key
+                # that lookup can never produce — the cache write becomes a
+                # permanent miss (older bug: wrote `model_to_use`, which when
+                # routing fired was `ollama/{model}` or the routed model).
                 cache_key = self._generate_cache_key(
-                    query, {"model": model_to_use,
+                    query, {"model": self.model_name,
                             "performance_mode": self.performance_mode})
                 with _cache_lock:
                     self.cache[cache_key] = {
@@ -1107,9 +1110,12 @@ class UniversalEnhancedGateway:
                     prefix_key = hashlib.md5(
                         json.dumps(messages, ensure_ascii=False, sort_keys=True).encode()
                     ).hexdigest()
-                    # Tag with the ACTUAL model used, not the configured default.
+                    # Tag with the IDENTITY the read path will look up
+                    # (_check_prefix_cache passes _current_gen_identity(),
+                    # whose "model" is self.model_name).  Tagging with the
+                    # routed model_to_use made the write permanently
+                    # unmatchable and the prefix cache a dead letter.
                     gen_id = self._current_gen_identity()
-                    gen_id["model"] = model_to_use
                     with _prefix_response_cache_lock:
                         if prefix_key not in self.prefix_response_cache:
                             self.prefix_response_cache[prefix_key] = {}
@@ -3708,7 +3714,13 @@ Code:"""
             )
             j = r.json()
             if j.get("error"):
-                return f"[ERROR] {j['error']}"
+                logger.info(f"Raw reasoning call error: {j['error']}")
+                # Return None, NOT a truthy "[ERROR] ..." string: the caller
+                # gates the retry ladder on `if not response_text`, so a
+                # truthy error marker would be treated as a real answer and
+                # skip the plain/raw fallbacks (older bug shipped "[ERROR]
+                # model not found" to the user).
+                return None
             # Thinking models put the final answer in "response" and the
             # reasoning in "thinking"; prefer the answer, fall back to the
             # reasoning only when no answer was emitted.
@@ -3788,7 +3800,8 @@ Code:"""
                 messages=[{"role": "user", "content": check_prompt}],
                 **params,
                 timeout=_adaptive_timeout(params, settings),
-                api_base="http://localhost:11434"
+                api_base=getattr(settings, "litellm_api_base", None)
+                or "http://127.0.0.1:11434"
             )
             text = (response.choices[0].message.content or "").strip()
             if not text or "[[CORRECT]]" in text:

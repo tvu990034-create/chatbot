@@ -181,9 +181,13 @@ class SemanticCacheMath:
              now: float) -> List[Tuple[str, float]]:
         """Stage 1: coarse filtered by cosine; returns (key, score) desc."""
         scored: List[Tuple[str, float]] = []
+        # Hoist the adaptive gate out of the candidate loop: threshold() is
+        # O(len(scores)) and does NOT change within a single rank() call, so
+        # recomputing it per candidate made the full scan quadratic.
+        thr = self.threshold.threshold()
         for key, emb in candidate_embeddings.items():
             sim = cos_sim(query_emb, emb)
-            if sim >= self.threshold.threshold():
+            if sim >= thr:
                 scored.append((key, sim))
         scored.sort(key=lambda t: t[1], reverse=True)
         return scored[: self.k]
