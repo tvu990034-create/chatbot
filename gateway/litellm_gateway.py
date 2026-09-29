@@ -81,6 +81,11 @@ def chat(
         # Bug #16 FIX: Include RAG version to prevent stale cached answers
         'rag_version': '1.0',  # Should be updated when RAG index changes
         'rag_enabled': False,  # Gateway doesn't use RAG by default
+        # Bug Fix: num_predict-in-options, seed, etc. change the response, so
+        # they must be part of the cache identity or two calls differing only
+        # in options would serve each other's answers.
+        'api_base': api_base or "",
+        'options': options,
     }
     
     # Check cache first
@@ -256,6 +261,9 @@ async def achat_stream(
         'messages': messages,
         'rag_version': '1.0',
         'rag_enabled': False,
+        # Must match chat(): api_base is part of the cache identity.
+        'api_base': api_base or "",
+        'options': None,
     }
 
     # BUG 2 FIX: Check cache first if use_cache is enabled
@@ -282,7 +290,10 @@ async def achat_stream(
     if api_base:
         kwargs["api_base"] = api_base
     else:
-        kwargs["api_base"] = "http://localhost:11434"
+        # Never default to `localhost` on Windows: it resolves IPv6-first and
+        # stalls ~2s per call.  Same normalization as chat().
+        kwargs["api_base"] = getattr(settings, "litellm_api_base", None) \
+            or "http://127.0.0.1:11434"
 
     # The sync completion() stream is blocking; drive it from a worker thread
     # and hand chunks to the event loop via call_soon_threadsafe so one slow

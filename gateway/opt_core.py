@@ -166,6 +166,8 @@ def make_cache_identity(
     rag_enabled: bool = False,
     prompt_version: str = "v1",
     language: str = "",
+    api_base: str = "",
+    options: Any = None,
     extra: Optional[Dict[str, Any]] = None,
 ) -> str:
     payload = {
@@ -181,6 +183,8 @@ def make_cache_identity(
         "rag": f"{rag_version}:{int(bool(rag_enabled))}",
         "prompt_version": prompt_version,
         "language": language,
+        "api_base": (api_base or "").strip("/"),
+        "options": options or {},
         "extra": extra or {},
     }
     blob = json.dumps(payload, sort_keys=True, default=str)

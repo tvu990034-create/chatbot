@@ -117,6 +117,8 @@ class SemanticCache:
             rag_version=ctx.get("rag_version", ""),
             rag_enabled=bool(ctx.get("rag_enabled")),
             prompt_version=ctx.get("prompt_version", "v1"),
+            api_base=ctx.get("api_base", ""),
+            options=ctx.get("options"),
         )
 
     def get(self, query: str, context: Optional[Dict] = None) -> Optional[str]:

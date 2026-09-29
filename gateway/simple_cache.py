@@ -164,6 +164,8 @@ class SimpleCache:
             rag_enabled=bool(ctx.get("rag_enabled")),
             prompt_version=ctx.get("prompt_version", "v1"),
             language=ctx.get("language", ""),
+            api_base=ctx.get("api_base", ""),
+            options=ctx.get("options"),
         )
 
     def get(self, query: str = "", context: Optional[Dict] = None, *,

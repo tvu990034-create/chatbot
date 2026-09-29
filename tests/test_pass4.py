@@ -265,6 +265,26 @@ class TestH_ContextReuse:
         k2 = make_cache_identity("q", tools=[{"name": "b"}])
         assert k1 != k2
 
+    def test_cache_identity_changes_on_api_base(self):
+        from gateway.opt_core import make_cache_identity
+        k1 = make_cache_identity("q", api_base="http://127.0.0.1:11434")
+        k2 = make_cache_identity("q", api_base="http://10.0.0.2:11434")
+        assert k1 != k2
+
+    def test_cache_identity_changes_on_options(self):
+        from gateway.opt_core import make_cache_identity
+        k1 = make_cache_identity("q", options={"num_predict": 384})
+        k2 = make_cache_identity("q", options={"num_predict": 128})
+        k3 = make_cache_identity("q", options=None)
+        assert k1 != k2
+        assert k1 != k3
+
+    def test_cache_identity_api_base_normalized_slash(self):
+        from gateway.opt_core import make_cache_identity
+        k1 = make_cache_identity("q", api_base="http://127.0.0.1:11434/")
+        k2 = make_cache_identity("q", api_base="http://127.0.0.1:11434")
+        assert k1 == k2
+
 
 # ---------------------------------------------------------------------------
 # End-to-end: show the actual message list sent to the model
