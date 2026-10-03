@@ -62,3 +62,6 @@ react-ui/.turbo/
 
 # Benchmark outputs (regenerated locally, not committed)
 benchmark_results/
+
+# Runtime cache files (rewritten on every run; never commit)
+cache/*.json
