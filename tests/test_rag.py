@@ -64,3 +64,28 @@ def test_data_directories():
     assert docs_dir.parent.exists() or docs_dir.parent.parent.exists()
     assert index_dir.parent.exists() or index_dir.parent.parent.exists()
     assert chroma_dir.parent.exists() or chroma_dir.parent.parent.exists()
+
+
+def test_public_paths_share_retrieve_nodes_seam():
+    """retrieve()/query()/aquery() must all funnel node fetching through
+    _retrieve_nodes (was triplicated inline): one seam for retrieve-level
+    wiring, no behavior change."""
+    from unittest.mock import patch
+    from rag.llama_index_rag import LlamaIndexRAG
+
+    rag = LlamaIndexRAG()
+    rag._query_engine = object()  # skip index build; seam is mocked below
+    with patch.object(LlamaIndexRAG, "_retrieve_nodes",
+                      return_value=[]) as seam:
+        out = rag.retrieve("q?")
+        assert seam.call_count == 1
+        assert out["chunks"] == []
+        assert out["retrieval_confidence"] == 0.0
+        out = rag.query("q?")
+        assert seam.call_count == 2
+        # Empty retrieval -> Eq8 hard gate refuses without any LLM call.
+        assert "could not find" in out["answer"]
+        import asyncio
+        out = asyncio.run(rag.aquery("q?"))
+        assert seam.call_count == 3
+        assert "could not find" in out["answer"]

@@ -251,6 +251,16 @@ class LlamaIndexRAG:
         logger.debug("Eq8 confidence=%.3f → max_tokens=%s", confidence, budget)
         return confidence, budget
 
+    def _retrieve_nodes(self, question: str) -> list:
+        """Single retrieval seam for retrieve()/query()/aquery().
+
+        All three public paths funnel node fetching through here so
+        retrieve-level wiring applies uniformly instead of drifting across
+        three copies.  Callers keep their own ensure-built preamble.
+        """
+        retriever = self._index.as_retriever(similarity_top_k=self.top_k)
+        return retriever.retrieve(question)
+
     def retrieve(self, question: str) -> dict[str, Any]:
         """
         Retrieval-only: fetch top-k chunks WITHOUT running the LLM.
@@ -264,8 +274,7 @@ class LlamaIndexRAG:
         if self._query_engine is None:
             self.build_index()
 
-        retriever = self._index.as_retriever(similarity_top_k=self.top_k)
-        source_nodes = retriever.retrieve(question)
+        source_nodes = self._retrieve_nodes(question)
         confidence, budget = self._eq8_gate(source_nodes)
 
         return {
@@ -295,16 +304,10 @@ class LlamaIndexRAG:
         if self._query_engine is None:
             self.build_index()
 
-        # --- retrieval only (no synthesis yet) ---
-        retriever = self._index.as_retriever(similarity_top_k=self.top_k)
-        source_nodes = retriever.retrieve(question)
+        # --- retrieval only (no synthesis yet), via the shared seam ---
+        source_nodes = self._retrieve_nodes(question)
 
         confidence, budget = self._eq8_gate(source_nodes)
-        
-        # NOTE: Koopman-inspired mixing could be applied here for multiple RAG providers
-        # if _koopman_available and settings.koopman_mixing_enabled:
-        #     mixer = get_koopman_mixer()
-        #     # Would mix results from multiple RAG sources
 
         if budget is None:
             # Eq8 hard gate: confidence too low to justify a full-generation
@@ -370,10 +373,9 @@ class LlamaIndexRAG:
 
         import asyncio
 
-        # Async retrieval
-        retriever = self._index.as_retriever(similarity_top_k=self.top_k)
+        # Async retrieval via the shared seam (blocking call offloaded).
         source_nodes = await asyncio.get_running_loop().run_in_executor(
-            None, lambda: retriever.retrieve(question)
+            None, lambda: self._retrieve_nodes(question)
         )
 
         confidence, budget = self._eq8_gate(source_nodes)

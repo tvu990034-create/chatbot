@@ -3974,13 +3974,28 @@ Code:"""
             )
             text = (response.choices[0].message.content or "").strip()
             if not text or "[[CORRECT]]" in text:
+                self._record_temp_feedback(True)
                 return None
             if "apologize" in text.lower() or len(text) < 3:
+                self._record_temp_feedback(False)
                 return None
+            self._record_temp_feedback(False)
             return text
         except Exception as e:
             logger.info(f"Speed verify failed: {e}")
+            self._record_temp_feedback(False)
             return None
+
+    @staticmethod
+    def _record_temp_feedback(success: bool) -> None:
+        """Close the adaptive-temperature loop: the verify verdict is a real
+        reward signal for the temperature that produced the draft (kept =
+        good temperature, corrected/failed = bad).  Best-effort only."""
+        try:
+            from gateway.adaptive_temperature import record_response_feedback
+            record_response_feedback(bool(success))
+        except Exception:  # noqa: BLE001 - feedback must never break inference
+            pass
 
     def _apply_chain_composition(self, query: str, analysis: QueryAnalysis) -> Optional[str]:
         """LangChain SequentialChain: Apply multiple operations in sequence (tool use, retrieval, reasoning)."""

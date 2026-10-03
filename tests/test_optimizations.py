@@ -1621,6 +1621,41 @@ class TestCalibrationVerifyGate:
         assert "should_defer_to_verify(" in src
         assert "calibrated_confidence(" in src
 
+    def test_verify_outcome_feeds_adaptive_temperature(self):
+        """The verify verdict closes the adaptive-temperature loop (which
+        otherwise never adapts: kept draft = good temperature)."""
+        from unittest.mock import patch
+        from gateway import universal_enhanced_gateway as mod
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="speed")
+
+        def resp_with(text):
+            class _Msg:
+                content = text
+
+            class _Choice:
+                message = _Msg()
+
+            class _Resp:
+                choices = [_Choice()]
+            return _Resp()
+
+        calls = []
+        with patch.object(mod, "completion",
+                          return_value=resp_with("[[CORRECT]]")), \
+             patch("gateway.adaptive_temperature.record_response_feedback",
+                   side_effect=lambda ok: calls.append(ok)):
+            assert gw._verify_speed_answer("q?", "draft") is None
+        assert calls == [True]
+        calls.clear()
+        with patch.object(mod, "completion",
+                          return_value=resp_with("Paris.")), \
+             patch("gateway.adaptive_temperature.record_response_feedback",
+                   side_effect=lambda ok: calls.append(ok)):
+            assert gw._verify_speed_answer("q?", "draft") == "Paris."
+        assert calls == [False]
+
     def test_verify_pass_uses_small_budget(self):
         """The verify second pass answers [[CORRECT]] or a short correction:
         a 300-token budget doubles its cost for zero gain. 128 suffices."""
