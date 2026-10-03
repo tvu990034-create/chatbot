@@ -568,6 +568,43 @@ class TestRequestBounds:
         assert resp.status_code == 422
 
 
+class TestRagEndpoints:
+    """Ingest must accept files-only (body was required -> 422 on every
+    real multipart upload); query must dispatch to the active provider."""
+
+    def test_ingest_files_only(self, tmp_path, monkeypatch):
+        from unittest.mock import MagicMock, patch
+        from config import settings, RAGProvider
+        monkeypatch.setattr(settings, "rag_provider", RAGProvider.LLAMA_INDEX)
+        monkeypatch.setattr(settings, "rag_docs_dir", tmp_path)
+        from fastapi.testclient import TestClient
+        from server.app import app
+        client = TestClient(app, raise_server_exceptions=False)
+        fake_rag = MagicMock()
+        fake_rag.add_documents.return_value = 1
+        with patch("rag.llama_index_rag.get_rag", return_value=fake_rag):
+            resp = client.post("/rag/ingest", files=[
+                ("files", ("d.txt", b"hello world", "text/plain"))])
+        assert resp.status_code == 200
+        assert resp.json()["saved_files"]
+        fake_rag.add_documents.assert_called_once()
+
+    def test_query_dispatches_to_active_provider(self, monkeypatch):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from config import settings, RAGProvider
+        monkeypatch.setattr(settings, "rag_provider", RAGProvider.LLAMA_INDEX)
+        from fastapi.testclient import TestClient
+        from server.app import app
+        client = TestClient(app, raise_server_exceptions=False)
+        fake_rag = MagicMock()
+        fake_rag.aquery = AsyncMock(return_value={"answer": "A",
+                                                  "sources": []})
+        with patch("rag.llama_index_rag.get_rag", return_value=fake_rag):
+            resp = client.post("/rag/query", json={"question": "q?"})
+        assert resp.status_code == 200
+        assert resp.json()["llama_index"]["answer"] == "A"
+
+
 class TestEmptyReplyRecovery:
     """Thinking models return empty content on the plain litellm path;
     the endpoint must recover via the thinking-aware gateway, not serve ''."""

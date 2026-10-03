@@ -532,7 +532,7 @@ async def chat_stream_endpoint(req: ChatRequest):
 # ---------------------------------------------------------------------------
 
 @app.post("/rag/ingest", tags=["rag"])
-async def rag_ingest(req: RAGIngestRequest, files: list[UploadFile] = File(default=[])):
+async def rag_ingest(req: RAGIngestRequest | None = None, files: list[UploadFile] = File(default=[])):
     import shutil
     import os
     from config import RAGProvider
@@ -601,6 +601,7 @@ async def rag_ingest(req: RAGIngestRequest, files: list[UploadFile] = File(defau
             total_size += file_size
 
     result: dict[str, Any] = {"saved_files": saved}
+    rebuild = req.rebuild if req is not None else False
 
     if settings.rag_provider in (RAGProvider.LLAMA_INDEX, RAGProvider.BOTH):
         try:
@@ -609,7 +610,7 @@ async def rag_ingest(req: RAGIngestRequest, files: list[UploadFile] = File(defau
             if saved:
                 result["llama_index_nodes_added"] = rag.add_documents(saved)
             else:
-                rag.build_index(force_rebuild=req.rebuild)
+                rag.build_index(force_rebuild=rebuild)
                 result["llama_index"] = "reindexed"
         except Exception as exc:
             result["llama_index_error"] = str(exc)
