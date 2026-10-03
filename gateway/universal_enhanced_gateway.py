@@ -3173,7 +3173,7 @@ Code:"""
         if not (analysis.is_math or analysis.needs_reasoning):
             return None
         
-        print(f"[DEBUG] LangChain Routing: Using best prompt template")
+        logger.debug("LangChain Routing: Using best prompt template")
         
         # Select prompt template based on task type (LangChain PromptTemplate pattern)
         try:
@@ -3207,7 +3207,7 @@ Code:"""
             )
             return response.choices[0].message.content
         except Exception as e:
-            print(f"[DEBUG] LangChain routing failed: {e}")
+            logger.debug("LangChain routing failed: %s", e)
             return None
     
     def _self_consistency_voting(self, messages: List[Dict[str, str]], analysis: QueryAnalysis) -> str:
@@ -3220,7 +3220,7 @@ Code:"""
             return None
         
         num_samples = 3
-        print(f"[DEBUG] LangChain Self-Consistency: Sampling {num_samples} times")
+        logger.debug("LangChain Self-Consistency: Sampling %d times", num_samples)
         responses = []
         
         for i in range(num_samples):
@@ -3240,14 +3240,14 @@ Code:"""
                 )
                 responses.append(response.choices[0].message.content)
             except Exception as e:
-                print(f"[DEBUG] Self-Consistency sample {i} failed: {e}")
+                logger.debug("Self-Consistency sample %d failed: %s", i, e)
                 continue
         
         if len(responses) < 2:
             return None
         
         best_response = max(responses, key=len)
-        print(f"[DEBUG] Self-Consistency: Selected best response (length {len(best_response)})")
+        logger.debug("Self-Consistency: Selected best response (length %d)", len(best_response))
         return best_response
     
     def _prepare_smart_context(self, query: str, messages: List[Dict[str, str]]) -> str:
@@ -4012,14 +4012,14 @@ Code:"""
             if analysis.is_math and not is_multiple_choice_query(query):
                 python_result = self._solve_equation_directly(query)
                 if python_result:
-                    print(f"[DEBUG] LangChain Chain: Python tool returned {python_result}")
+                    logger.debug("LangChain Chain: Python tool returned %s", python_result)
                     return python_result
             
             # Step 2: RAG-style retrieval from cache (LangChain Retrieval pattern)
             if analysis.needs_reasoning and self.cache:
                 retrieved_context = self._retrieve_relevant_context(query)
                 if retrieved_context:
-                    print(f"[DEBUG] LangChain Chain: Retrieved context from cache")
+                    logger.debug("LangChain Chain: Retrieved context from cache")
                     # Don't return here, just use for enhancement later
             
             # Step 3: For complex reasoning, try simplified CoT (LangChain SequentialChain)
@@ -4028,7 +4028,7 @@ Code:"""
             
             return None
         except Exception as e:
-            print(f"[DEBUG] LangChain chain composition failed: {e}")
+            logger.debug("LangChain chain composition failed: %s", e)
             return None
     
     def _retrieve_relevant_context(self, query: str) -> Optional[str]:
