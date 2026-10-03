@@ -150,7 +150,10 @@ def install_semantic_cache(cache: Any) -> bool:
             mode = (context or {}).get("performance_mode", "")
             with _embs_lock:
                 _embs[_key] = (tag, _cache_embed(query), mode)
-                if len(_embs) > 4096:
+                # Bound the index: rank() scans all candidates per miss, so
+                # an unbounded index turns every miss into a ~0.5s full scan.
+                # 1024 entries keeps the worst case ~0.1s; oldest evicted.
+                if len(_embs) > 1024:
                     # Keep the dict bounded: drop oldest key.
                     _embs.pop(next(iter(_embs)), None)
 

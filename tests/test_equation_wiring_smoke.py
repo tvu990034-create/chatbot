@@ -66,6 +66,24 @@ def test_semantic_fallback_is_mode_scoped():
     wiring._embs.clear()
 
 
+def test_embs_index_bounded():
+    """rank() scans every candidate per miss: the embedding index must stay
+    bounded or long server sessions turn each miss into a ~0.5s full scan."""
+    from gateway.simple_cache import SimpleCache
+    from gateway import equation_wiring as wiring
+    wiring._embs.clear()
+    try:
+        cache = SimpleCache(persist=False)
+        assert wiring.install_semantic_cache(cache) is True
+        for i in range(1100):
+            cache.set("unique padding query number %d here" % i, "a",
+                      context={"performance_mode": "speed"},
+                      _key="k%d" % i)
+        assert len(wiring._embs) <= 1024
+    finally:
+        wiring._embs.clear()
+
+
 def test_ewma_router_install():
     from gateway.opt_core import RouterState
     from gateway.equation_wiring import install_ewma_router

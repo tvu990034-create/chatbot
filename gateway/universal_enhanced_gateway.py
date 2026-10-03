@@ -3948,9 +3948,9 @@ Code:"""
                 "If the proposed answer is wrong or incomplete, give ONLY the corrected answer, "
                 "concise, with no preamble and no [[CORRECT]] marker."
             ).format(q=query[:2000], answer=(answer or "")[:1500])
-            params: Dict[str, Any] = {"temperature": 0.0, "max_tokens": 300, "top_p": 1.0}
+            params: Dict[str, Any] = {"temperature": 0.0, "max_tokens": 128, "top_p": 1.0}
             if any(m in self.model_name.lower() for m in THINKING_MODEL_MARKERS):
-                params["options"] = {"think": False, "num_predict": 300}
+                params["options"] = {"think": False, "num_predict": 128}
                 params.pop("max_tokens", None)
             response = completion(
                 model=model,

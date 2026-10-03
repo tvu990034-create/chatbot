@@ -1605,6 +1605,45 @@ class TestCalibrationVerifyGate:
         assert "should_defer_to_verify(" in src
         assert "calibrated_confidence(" in src
 
+    def test_verify_pass_uses_small_budget(self):
+        """The verify second pass answers [[CORRECT]] or a short correction:
+        a 300-token budget doubles its cost for zero gain. 128 suffices."""
+        from unittest.mock import patch
+        from gateway import universal_enhanced_gateway as mod
+
+        class _Msg:
+            content = "[[CORRECT]]"
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+
+        seen = {}
+
+        def fake(**kwargs):
+            seen.update(kwargs)
+            return _Resp()
+
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="speed")
+        with patch.object(mod, "completion", fake):
+            assert gw._verify_speed_answer("What is 2+2?",
+                                           "The answer is 4") is None
+        assert seen.get("max_tokens") == 128
+        # Thinking path carries the same small budget in options instead.
+        gwq = mod.UniversalEnhancedGateway(
+            "qwen3:4b", enable_all_optimizations=True,
+            performance_mode="speed")
+        seen.clear()
+        with patch.object(mod, "completion", fake):
+            assert gwq._verify_speed_answer("What is 2+2?",
+                                           "The answer is 4") is None
+        assert seen.get("options", {}).get("num_predict") == 128
+        assert "max_tokens" not in seen
+
 
 class TestMakeGatewayInstallsWiring:
     """make_optimized_gateway must install the equation wiring so
