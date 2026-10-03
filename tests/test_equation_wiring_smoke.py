@@ -42,6 +42,30 @@ def test_semantic_cache_install_and_hit():
     assert cache.get(_key="unknown") is None
 
 
+def test_semantic_fallback_is_mode_scoped():
+    """A near-miss must never retrieve an answer cached under a different
+    performance_mode (diag: balanced chats were served speed drafts in ~1ms
+    via mode-blind similarity matching)."""
+    from gateway.simple_cache import SimpleCache
+    from gateway import equation_wiring as wiring
+    wiring._embs.clear()
+    cache = SimpleCache(persist=False)
+    assert wiring.install_semantic_cache(cache) is True
+    ctx_speed = {"model": "m", "performance_mode": "speed"}
+    ctx_bal = {"model": "m", "performance_mode": "balanced"}
+    cache.set("what is the capital of france?", "SPEED-ANS",
+              context=ctx_speed, _key="k-speed")
+    cache.set("what is the capital of france?", "BAL-ANS",
+              context=ctx_bal, _key="k-bal")
+    # Same text, unknown key -> exact miss -> semantic on identical embedding
+    # (sim 1.0) must return the SAME-mode answer, never the other mode's.
+    assert cache.get("what is the capital of france?",
+                     context=ctx_bal, _key="k-unknown") == "BAL-ANS"
+    assert cache.get("what is the capital of france?",
+                     context=ctx_speed, _key="k-unknown") == "SPEED-ANS"
+    wiring._embs.clear()
+
+
 def test_ewma_router_install():
     from gateway.opt_core import RouterState
     from gateway.equation_wiring import install_ewma_router

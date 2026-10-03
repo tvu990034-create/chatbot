@@ -25,10 +25,10 @@ logger = logging.getLogger(__name__)
 # Cache: semantic second-stage fallback
 # ---------------------------------------------------------------------------
 
-# key -> (context_tag, embedding); the context tag scopes matches to the same
-# conversation history so a near-duplicate in one session can never retrieve a
-# stored answer that was computed under a different history.
-_embs: Dict[str, Tuple[str, List[float]]] = {}
+# key -> (context_tag, embedding, performance_mode); the mode scopes matches
+# so a near-duplicate can never retrieve an answer cached under a different
+# mode (speed drafts are terse by design).
+_embs: Dict[str, Tuple[str, List[float], str]] = {}
 _embs_lock = threading.Lock()
 
 
@@ -102,11 +102,19 @@ def install_semantic_cache(cache: Any) -> bool:
                 return None
 
             tag = _ctx_tag(context)
+            # Mode scoping: a near-miss must never retrieve an answer cached
+            # under a different performance_mode (speed drafts are terse by
+            # design; serving one to balanced/quality corrupts their answers).
+            req_mode = (context or {}).get("performance_mode", "")
             q_emb = _cache_embed(query)
             with _embs_lock:
-                stored = {
-                    k: e for k, (t, e) in _embs.items() if t == tag
-                }
+                stored = {}
+                for k, v in _embs.items():
+                    t = v[0]
+                    e = v[1]
+                    m = v[2] if len(v) == 3 else ""
+                    if t == tag and m == req_mode:
+                        stored[k] = e
             if not stored:
                 return None
 
@@ -139,8 +147,9 @@ def install_semantic_cache(cache: Any) -> bool:
             if _key is None or not query:
                 return
             tag = _ctx_tag(context)
+            mode = (context or {}).get("performance_mode", "")
             with _embs_lock:
-                _embs[_key] = (tag, _cache_embed(query))
+                _embs[_key] = (tag, _cache_embed(query), mode)
                 if len(_embs) > 4096:
                     # Keep the dict bounded: drop oldest key.
                     _embs.pop(next(iter(_embs)), None)
