@@ -4114,7 +4114,7 @@ Code:"""
         
         global _prefix_response_cache_hits, _code_semantic_cache_hits
 
-        return {
+        stats = {
             "model": self.model_name,
             "performance_mode": self.performance_mode,
             "cache_size": len(self.cache) if self.cache else 0,
@@ -4153,7 +4153,7 @@ Code:"""
             "llm_judge_enabled": _llm_judge_enabled,
             "agentverse_enabled": _agentverse_enabled,
             "mindsearch_enabled": _mindsearch_enabled,
-            "total_optimizations": 900,  # 900+ repositories integrated
+            "total_optimizations": 0,  # replaced below with the live count
             "patterns_integrated": [
                 "DSPy", "LangChain", "vLLM", "Guidance", "Outlines",
                 "RouteLLM", "SGLang", "Qwen-Agent", "AgentLego", "FastChat",
@@ -4189,6 +4189,13 @@ Code:"""
                 "query_type_distribution": self.performance_metrics["query_type_distribution"]
             }
         }
+        # Honest count, not a hardcoded marketing number: the optimizations
+        # actually switched on (same *_enabled flags reported above).  The
+        # patterns_integrated list is a static bibliography, not a measurement.
+        stats["total_optimizations"] = sum(
+            1 for k, v in stats.items()
+            if k.endswith("_enabled") and v is True)
+        return stats
 
 _gateway_instances: Dict[tuple, "UniversalEnhancedGateway"] = {}
 

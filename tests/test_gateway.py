@@ -86,3 +86,15 @@ def test_optimization_stats_function():
     assert isinstance(stats, dict)
     assert "optimizations" in stats
     assert "total_optimizations" in stats
+
+
+def test_total_optimizations_counts_live_flags():
+    """total_optimizations must count actually-enabled switches, not a
+    hardcoded marketing number."""
+    from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+    gw = UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=False)
+    stats = gw.get_optimization_stats()
+    expected = sum(1 for k, v in stats.items()
+                   if k.endswith("_enabled") and v is True)
+    assert stats["total_optimizations"] == expected
+    assert stats["total_optimizations"] < 900

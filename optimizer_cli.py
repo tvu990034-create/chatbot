@@ -265,7 +265,9 @@ def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
     if warmup:
         probe = [{"role": "user", "content": "warmup"}]
         try:
-            gw.chat(probe)
+            # use_cache=False: warming must not store a junk "warmup" answer
+            # that a real user query could later hit.
+            gw.chat(probe, use_cache=False)
         except Exception:  # noqa: BLE001
             pass
         if use_baseline:
@@ -780,7 +782,9 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
         # the optimized/baseline averages.  Same pattern as run_bench().
         probe = [{"role": "user", "content": "warmup"}]
         try:
-            gw.chat(probe)
+            # use_cache=False: warming must not store a junk "warmup" answer
+            # that a real user query could later hit.
+            gw.chat(probe, use_cache=False)
         except Exception:  # noqa: BLE001
             pass
         if use_baseline and scored:

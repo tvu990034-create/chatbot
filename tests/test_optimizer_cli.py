@@ -18,7 +18,7 @@ class FakeGateway:
         self.cache_hits = 3
         self.cache_misses = 1
 
-    def chat(self, messages):
+    def chat(self, messages, **kwargs):
         return self.reply
 
 
@@ -219,7 +219,7 @@ def test_run_eval_restores_global_generation_timeout():
             cache_hits = 0
             cache_misses = 1
 
-            def chat(self, messages):
+            def chat(self, messages, **kwargs):
                 return "4"
 
         summary = optimizer_cli.run_eval(
@@ -236,7 +236,7 @@ def test_run_eval_hermetic():
         cache_hits = 0
         cache_misses = 1
 
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             query = messages[-1]["content"]
             return "4" if "+" in query else "9"
 
@@ -268,7 +268,7 @@ def test_run_eval_hermetic():
 
 def test_run_eval_never_aborts_on_bad_sample():
     class ExplodingGateway:
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             raise RuntimeError("boom")
 
     def broken_raw(messages, model=None, max_tokens=None):
@@ -329,7 +329,7 @@ def test_run_eval_latency_mode():
         cache_hits = 0
         cache_misses = 1
 
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             return f"Done with {messages[-1]['content'][:20]}"
 
     def fake_raw(messages, model=None, max_tokens=None):
@@ -378,7 +378,7 @@ def test_run_eval_word_mode():
         cache_hits = 0
         cache_misses = 1
 
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             return "Yes."
 
     def fake_raw(messages, model=None, max_tokens=None):
@@ -499,7 +499,7 @@ def test_run_bench_cold_error_preserves_baseline_ratio():
         def __init__(self):
             self.calls = 0
 
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             self.calls += 1
             if self.calls == 1:
                 raise TimeoutError("cold timed out")
@@ -526,7 +526,7 @@ def test_run_eval_latency_row_does_not_flip_scored_for_rest():
         cache_hits = 0
         cache_misses = 1
 
-        def chat(self, messages):
+        def chat(self, messages, **kwargs):
             return "yes"
 
     def sample(q, answer=None):
@@ -564,6 +564,27 @@ def test_make_gateway_rejects_bad_mode():
     """An unknown mode silently behaved as quality; fail loudly instead."""
     with pytest.raises(ValueError, match="unknown performance mode"):
         optimizer_cli.make_optimized_gateway("phi3:mini", "turbo")
+
+
+def test_bench_warmup_bypasses_cache():
+    """The warmup generation must not store a junk 'warmup' answer that a
+    later real query could hit."""
+
+    class RecordingGateway(FakeGateway):
+        def __init__(self):
+            super().__init__("pong")
+            self.calls = []
+
+        def chat(self, messages, **kwargs):
+            self.calls.append((messages, kwargs))
+            return self.reply
+
+    gw = RecordingGateway()
+    optimizer_cli.run_bench(n=1, gateway=gw, raw=lambda *a, **k: ("r", False, "m"),
+                            show=False, warmup=True)
+    first_msgs, first_kwargs = gw.calls[0]
+    assert first_msgs == [{"role": "user", "content": "warmup"}]
+    assert first_kwargs.get("use_cache") is False
 
 
 def test_run_eval_restores_timeout_when_gateway_fails(monkeypatch):
