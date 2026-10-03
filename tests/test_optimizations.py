@@ -2048,6 +2048,49 @@ class TestAdaptiveGenerationTimeout:
         assert seen["ollama/qwen3:4b"] > seen["ollama/phi3:mini"]
         assert seen["ollama/qwen3:4b"] >= 120.0
 
+    def test_litellm_chat_keeps_model_resident(self):
+        """keep_alive must reach ollama or the model unloads after 5 idle
+        minutes and the next request pays a ~60s cold reload."""
+        import gateway.litellm_gateway as lg
+
+        class _Msg:
+            content = "hi"
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+            model = "m"
+
+        seen = {}
+
+        def fake_completion(**kwargs):
+            seen.update(kwargs)
+            return _Resp()
+
+        with patch.object(lg, "completion", fake_completion):
+            lg.chat([{"role": "user", "content": "hi"}], model="phi3:mini",
+                    max_tokens=32, use_cache=False)
+        assert seen.get("keep_alive") == "30m"
+
+    def test_completion_proxy_sets_keep_alive(self):
+        from gateway import universal_enhanced_gateway as mod
+        calls = {}
+
+        def fake_litellm(**kwargs):
+            calls.update(kwargs)
+            raise AssertionError("stop here")
+
+        real = mod._litellm_completion
+        mod._litellm_completion = fake_litellm
+        try:
+            with pytest.raises(AssertionError):
+                mod.completion(model="ollama/phi3:mini", messages=[])
+        finally:
+            mod._litellm_completion = real
+        assert calls.get("keep_alive") == "30m"
+
 
 class TestSpeedModeReasoningBudget:
     """GSM8K regression: a flat 128-token speed cap truncates multi-step

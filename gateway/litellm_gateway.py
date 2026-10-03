@@ -112,6 +112,9 @@ def chat(
         "messages": messages,
         "temperature": temperature,
         "timeout": timeout,
+        # Keep the model resident: ollama unloads after 5 idle minutes by
+        # default, forcing a ~60s cold reload on the next request.
+        "keep_alive": "30m",
     }
     if reasoning_effort is not None:
         kwargs["reasoning_effort"] = reasoning_effort
@@ -315,6 +318,8 @@ async def achat_stream(
         getattr(settings, "generation_timeout", 15),
         thinking=any(m in (model or "").lower() for m in _THINK),
     )
+    # Keep the model resident (see chat()).
+    kwargs["keep_alive"] = "30m"
 
     def _stream_worker() -> None:
         nonlocal full_response, success

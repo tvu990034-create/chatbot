@@ -188,6 +188,9 @@ def completion(*args, **kwargs):
         # IPv4 fallback); 127.0.0.1 skips it.  Single choke point, so all
         # ~24 call sites are fixed at once (cf. opt_core normalization).
         kwargs["api_base"] = base.replace("localhost", "127.0.0.1")
+    # Keep the model resident across calls (ollama default unloads after 5
+    # idle minutes, forcing a ~60s cold reload on the next request).
+    kwargs.setdefault("keep_alive", "30m")
     return _ensure_litellm()(*args, **kwargs)
 
 from config import settings

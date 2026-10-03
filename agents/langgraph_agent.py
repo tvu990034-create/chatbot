@@ -483,6 +483,8 @@ def build_agent(extra_tools: list | None = None):
                                  for m in _THINK2),
                 ),
                 "api_base": settings.litellm_api_base or "http://127.0.0.1:11434",
+                # Keep the model resident across calls (see litellm_gateway).
+                "keep_alive": "30m",
             }
 
             # Pass top_p and top_k from generation policy (unless speed mode)
@@ -1344,6 +1346,8 @@ async def achat_stream(user_message: str, history: list[dict] | None = None, *,
             ),
             "api_base": settings.litellm_api_base or "http://127.0.0.1:11434",
             "stream": True,
+            # Keep the model resident across calls (see litellm_gateway).
+            "keep_alive": "30m",
         }
         if api_base:
             kwargs["api_base"] = api_base
