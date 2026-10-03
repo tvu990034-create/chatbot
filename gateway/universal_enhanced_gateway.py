@@ -444,6 +444,58 @@ SPEED_REASONING_MAX_TOKENS = 1024
 # these in speed mode (see _get_adaptive_model_params).
 THINKING_MODEL_MARKERS = ("qwen3",)
 
+# Fallback think-off budget when no measured 3-point scan exists yet.  tau(b)
+# for qwen3 on CPU is NON-monotonic (160 rambled 887 chars at 264s while 384
+# answered bare at ~138s), so the reasoning path never hardcodes this: it
+# loads b* measured by benchmark_results/probe_num_predict.py --three-point
+# and only uses the fallback on machines never probed.
+_THINKOFF_BSTAR_DEFAULT = 384
+_THINKOFF_BSTAR: Dict[str, int] = {}
+
+
+def _thinkoff_scan_path() -> str:
+    import os
+    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    return os.path.join(root, "benchmark_results", "num_predict_scan.json")
+
+
+def _measured_thinkoff_bstar(model: str, default: int = _THINKOFF_BSTAR_DEFAULT,
+                             scan_path: Optional[str] = None) -> int:
+    """Return the measured 3-point b* for ``model`` (cached per process).
+
+    Reads the latest matching row of num_predict_scan.json (rows written by
+    probe_num_predict.py --three-point carry the model tag; legacy rows
+    without one apply to any model).  Missing/unreadable file, no usable row,
+    or a non-positive value -> ``default``.  Never raises.
+    """
+    key = (model or "").strip() or "unknown"
+    if key in _THINKOFF_BSTAR:
+        return _THINKOFF_BSTAR[key]
+    b = int(default)
+    try:
+        with open(scan_path or _thinkoff_scan_path(),
+                  encoding="utf-8") as fh:
+            rows = json.load(fh)
+        if isinstance(rows, dict):
+            rows = [rows]
+        for row in reversed(rows or []):
+            if not isinstance(row, dict):
+                continue
+            if "b_star_fastest_correct" not in row:
+                continue
+            tag = row.get("model")
+            if tag is not None and tag != key:
+                continue
+            cand = int(row["b_star_fastest_correct"])
+            if cand > 0:
+                b = cand
+                break
+    except Exception as e:  # noqa: BLE001 - missing scan file is normal
+        logger.info("thinkoff b* scan unreadable, using default %d: %s",
+                    default, e)
+    _THINKOFF_BSTAR[key] = b
+    return b
+
 
 def is_multiple_choice_query(query: str) -> bool:
     """Return True when ``query`` is a multiple-choice / selection question.
@@ -3353,12 +3405,16 @@ Code:"""
                 240, int(getattr(settings, "generation_timeout", 240)))
             deadline = float(hard_deadline)
             # num_predict mirrors the raw baseline's cap: giving qwen3 room to
-            # keep writing lets it second-guess and flip the answer.  Probed
-            # on identical GSM8K items: 160 makes qwen3 ramble a long
-            # response; 384 makes it emit the clean bare number and completes
-            # FASTER (i=16: 138s vs 264s; i=82: 46s vs 93s), matching the
-            # A6 speed-mode reasoning cap.
-            budget = 384
+            # keep writing lets it second-guess and flip the answer.  tau(b)
+            # is NON-monotonic (probed on identical GSM8K items: 160 makes
+            # qwen3 ramble a long response; 384 emits the clean bare number
+            # and completes FASTER — i=16: 138s vs 264s; i=82: 46s vs 93s),
+            # so b* comes from the measured 3-point card
+            # (probe_num_predict.py --three-point -> num_predict_scan.json),
+            # never a hardcoded constant; the default below only covers
+            # machines never probed.
+            budget = _measured_thinkoff_bstar(
+                self.model_name, default=_THINKOFF_BSTAR_DEFAULT)
             use_stream = False
         else:
             easy_model = routed_model if (routed_model

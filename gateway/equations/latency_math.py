@@ -478,6 +478,55 @@ def sample_size_needed(effect_s: float, sigma_s: float, alpha: float = 0.05,
     return max(2, min(int(cap), n))
 
 
+def three_point_card(lo: int = 160, mid: int = 384,
+                     hi: int = 768) -> List[int]:
+    """Eq 181-190 — the minimal card that can see a local latency max.
+
+    tau(b) for qwen3 on CPU is NON-monotonic (budget 160 rambled 887 chars
+    at 264s while 384 answered bare at ~138s), so b* must come from a
+    measurement that brackets the peak, never from a hardcoded budget.
+    Three points are the minimum: the middle point slower than BOTH
+    neighbors proves a local max.  Defaults anchor the two measured points
+    (160 = known ramble, 384 = known clean) plus a high-side probe.
+    Sorted, de-duplicated, never raises.
+    """
+    pts = sorted({int(lo), int(mid), int(hi)})
+    return [b for b in pts if b > 0] or [int(mid)]
+
+
+def pick_b_star(medians: Dict[int, float],
+                ok_by_budget: Optional[Dict[int, bool]] = None,
+                length_penalty: float = 0.0,
+                lengths: Optional[Dict[int, float]] = None) -> dict:
+    """Eq 181-200 — b* from a measured card: fastest CORRECT off-peak budget.
+
+    ``medians`` maps budget -> median seconds; ``ok_by_budget`` marks which
+    budgets answered correctly (a ramble that never converges counts as not
+    ok, which is how the 160-budget ramble loses even before timing out).
+    Among correct budgets the score is ``median + length_penalty * chars``,
+    so a fast-but-rambling budget still loses to a clean answer; ties break
+    toward the smaller budget.  With no correct budget the peak is returned
+    (most likely to contain an answer at all).  Empty input -> b_star -1.
+    """
+    ok = ok_by_budget or {}
+    med = {int(b): float(m) for b, m in (medians or {}).items()
+           if math.isfinite(float(m))}
+    peak = peak_budget(med)
+    correct = [b for b in med if ok.get(b)]
+    if not correct:
+        return {"b_star": peak, "peak": peak, "n_correct": 0,
+                "measured": sorted(med)}
+    lens = lengths or {}
+    pen = max(0.0, float(length_penalty))
+
+    def _score(b: int) -> Tuple[float, int]:
+        return (med[b] + pen * float(lens.get(b, 0.0)), b)
+
+    best = min(correct, key=_score)
+    return {"b_star": best, "peak": peak, "n_correct": len(correct),
+            "measured": sorted(med)}
+
+
 # ---------------------------------------------------------------------------
 # Integrated driver — LatencyScanner (EqSet-L + Eq 21-40 + Eq 181-200)
 # ---------------------------------------------------------------------------
@@ -594,6 +643,7 @@ __all__ = [
     "welch_t", "jzs_bf10", "savings_test",
     # sampling design (Eq 181-200)
     "plan_budgets", "sample_size_needed",
+    "three_point_card", "pick_b_star",
     # integrated driver
     "LatencyScanner",
 ]

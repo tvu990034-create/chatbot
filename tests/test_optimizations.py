@@ -1386,6 +1386,70 @@ class TestSemanticCacheLegacyEntriesMatchable:
         assert out == "paris"
 
 
+class TestMeasuredThinkoffBStar:
+    """tau(b) for qwen3 is non-monotonic (160 rambled 887 chars at 264s while
+    384 answered bare at ~138s), so the reasoning think-off budget must come
+    from the measured 3-point scan, never a hardcoded constant."""
+
+    def _loader(self):
+        from gateway.universal_enhanced_gateway import (
+            _measured_thinkoff_bstar, _THINKOFF_BSTAR)
+        _THINKOFF_BSTAR.clear()
+        return _measured_thinkoff_bstar, _THINKOFF_BSTAR
+
+    def test_scan_file_b_star_used(self, tmp_path):
+        import json
+        load, cache = self._loader()
+        scan = tmp_path / "num_predict_scan.json"
+        scan.write_text(json.dumps([
+            {"i": 16, "model": "qwen3:4b",
+             "b_star_fastest_correct": 384},
+            {"i": 82, "model": "qwen3:4b",
+             "b_star_fastest_correct": 512},
+        ]), encoding="utf-8")
+        assert load("qwen3:4b", scan_path=str(scan)) == 512  # latest wins
+        assert cache["qwen3:4b"] == 512
+
+    def test_legacy_row_without_model_tag_applies(self, tmp_path):
+        import json
+        load, _ = self._loader()
+        scan = tmp_path / "num_predict_scan.json"
+        scan.write_text(json.dumps(
+            [{"i": 16, "b_star_fastest_correct": 384}]), encoding="utf-8")
+        assert load("qwen3:4b", scan_path=str(scan)) == 384
+
+    def test_other_model_row_skipped(self, tmp_path):
+        import json
+        load, _ = self._loader()
+        scan = tmp_path / "num_predict_scan.json"
+        scan.write_text(json.dumps(
+            [{"i": 0, "model": "phi3:mini", "b_star_fastest_correct": 96}]),
+            encoding="utf-8")
+        assert load("qwen3:4b", scan_path=str(scan)) == 384  # default
+
+    def test_missing_and_malformed_scan_fall_back(self, tmp_path):
+        load, _ = self._loader()
+        assert load("model-a", scan_path=str(tmp_path / "nope.json")) == 384
+        bad = tmp_path / "bad.json"
+        bad.write_text("{not json", encoding="utf-8")
+        assert load("model-b", scan_path=str(bad)) == 384
+        nonpos = tmp_path / "nonpos.json"
+        import json
+        nonpos.write_text(json.dumps(
+            [{"model": "model-c", "b_star_fastest_correct": 0}]),
+            encoding="utf-8")
+        assert load("model-c", scan_path=str(nonpos)) == 384
+
+    def test_reasoning_budget_not_hardcoded(self):
+        # Source-level regression: the reasoning branch must call the
+        # measured loader, not `budget = 384`.
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        assert "budget = 384" not in src
+        assert "_measured_thinkoff_bstar(" in src
+
+
 class TestWholeCodebaseImportIntegrity:
     def test_rag_self_rag_imports(self):
         from unittest.mock import patch, MagicMock

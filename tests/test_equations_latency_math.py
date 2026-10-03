@@ -18,11 +18,13 @@ from gateway.equations.latency_math import (
     parabola_vertex,
     peak_bracket,
     peak_budget,
+    pick_b_star,
     plan_budgets,
     refine_from_bracket,
     sample_size_needed,
     savings_test,
     suggest_next_budget,
+    three_point_card,
     ucb_chart,
     welch_t,
 )
@@ -254,3 +256,49 @@ def test_scanner_ucb_when_all_probed():
     # Highest UCB stays near the big-latency budget.
     sug = s.next_budget()
     assert sug in s.candidates()
+
+
+# ---------------------------------------------------------------------------
+# 3-point card + measured b* (non-monotonic tau)
+# ---------------------------------------------------------------------------
+
+def test_three_point_card_default_anchors_measured_points():
+    # Anchors the two probed points (160 = ramble, 384 = clean) + high probe.
+    assert three_point_card() == [160, 384, 768]
+
+
+def test_three_point_card_sorted_unique_safe():
+    assert three_point_card(768, 384, 160) == [160, 384, 768]
+    assert three_point_card(384, 384, 384) == [384]
+
+
+def test_pick_b_star_qwen3_probe_avoids_ramble_peak():
+    # Measured shape: 160 rambles (slow AND wrong), 384 answers bare/fast.
+    med = {160: 264.0, 384: 138.0, 768: 200.0}
+    ok = {160: False, 384: True, 768: True}
+    sel = pick_b_star(med, ok)
+    assert sel["b_star"] == 384
+    assert sel["peak"] == 160
+    assert sel["n_correct"] == 2
+
+
+def test_pick_b_star_length_penalty_sinks_ramble():
+    # Both correct, but 160's 887-char ramble still loses to the bare answer.
+    med = {160: 100.0, 384: 138.0}
+    ok = {160: True, 384: True}
+    lens = {160: 887.0, 384: 20.0}
+    assert pick_b_star(med, ok)["b_star"] == 160  # fastest correct, no penalty
+    sel = pick_b_star(med, ok, length_penalty=0.5, lengths=lens)
+    assert sel["b_star"] == 384
+
+
+def test_pick_b_star_none_correct_falls_back_to_peak():
+    sel = pick_b_star({160: 264.0, 384: 138.0}, {160: False, 384: False})
+    assert sel["b_star"] == 160  # peak = most likely to contain an answer
+    assert sel["n_correct"] == 0
+
+
+def test_pick_b_star_empty_safe():
+    sel = pick_b_star({}, {})
+    assert sel["b_star"] == -1
+    assert sel["peak"] == -1
