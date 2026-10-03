@@ -69,13 +69,12 @@ def test_chat_call_mocked(mock_completion):
 
     messages = [{"role": "user", "content": "Hello"}]
 
-    # This should not make a real API call
-    try:
-        response = chat(messages, use_cache=False, use_router=False)
-        assert response == "Test response"
-    except Exception as e:
-        # It's okay if this fails due to missing dependencies
-        pytest.skip(f"Test skipped due to: {e}")
+    # This should not make a real API call.  chat() returns
+    # (reply, cache_hit, model): assert the tuple shape, not just text.
+    # (No blanket skip: a test that can never fail verifies nothing.)
+    response, hit, model = chat(messages, use_cache=False)
+    assert response == "Test response"
+    assert hit is False
 
 
 def test_optimization_stats_function():
