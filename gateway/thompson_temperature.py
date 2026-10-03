@@ -1,11 +1,17 @@
 """
 Thompson Sampling for Adaptive Temperature
 Bayesian bandit algorithm that maintains Beta posterior over temperature effectiveness
-Balances exploration and exploitation for optimal temperature selection
+Balances exploration and exploitation for optimal temperature selection.
+
+Backend: gateway.equations.bandit_math.ThompsonSampler (single-sourced,
+seeded equation math) — this module is the temperature-selection adapter
+over it, not a second implementation.
 """
 
 import numpy as np
 from collections import deque
+
+from gateway.equations.bandit_math import ThompsonSampler
 
 class ThompsonSamplingTemperature:
     """
@@ -25,9 +31,9 @@ class ThompsonSamplingTemperature:
             self.temperature_options = np.array(temperature_options)
 
         self.num_options = len(self.temperature_options)
-        # Beta priors: alpha (successes), beta (failures)
-        self.alpha = np.ones(self.num_options)  # Prior: uniform
-        self.beta = np.ones(self.num_options)
+        # Beta posteriors live in the shared equation backend (one arm per
+        # temperature option).
+        self._sampler = ThompsonSampler(n_arms=self.num_options)
 
         self.window_size = window_size
         self.history = deque(maxlen=window_size)
@@ -36,11 +42,10 @@ class ThompsonSamplingTemperature:
     def select_temperature(self):
         """
         Select temperature using Thompson Sampling.
-        Sample from Beta posterior for each temperature, choose max.
+        Sample from Beta posterior for each temperature option, choose max.
         """
-        # Sample from Beta posterior for each temperature option
-        samples = np.random.beta(self.alpha, self.beta)
-        self.current_temp_idx = np.argmax(samples)
+        # Probability matching via the shared backend (Beta draw per arm).
+        self.current_temp_idx = int(self._sampler.sample())
         return self.temperature_options[self.current_temp_idx]
 
     def record_feedback(self, success: bool):
@@ -51,11 +56,8 @@ class ThompsonSamplingTemperature:
         if self.current_temp_idx is None:
             return
 
-        # Update Beta parameters for the selected temperature
-        if success:
-            self.alpha[self.current_temp_idx] += 1
-        else:
-            self.beta[self.current_temp_idx] += 1
+        # Conjugate update through the shared backend.
+        self._sampler.update(int(self.current_temp_idx), 1.0 if success else 0.0)
 
         # Record in history
         self.history.append((self.temperature_options[self.current_temp_idx], success))
@@ -100,15 +102,15 @@ class ThompsonSamplingTemperature:
                 float(t): float(sr) for t, sr in zip(self.temperature_options, success_rates)
             },
             "current_posterior_means": {
-                float(t): float(a / (a + b))
-                for t, a, b in zip(self.temperature_options, self.alpha, self.beta)
+                float(t): float(m)
+                for t, m in zip(self.temperature_options,
+                                self._sampler.expected_means())
             }
         }
 
     def reset(self):
         """Reset to initial state."""
-        self.alpha = np.ones(self.num_options)
-        self.beta = np.ones(self.num_options)
+        self._sampler.reset()
         self.history.clear()
         self.current_temp_idx = None
 

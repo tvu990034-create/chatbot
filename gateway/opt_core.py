@@ -41,16 +41,25 @@ TIMEOUT_BUFFER_S = 15.0         # scheduler/queue/load cushion
 def adaptive_generation_timeout(
     max_tokens: Optional[int] = None,
     base_timeout: Optional[float] = None,
+    thinking: bool = False,
 ) -> float:
     """Return an LLM-call timeout scaled to the token budget.
 
     base_timeout is the user-configured minimum (settings.generation_timeout).
     For max_tokens that fit within base grace the budget unchanged; otherwise
     scale so the model is allowed enough wall time to actually finish.
+    thinking=True adds the hidden-reasoning + cold-load cushion: thinking
+    models (qwen3) reason before answering even with think-off (options
+    think is ignored on /api/chat) and take ~60s to load cold — both count
+    against the timeout, so the phi3-measured floor alone (128 tok -> 43s)
+    kills their baseline calls mid-generation.  Mirrors the universal
+    _adaptive_timeout options cushion.
     """
     base = float(base_timeout if base_timeout is not None else 15.0)
     budget = int(max_tokens or 128)
     needed = budget / TOKENS_PER_SECOND_FLOOR + TIMEOUT_BUFFER_S
+    if thinking:
+        needed += 120.0
     return max(base, needed)
 
 
@@ -450,7 +459,16 @@ def build_context_messages(
     # keep only the most recent history window so we never exceed the window.
     if used > context_limit:
         dropped += _tokens(hist_msgs)
-        hist_msgs = hist_msgs[-always_keep_n_history:]
+        # Eq M19 (memory_math.drop_oldest): keep the newest N turns.
+        # (n_keep <= 0 keeps legacy [-0:] full-slice semantics.)
+        if always_keep_n_history > 0:
+            try:
+                from gateway.equations.memory_math import drop_oldest
+                hist_msgs = drop_oldest(hist_msgs, always_keep_n_history)
+            except Exception:  # noqa: BLE001 - equation is best-effort
+                hist_msgs = hist_msgs[-always_keep_n_history:]
+        else:
+            hist_msgs = hist_msgs[-always_keep_n_history:]
         used = _tokens(_assemble(hist_msgs))
         while hist_msgs and used > context_limit:
             dropped_one = hist_msgs.pop(0)

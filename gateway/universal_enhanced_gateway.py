@@ -183,6 +183,12 @@ def _ensure_litellm():
 
 def completion(*args, **kwargs):
     """Lazy litellm.completion proxy (see note above)."""
+    base = kwargs.get("api_base")
+    if isinstance(base, str) and "localhost" in base:
+        # Windows resolves localhost IPv6-first (~2s stall per call before
+        # IPv4 fallback); 127.0.0.1 skips it.  Single choke point, so all
+        # ~24 call sites are fixed at once (cf. opt_core normalization).
+        kwargs["api_base"] = base.replace("localhost", "127.0.0.1")
     return _ensure_litellm()(*args, **kwargs)
 
 from config import settings
@@ -843,6 +849,27 @@ class UniversalEnhancedGateway:
                             self.cache_hits += 1
                             logger.info(f"Cache hit in <0.01s")
                             return entry["response"]
+
+            # Semantic second stage (cache_math equations via the installed
+            # install_semantic_cache layer on the persistent singleton).
+            # Fires ONLY on exact miss, so the primary exact path above is
+            # untouched.  Keyed by the same mode-scoped md5, so scoping
+            # matches the exact path; near-miss queries get the closest
+            # stored answer instead of a guaranteed model call.
+            try:
+                from gateway.simple_cache import get_cache as _get_sem_cache
+                sem_hit = _get_sem_cache().get(
+                    query,
+                    context={"model": self.model_name,
+                             "performance_mode": self.performance_mode},
+                    _key=cache_key)
+            except Exception:  # noqa: BLE001 - semantic is best-effort
+                sem_hit = None
+            if sem_hit:
+                with _cache_lock:
+                    self.cache_hits += 1
+                logger.info("Semantic cache hit in <0.05s")
+                return sem_hit
             
             # DISABLED: Ultra-aggressive fuzzy matching (dangerous - can return wrong answers)
             # Bug #13: Fuzzy cache matching is dangerous and can return answers to wrong questions
@@ -1027,12 +1054,21 @@ class UniversalEnhancedGateway:
                     # BUG 75 FIX: Don't double-prefix with ollama/ if already present
                     model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                     if self._should_use_raw_reasoning(query_analysis):
-                        # Thinking models + hard reasoning: litellm's ollama
-                        # path times out >=600s where plain /api/generate
-                        # finishes in ~230-680s (post-fix 24-key benchmark:
-                        # qwen3 raw 2/4 HLE correct vs smart 0/4 / speed 1/4).
-                        # Go straight to the raw generator - no staging.
-                        response_text = self._raw_reasoning_call(query)
+                        # Thinking models + hard reasoning: the bounded
+                        # think-off call is the proven-fast primary (same
+                        # transport the balanced path leads with; measured
+                        # b*, never a hardcoded budget).  Full-thinking raw
+                        # stays as the fallback for queries think-off cannot
+                        # complete.  (Old behavior ran full thinking first:
+                        # 79-242s per reasoning query on CPU.)
+                        response_text = self._thinkoff_call(
+                            query,
+                            budget=_measured_thinkoff_bstar(
+                                self.model_name,
+                                default=_THINKOFF_BSTAR_DEFAULT))
+                        if response_text is None:
+                            response_text = self._raw_reasoning_call(
+                                query, think=False)
                     else:
                         response = completion(
                             model=model_to_use,  # Bug #34 FIX: Use routed model
@@ -1052,10 +1088,17 @@ class UniversalEnhancedGateway:
                 # BUG 75 FIX: Don't double-prefix with ollama/ if already present
                 model_to_use = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
                 if self._should_use_raw_reasoning(query_analysis):
-                    # See the math-branch comment: litellm + Qwen3-thinking is
-                    # a documented timeout trap on reasoning queries; raw
-                    # generator is the fast-and-correct primary path.
-                    response_text = self._raw_reasoning_call(query)
+                    # Same think-off-primary ladder as the math branch above:
+                    # bounded think-off first, full-thinking raw only on
+                    # failure.
+                    response_text = self._thinkoff_call(
+                        query,
+                        budget=_measured_thinkoff_bstar(
+                            self.model_name,
+                            default=_THINKOFF_BSTAR_DEFAULT))
+                    if response_text is None:
+                        response_text = self._raw_reasoning_call(
+                            query, think=False)
                 else:
                     response = completion(
                         model=model_to_use,
@@ -1079,9 +1122,38 @@ class UniversalEnhancedGateway:
                     and (query_analysis.is_math or query_analysis.is_coding
                          or query_analysis.needs_reasoning or query_analysis.is_complex
                          or query_analysis.expected_response_length == "long")):
-                verified = self._verify_speed_answer(query_analysis.query if hasattr(query_analysis, "query") else query, response_text)
-                if verified:
-                    response_text = verified
+                # Calibration gate (calibration_math: calibrated_confidence +
+                # should_defer_to_verify): high-confidence drafts skip the
+                # second model call (faster); low-confidence drafts are still
+                # verified (smarter).  Fail-open: any error verifies as
+                # before, never silently skips.
+                _verify_needed = True
+                try:
+                    from gateway.calibration_metrics import (
+                        estimate_confidence_from_response)
+                    from gateway.equations.calibration_math import (
+                        calibrated_confidence, should_defer_to_verify)
+                    try:
+                        from gateway.adaptive_temperature import (
+                            get_adaptive_temperature)
+                        _at = get_adaptive_temperature().get_temperature()
+                    except Exception:  # noqa: BLE001
+                        _at = 1.0
+                    _qtype = ("reasoning"
+                              if (query_analysis.is_math
+                                  or query_analysis.needs_reasoning)
+                              else "factual")
+                    _conf = calibrated_confidence(
+                        estimate_confidence_from_response(
+                            response_text, _qtype),
+                        temperature=float(_at or 1.0))
+                    _verify_needed = should_defer_to_verify(_conf)
+                except Exception:  # noqa: BLE001
+                    _verify_needed = True
+                if _verify_needed:
+                    verified = self._verify_speed_answer(query_analysis.query if hasattr(query_analysis, "query") else query, response_text)
+                    if verified:
+                        response_text = verified
                 duration = time.time() - start_time
             
             # Step 10: Guidance response constraints: Apply output formatting
@@ -1147,6 +1219,20 @@ class UniversalEnhancedGateway:
                     import random
                     jitter = random.uniform(0.9, 1.1)  # 10% jitter
                     self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
+
+                # Mirror into the persistent SimpleCache singleton under the
+                # SAME mode-scoped md5.  This feeds the installed semantic
+                # second stage (Step 3 read above) and survives restarts via
+                # the singleton's disk persistence.  Best-effort only.
+                try:
+                    from gateway.simple_cache import get_cache as _get_mirror
+                    _get_mirror().set(
+                        query, response_text,
+                        context={"model": self.model_name,
+                                 "performance_mode": self.performance_mode},
+                        _key=cache_key)
+                except Exception:  # noqa: BLE001
+                    pass
 
                 # Step 11.1: Prefix-keyed response cache write — store the full
                 # response keyed by the full conversation fingerprint.  The
@@ -2250,8 +2336,6 @@ Use this result to provide your final answer in \\boxed{{}} format."""
             return None
         
         try:
-            from collections import Counter
-            
             responses = []
             confidences = []
             
@@ -2309,11 +2393,18 @@ Use this result to provide your final answer in \\boxed{{}} format."""
             if not answers:
                 return responses[0]  # Fallback to first response
             
-            # Weighted majority vote
-            answer_counts = Counter(answers)
-            best_answer = answer_counts.most_common(1)[0][0]
-            
-            logger.info(f"CISC: Selected answer {best_answer} (weighted from {len(answers)} votes)")
+            # Weighted majority vote (routing_math Eq R13/R14): most frequent
+            # answer plus its agreement fraction.  Below clearance the samples
+            # disagree, so the "winner" is untrustworthy — return None and let
+            # the staircase fall through to preference selection instead of
+            # serving a disputed answer as confident truth.
+            from gateway.equations.routing_math import (
+                majority_consensus, consensus_clearance)
+            best_answer, agree_frac = majority_consensus(answers)
+
+            logger.info(f"CISC: Selected answer {best_answer} (weighted from {len(answers)} votes, agreement={agree_frac:.2f})")
+            if best_answer is None or not consensus_clearance(agree_frac):
+                return None
             
             # Return response with best answer
             for response in responses:
@@ -3586,6 +3677,17 @@ Code:"""
                     import random as _random
                     jitter = _random.uniform(0.9, 1.1)
                     self.cache_ttl[cache_key] = time.time() + (ttl * jitter)
+                # Mirror into the persistent singleton (feeds the Step 3
+                # semantic second stage + disk persistence).  Best-effort.
+                try:
+                    from gateway.simple_cache import get_cache as _get_bmirror
+                    _get_bmirror().set(
+                        query, response_text,
+                        context={"model": self.model_name,
+                                 "performance_mode": self.performance_mode},
+                        _key=cache_key)
+                except Exception:  # noqa: BLE001
+                    pass
 
             # Prefix-keyed response cache (read path: Step 2).
             if self.prefix_response_cache is not None:
@@ -4062,26 +4164,28 @@ Code:"""
             }
         }
 
-_gateway_instance = None
+_gateway_instances: Dict[tuple, "UniversalEnhancedGateway"] = {}
+
+
+def _reset_gateways_for_tests() -> None:
+    """Clear the gateway registry (tests only)."""
+    _gateway_instances.clear()
+
 
 def get_universal_gateway(model_name: str = "phi3:mini", enable_all_optimizations: bool = True, performance_mode: str = "speed") -> UniversalEnhancedGateway:
-    """Get or create a singleton universal gateway instance.
+    """Get or create the gateway instance for these parameters.
 
-    If the singleton already exists but was created with different parameters,
-    log a warning and return the existing instance (re-creating it would lose
-    accumulated metrics, cache state, and warming data).
+    Instances are keyed by (model, optimizations, mode): requesting a
+    different mode returns a DIFFERENT gateway.  The old single-slot
+    singleton silently served a speed-configured gateway to balanced
+    callers (and vice versa), so same-process multi-mode benchmarks
+    measured the wrong mode and cross-mode cache keys collided.
+    Accumulated metrics/cache/warming are preserved per key.
     """
-    global _gateway_instance
-    if _gateway_instance is None:
-        _gateway_instance = UniversalEnhancedGateway(model_name, enable_all_optimizations, performance_mode)
-    else:
-        if (_gateway_instance.model_name != model_name
-                or _gateway_instance.performance_mode != performance_mode):
-            logger.warning(
-                "get_universal_gateway called with different parameters "
-                "(model=%s, mode=%s) than the existing singleton "
-                "(model=%s, mode=%s). Returning existing instance.",
-                model_name, performance_mode,
-                _gateway_instance.model_name, _gateway_instance.performance_mode,
-            )
-    return _gateway_instance
+    global _gateway_instances
+    key = (model_name, bool(enable_all_optimizations), performance_mode)
+    gw = _gateway_instances.get(key)
+    if gw is None:
+        gw = UniversalEnhancedGateway(model_name, enable_all_optimizations, performance_mode)
+        _gateway_instances[key] = gw
+    return gw

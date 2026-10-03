@@ -97,9 +97,15 @@ def chat(
     
     # API call
     from gateway.opt_core import adaptive_generation_timeout
+    try:
+        from gateway.universal_enhanced_gateway import THINKING_MODEL_MARKERS
+    except Exception:  # noqa: BLE001 - universal not loaded on raw-only paths
+        THINKING_MODEL_MARKERS = ("qwen3",)
+    _thinking = any(m in model.lower() for m in THINKING_MODEL_MARKERS)
     timeout = adaptive_generation_timeout(
         max_tokens or settings.litellm_max_tokens,
         getattr(settings, "generation_timeout", 15),
+        thinking=_thinking,
     )
     kwargs = {
         "model": model,
@@ -120,6 +126,7 @@ def chat(
             kwargs["timeout"] = adaptive_generation_timeout(
                 options["num_predict"],
                 getattr(settings, "generation_timeout", 15),
+                thinking=_thinking,
             )
         else:
             kwargs["max_tokens"] = max_tokens
@@ -281,10 +288,6 @@ async def achat_stream(
         "messages": messages,
         "temperature": temperature,
         "max_tokens": max_tokens,
-        "timeout": adaptive_generation_timeout(
-            max_tokens,
-            getattr(settings, "generation_timeout", 15),
-        ),
         "stream": True,
     }
     if api_base:
@@ -303,6 +306,15 @@ async def achat_stream(
     _SENTINEL = object()
     full_response = ""
     success = False
+    try:
+        from gateway.universal_enhanced_gateway import THINKING_MODEL_MARKERS as _THINK
+    except Exception:  # noqa: BLE001 - universal not loaded on raw-only paths
+        _THINK = ("qwen3",)
+    kwargs["timeout"] = adaptive_generation_timeout(
+        max_tokens,
+        getattr(settings, "generation_timeout", 15),
+        thinking=any(m in (model or "").lower() for m in _THINK),
+    )
 
     def _stream_worker() -> None:
         nonlocal full_response, success

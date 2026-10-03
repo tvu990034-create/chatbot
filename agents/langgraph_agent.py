@@ -120,6 +120,7 @@ async def _rag_prefetch(question: str) -> str:
         return ""
 
     snippets: list[str] = []
+    fetched: dict[str, dict] = {}
 
     def _format_chunks(result: dict) -> str | None:
         chunks = result.get("chunks") or []
@@ -133,15 +134,60 @@ async def _rag_prefetch(question: str) -> str:
             lines.append(f"[chunk {i}] ({src})\n{text[:2000]}")
         return "\n\n".join(lines)
 
+    def _fuse_rrf(first: dict, second: dict) -> str | None:
+        """Fuse two providers' ranked chunk lists with retrieval_math RRF.
+
+        Each provider's list order IS its ranking; identical texts across
+        providers share one id so corroborated chunks boost.  Falls back to
+        concatenation when fusion is unavailable.
+        """
+        try:
+            from gateway.equations.retrieval_math import rrf as _rrf
+        except Exception:  # noqa: BLE001 - fusion is best-effort
+            return None
+        lists: list[list[int]] = []
+        by_id: list[str] = []
+        meta: dict[int, tuple[str, str]] = {}
+        tags = (("LlamaIndex", first), ("Haystack", second))
+        for tag, res in tags:
+            chunks = res.get("chunks") or []
+            sources = res.get("sources") or []
+            order: list[int] = []
+            for i, chunk in enumerate(chunks):
+                text = chunk if isinstance(chunk, str) else str(chunk)
+                src = sources[i] if i < len(sources) else "unknown"
+                try:
+                    idx = by_id.index(text)
+                except ValueError:
+                    idx = len(by_id)
+                    by_id.append(text)
+                    meta[idx] = (src, tag)
+                order.append(idx)
+            if order:
+                lists.append(order)
+        if len(lists) < 2:
+            return None
+        fused = _rrf(lists)
+        if not fused:
+            return None
+        lines = []
+        for rank, (doc_id, _score) in enumerate(fused, start=1):
+            src, tag = meta[doc_id]
+            lines.append(f"[chunk {rank} via {tag}] ({src})\n{by_id[doc_id][:2000]}")
+        return "\n\n".join(lines)
+
     async def _fetch_llama():
         try:
             from rag.llama_index_rag import get_rag
             result = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: get_rag().retrieve(question)
             )
-            body = _format_chunks(result) if isinstance(result, dict) else None
-            if body:
-                snippets.append(f"[LlamaIndex context]\n{body}")
+            if isinstance(result, dict):
+                fetched["llama"] = result
+                if provider != RAGProvider.BOTH:
+                    body = _format_chunks(result)
+                    if body:
+                        snippets.append(f"[LlamaIndex context]\n{body}")
         except Exception as exc:
             logger.warning("Eq2 LlamaIndex prefetch failed: %s", exc)
 
@@ -151,9 +197,12 @@ async def _rag_prefetch(question: str) -> str:
             result = await asyncio.get_running_loop().run_in_executor(
                 None, lambda: get_haystack_rag().retrieve(question)
             )
-            body = _format_chunks(result) if isinstance(result, dict) else None
-            if body:
-                snippets.append(f"[Haystack context]\n{body}")
+            if isinstance(result, dict):
+                fetched["haystack"] = result
+                if provider != RAGProvider.BOTH:
+                    body = _format_chunks(result)
+                    if body:
+                        snippets.append(f"[Haystack context]\n{body}")
         except Exception as exc:
             logger.warning("Eq2 Haystack prefetch failed: %s", exc)
 
@@ -165,6 +214,19 @@ async def _rag_prefetch(question: str) -> str:
 
     if tasks:
         await asyncio.gather(*tasks, return_exceptions=True)
+
+    if provider == RAGProvider.BOTH:
+        if "llama" in fetched and "haystack" in fetched:
+            fused = _fuse_rrf(fetched["llama"], fetched["haystack"])
+            if fused:
+                return f"[Fused RAG context (RRF)]\n{fused}"
+        # Fusion unavailable (or a provider failed): keep whatever survived.
+        for tag, key in (("LlamaIndex", "llama"), ("Haystack", "haystack")):
+            if key not in fetched:
+                continue
+            body = _format_chunks(fetched[key])
+            if body:
+                snippets.append(f"[{tag} context]\n{body}")
 
     return "\n\n".join(snippets)
 

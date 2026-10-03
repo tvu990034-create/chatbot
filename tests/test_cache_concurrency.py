@@ -370,25 +370,42 @@ class TestPrefixCacheRace:
 # ===================================================================
 
 class TestGatewaySingleton:
-    """get_universal_gateway must warn on parameter mismatch."""
+    """get_universal_gateway is keyed by (model, optimizations, mode)."""
 
     def test_singleton_identity(self):
-        from gateway.universal_enhanced_gateway import get_universal_gateway
-        g1 = get_universal_gateway()
-        g2 = get_universal_gateway()
-        assert g1 is g2
+        from gateway.universal_enhanced_gateway import (
+            get_universal_gateway, _reset_gateways_for_tests)
+        _reset_gateways_for_tests()
+        try:
+            g1 = get_universal_gateway()
+            g2 = get_universal_gateway()
+            assert g1 is g2
+        finally:
+            _reset_gateways_for_tests()
 
-    def test_singleton_ignores_different_params(self):
-        """Second call with different params returns same instance."""
-        from gateway.universal_enhanced_gateway import get_universal_gateway
-        g1 = get_universal_gateway()
-        original_model = g1.model_name
-        original_mode = g1.performance_mode
-        g2 = get_universal_gateway(model_name="completely_different_model", performance_mode="quality")
-        assert g1 is g2
-        # Original params must NOT be overwritten
-        assert g1.model_name == original_model
-        assert g1.performance_mode == original_mode
+    def test_different_params_are_different_gateways(self):
+        """Second call with different params returns its own instance.
+
+        The old single-slot singleton silently served the first gateway to
+        every later caller regardless of mode, so same-process multi-mode
+        benchmarks measured the wrong mode.
+        """
+        from gateway.universal_enhanced_gateway import (
+            get_universal_gateway, _reset_gateways_for_tests)
+        _reset_gateways_for_tests()
+        try:
+            g1 = get_universal_gateway()
+            original_model = g1.model_name
+            original_mode = g1.performance_mode
+            g2 = get_universal_gateway(model_name="completely_different_model", performance_mode="quality")
+            assert g1 is not g2
+            # Original gateway must NOT be overwritten or reconfigured
+            assert g1.model_name == original_model
+            assert g1.performance_mode == original_mode
+            assert g2.model_name == "completely_different_model"
+            assert g2.performance_mode == "quality"
+        finally:
+            _reset_gateways_for_tests()
 
 
 # ===================================================================

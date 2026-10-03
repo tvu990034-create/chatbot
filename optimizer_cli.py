@@ -128,9 +128,19 @@ def _trim_context(messages: List[Dict[str, str]],
 def make_optimized_gateway(model: Optional[str] = None, mode: str = DEFAULT_MODE):
     from gateway.universal_enhanced_gateway import get_universal_gateway
     _quiet_library_logging()
-    return get_universal_gateway(model_name=_resolve_model(model),
-                                 enable_all_optimizations=True,
-                                 performance_mode=mode)
+    gw = get_universal_gateway(model_name=_resolve_model(model),
+                               enable_all_optimizations=True,
+                               performance_mode=mode)
+    # Install every equation-wiring exactly once per process (idempotent,
+    # settings-guarded, never raises): semantic cache layer, EWMA router
+    # tracker, Koopman RAG mixer.  Previously only the agent path installed
+    # these, so bench/chat/run traffic never executed the wired equations.
+    try:
+        from gateway.equation_wiring import install_all
+        install_all()
+    except Exception:  # noqa: BLE001
+        pass
+    return gw
 
 
 def raw_chat(messages: List[Dict[str, str]], model: Optional[str] = None,

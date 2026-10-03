@@ -8,6 +8,7 @@ import json
 import logging
 import os
 import threading
+import time
 from typing import Dict, Optional
 from pathlib import Path
 
@@ -59,11 +60,25 @@ class SemanticCache:
                 raw = json.load(f)
         except Exception as e:
             logger.warning("Failed to load semantic cache: %s", e)
+            self._quarantine_corrupt()
             return
         if isinstance(raw, dict):
             for key, entry in list(raw.items())[-self._max_size:]:
                 if isinstance(entry, dict):
                     self._store.set(key, entry)
+
+    def _quarantine_corrupt(self) -> None:
+        """Move an unreadable cache file aside instead of letting the next
+        save silently overwrite it (Eq I254/B57: validate at init, never
+        destroy evidence of corruption).  Best-effort; never raises."""
+        try:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            backup = self.cache_file.with_name(
+                f"{self.cache_file.stem}.corrupt.{stamp}.bak")
+            os.replace(self.cache_file, backup)
+            logger.warning("Quarantined corrupt cache file to %s", backup)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not quarantine corrupt cache file: %s", e)
 
     def _save_cache(self):
         if not self._persist:

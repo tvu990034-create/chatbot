@@ -317,17 +317,32 @@ class TestCodeRouting:
 # ---------------------------------------------------------------------------
 
 class TestSingletonGateway:
-    """get_universal_gateway should return the same instance."""
+    """get_universal_gateway returns the same instance per (model, mode)."""
 
     def test_singleton(self):
         from gateway import universal_enhanced_gateway as mod
         # Reset
-        mod._gateway_instance = None
+        mod._reset_gateways_for_tests()
         g1 = mod.get_universal_gateway("phi3:mini", False, "speed")
         g2 = mod.get_universal_gateway("phi3:mini", False, "speed")
         assert g1 is g2
         # Cleanup
-        mod._gateway_instance = None
+        mod._reset_gateways_for_tests()
+
+    def test_different_mode_is_different_gateway(self):
+        """Regression: the old single-slot singleton silently served a
+        speed-configured gateway to balanced callers, so same-process
+        multi-mode benchmarks measured the wrong mode."""
+        from gateway import universal_enhanced_gateway as mod
+        mod._reset_gateways_for_tests()
+        try:
+            g_speed = mod.get_universal_gateway("phi3:mini", False, "speed")
+            g_bal = mod.get_universal_gateway("phi3:mini", False, "balanced")
+            assert g_speed is not g_bal
+            assert g_speed.performance_mode == "speed"
+            assert g_bal.performance_mode == "balanced"
+        finally:
+            mod._reset_gateways_for_tests()
 
 
 # ---------------------------------------------------------------------------
@@ -1449,6 +1464,251 @@ class TestMeasuredThinkoffBStar:
         assert "budget = 384" not in src
         assert "_measured_thinkoff_bstar(" in src
 
+    def test_staircase_thinkoff_primary(self):
+        """Slow-cause fix: the staircase thinking branches must lead with
+        the bounded think-off call (measured b*), keeping full-thinking
+        raw only as fallback — not full thinking first (79-242s/query)."""
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        parts = src.split("_should_use_raw_reasoning(query_analysis)")
+        # def + 2 staircase branch sites.
+        assert len(parts) == 3
+        for branch in parts[1:]:
+            seg = branch[:2000]
+            assert "_thinkoff_call(" in seg
+            assert seg.index("_thinkoff_call(") < seg.index("_raw_reasoning_call(")
+
+
+class TestSemanticSecondStage:
+    """The installed semantic layer patched a singleton nothing read.
+    Step 3 must consult it on exact miss; writes must mirror into it."""
+
+    def _gateway(self, mode):
+        from gateway import universal_enhanced_gateway as mod
+        return mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode=mode)
+
+    def test_singleton_hit_serves_chat_without_model(self):
+        from unittest.mock import patch
+        from gateway import universal_enhanced_gateway as mod
+        from gateway.simple_cache import SimpleCache
+        gw = self._gateway("balanced")
+        q = "Zxq Describe the harbor lights quux?"
+        key = gw._generate_cache_key(
+            q, {"model": "phi3:mini", "performance_mode": "balanced"})
+        store = SimpleCache(persist=False)
+        store.set(q, "Harbor answer.", _key=key)
+        with patch("gateway.simple_cache.get_cache", return_value=store):
+            with patch.object(mod, "completion",
+                              side_effect=AssertionError("no model call")):
+                out = gw.chat([{"role": "user", "content": q}])
+        assert out == "Harbor answer."
+
+    def test_mode_scoping_blocks_cross_mode_serve(self, monkeypatch):
+        """A speed-keyed entry must NOT serve a balanced chat."""
+        from unittest.mock import patch
+        from gateway import universal_enhanced_gateway as mod
+        from gateway.simple_cache import SimpleCache
+        gw = self._gateway("balanced")
+        # Hermetic: the miss path must never touch the network.
+        monkeypatch.setattr(gw, "_raw_fallback_retry",
+                            lambda *a, **k: None)
+        q = "Zxq Describe the harbor lights quux?"
+        speed_key = gw._generate_cache_key(
+            q, {"model": "phi3:mini", "performance_mode": "speed"})
+        store = SimpleCache(persist=False)
+        store.set(q, "Speed draft.", _key=speed_key)
+        with patch("gateway.simple_cache.get_cache", return_value=store):
+            with patch.object(mod, "completion",
+                              side_effect=AssertionError("model called")):
+                out = gw.chat([{"role": "user", "content": q}])
+        assert out != "Speed draft."
+
+    def test_step11_mirrors_into_singleton(self):
+        """Source-level: Step 11 write must mirror to the singleton so the
+        second stage (and disk persistence) actually receives entries."""
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        assert "_get_mirror().set(" in src
+        assert "_get_bmirror().set(" in src
+
+
+class TestCISCConsensus:
+    """CISC hand-rolled Counter vote wasted the consensus equations and
+    served disputed answers as confident truth."""
+
+    def _analysis(self):
+        from types import SimpleNamespace
+        return SimpleNamespace(is_math=True)
+
+    def _resp(self, text):
+        from unittest.mock import MagicMock
+        r = MagicMock()
+        r.choices = [MagicMock(message=MagicMock(content=text))]
+        return r
+
+    def test_unanimous_vote_returns_answer(self, monkeypatch):
+        from gateway import universal_enhanced_gateway as mod
+        monkeypatch.setattr(mod, "_cisc_enabled", True)
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="speed")
+        ans = "The answer is \\boxed{42} done."
+        with patch.object(mod, "completion",
+                          return_value=self._resp(ans)):
+            out = gw._confidence_informed_sc(
+                "What is 40 + 2?", self._analysis(), num_samples=3)
+        assert out is not None and "42" in out
+
+    def test_split_vote_falls_through(self, monkeypatch):
+        from gateway import universal_enhanced_gateway as mod
+        monkeypatch.setattr(mod, "_cisc_enabled", True)
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="speed")
+        texts = ["\\boxed{42}", "\\boxed{43}", "\\boxed{42}",
+                 "\\boxed{43}", "\\boxed{44}"]
+        with patch.object(mod, "completion",
+                          side_effect=[self._resp(t) for t in texts]):
+            out = gw._confidence_informed_sc(
+                "What is 40 + 2?", self._analysis(), num_samples=5)
+        assert out is None  # 0.4 agreement < 0.5 clearance
+
+
+class TestCalibrationVerifyGate:
+    """Speed verify fired a second model call for every short reasoning
+    draft; calibration equations gate it to low-confidence drafts."""
+
+    def test_deferral_math(self):
+        from gateway.calibration_metrics import (
+            estimate_confidence_from_response)
+        from gateway.equations.calibration_math import (
+            calibrated_confidence, should_defer_to_verify)
+        low = calibrated_confidence(
+            estimate_confidence_from_response(
+                "maybe the answer is 42, not sure", "reasoning"),
+            temperature=0.7)
+        high = calibrated_confidence(
+            estimate_confidence_from_response(
+                "The answer is definitely 42, exactly.", "factual"),
+            temperature=0.7)
+        assert should_defer_to_verify(low) is True
+        assert should_defer_to_verify(high) is False
+
+    def test_gate_wired_in_chat(self):
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        assert "should_defer_to_verify(" in src
+        assert "calibrated_confidence(" in src
+
+
+class TestMakeGatewayInstallsWiring:
+    """make_optimized_gateway must install the equation wiring so
+    bench/chat/run traffic executes it (install_all was dead code)."""
+
+    def test_install_all_runs(self):
+        import optimizer_cli
+        from gateway.simple_cache import get_cache
+        optimizer_cli.make_optimized_gateway("phi3:mini", "speed")
+        assert getattr(get_cache(), "_semantic_installed", False) is True
+
+    def test_install_all_in_source(self):
+        import pathlib
+        src = pathlib.Path("optimizer_cli.py").read_text(encoding="utf-8")
+        assert "install_all()" in src
+
+
+class TestRRFFusion:
+    """BOTH-provider RAG must fuse ranked lists with retrieval_math RRF."""
+
+    def test_both_mode_fuses_corroborated_first(self, monkeypatch):
+        import asyncio
+        from config import settings, RAGProvider
+        import agents.langgraph_agent as la
+
+        class FakeRAG:
+            def __init__(self, chunks, sources):
+                self._chunks = chunks
+                self._sources = sources
+
+            def retrieve(self, question):
+                return {"chunks": list(self._chunks),
+                        "sources": list(self._sources)}
+
+        import rag.llama_index_rag as li
+        import rag.haystack_pipeline as hs
+        monkeypatch.setattr(
+            li, "get_rag",
+            lambda: FakeRAG(["alpha shared", "llama only"], ["a", "b"]))
+        monkeypatch.setattr(
+            hs, "get_haystack_rag",
+            lambda: FakeRAG(["alpha shared", "haystack only"], ["c", "d"]))
+        monkeypatch.setattr(settings, "rag_provider", RAGProvider.BOTH)
+        out = asyncio.run(la._rag_prefetch("test question"))
+        assert "[Fused RAG context (RRF)]" in out
+        assert out.index("alpha shared") < out.index("llama only")
+        assert out.index("alpha shared") < out.index("haystack only")
+
+    def test_single_provider_path_unchanged(self, monkeypatch):
+        import asyncio
+        from config import settings, RAGProvider
+        import agents.langgraph_agent as la
+        import rag.llama_index_rag as li
+
+        class FakeRAG:
+            def retrieve(self, question):
+                return {"chunks": ["only chunk"], "sources": ["s"]}
+
+        monkeypatch.setattr(li, "get_rag", lambda: FakeRAG())
+        monkeypatch.setattr(settings, "rag_provider", RAGProvider.LLAMA_INDEX)
+        out = asyncio.run(la._rag_prefetch("test question"))
+        assert "[LlamaIndex context]" in out
+        assert "Fused" not in out
+
+
+class TestMemoryWindowEquation:
+    """build_context_messages hard-limit window must keep the newest turns
+    (memory_math Eq M19), never drop the live request."""
+
+    def test_overflow_keeps_newest(self):
+        from gateway.opt_core import build_context_messages
+        msgs = [{"role": "user", "content": f"message number {i} " + "x" * 200}
+                for i in range(20)]
+        built = build_context_messages(
+            msgs, context_limit=800, budget=300, always_keep_n_history=2)
+        texts = [m["content"] for m in built.messages]
+        assert any("message number 19" in t for t in texts)
+        assert not any("message number 0" in t for t in texts)
+
+
+class TestCacheQuarantine:
+    """Eq I254/B57: validate at init — an unreadable cache file must be
+    moved aside, never silently kept (and never clobbered by the next save
+    without evidence)."""
+
+    def test_simple_cache_quarantines_corrupt_file(self, tmp_path):
+        from gateway.simple_cache import SimpleCache
+        bad = tmp_path / "response_cache.json"
+        bad.write_text("{corrupt json", encoding="utf-8")
+        cache = SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=10)
+        assert cache.get("anything") is None
+        backups = list(tmp_path.glob("response_cache.corrupt.*.bak"))
+        assert len(backups) == 1
+        assert backups[0].read_text(encoding="utf-8") == "{corrupt json"
+
+    def test_semantic_cache_quarantines_corrupt_file(self, tmp_path):
+        from gateway.semantic_cache import SemanticCache
+        bad = tmp_path / "semantic_cache.json"
+        bad.write_text("{corrupt json", encoding="utf-8")
+        cache = SemanticCache(cache_dir=str(tmp_path), persist=True, max_size=10)
+        assert cache.get("anything") is None
+        backups = list(tmp_path.glob("semantic_cache.corrupt.*.bak"))
+        assert len(backups) == 1
+
 
 class TestWholeCodebaseImportIntegrity:
     def test_rag_self_rag_imports(self):
@@ -1655,6 +1915,48 @@ class TestAdaptiveGenerationTimeout:
         assert "adaptive_generation_timeout(" in src
         assert '"max_tokens": final_max_tokens' in src
         assert 'getattr(settings, "generation_timeout", 15),' in src
+
+    def test_thinking_models_get_load_cushion(self):
+        """qwen3 thinks even think-off + ~60s cold load: the phi3-measured
+        floor (128 tok -> 43.4s) killed its baseline calls mid-generation."""
+        from gateway.opt_core import adaptive_generation_timeout as T
+        plain = T(128, 15)
+        think = T(128, 15, thinking=True)
+        assert think - plain == pytest.approx(120.0)
+        assert think >= 120.0
+        # Non-thinking path unchanged.
+        assert plain == pytest.approx(128 / 4.5 + 15.0)
+        # Scaling/monotonicity properties preserved.
+        assert T(512, 15, thinking=True) > T(128, 15, thinking=True)
+
+    def test_litellm_chat_timeout_is_thinking_aware(self):
+        """The 43s raw-baseline timeout storm: chat() must give qwen3 more
+        wall time than phi3 for the same token budget."""
+        import gateway.litellm_gateway as lg
+
+        class _Msg:
+            content = "hi"
+
+        class _Choice:
+            message = _Msg()
+
+        class _Resp:
+            choices = [_Choice()]
+            model = "m"
+
+        seen = {}
+
+        def fake_completion(**kwargs):
+            seen[kwargs["model"]] = kwargs.get("timeout")
+            return _Resp()
+
+        with patch.object(lg, "completion", fake_completion):
+            lg.chat([{"role": "user", "content": "hi"}], model="qwen3:4b",
+                    max_tokens=128, use_cache=False)
+            lg.chat([{"role": "user", "content": "hi"}], model="phi3:mini",
+                    max_tokens=128, use_cache=False)
+        assert seen["ollama/qwen3:4b"] > seen["ollama/phi3:mini"]
+        assert seen["ollama/qwen3:4b"] >= 120.0
 
 
 class TestSpeedModeReasoningBudget:

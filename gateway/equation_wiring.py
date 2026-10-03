@@ -76,7 +76,6 @@ def install_semantic_cache(cache: Any) -> bool:
     from gateway.equations.cache_math import (
         AdaptiveThreshold, SemanticCacheMath,
     )
-    from gateway.equations.routing_math import majority_consensus
 
     try:
         threshold = AdaptiveThreshold(
@@ -291,10 +290,15 @@ def install_all() -> dict:
         logger.warning("ewma_router wiring failed: %s", exc)
         results["ewma_router"] = False
 
-    # RAG providers are lazy; best-effort wiring if they exist already.
+    # RAG providers are lazy AND heavy (embedding index build); only touch
+    # them when Koopman mixing is actually enabled.  Constructing get_rag()
+    # unconditionally made every gateway creation pay for an index build.
     try:
-        from rag.llama_index_rag import get_rag
-        results["koopman_rag"] = install_koopman_rag(get_rag())
+        if bool(getattr(settings, "koopman_mixing_enabled", False)):
+            from rag.llama_index_rag import get_rag
+            results["koopman_rag"] = install_koopman_rag(get_rag())
+        else:
+            results["koopman_rag"] = False
     except Exception:  # noqa: BLE001 – provider may not be built yet
         results["koopman_rag"] = False
 

@@ -61,6 +61,7 @@ class SimpleCache:
                 raw = json.load(f)
         except Exception as e:
             logger.warning("Failed to load response cache from %s: %s", self.cache_file, e)
+            self._quarantine_corrupt()
             return
         if not isinstance(raw, dict):
             logger.warning("Response cache file is not an object; ignoring")
@@ -85,6 +86,19 @@ class SimpleCache:
                                           "metadata": entry.get("metadata", {})})
             elif isinstance(entry, str):
                 self._store.set(key, {"response": entry, "metadata": {}})
+
+    def _quarantine_corrupt(self) -> None:
+        """Move an unreadable cache file aside instead of letting the next
+        save silently overwrite it (Eq I254/B57: validate at init, never
+        destroy evidence of corruption).  Best-effort; never raises."""
+        try:
+            stamp = time.strftime("%Y%m%d-%H%M%S")
+            backup = self.cache_file.with_name(
+                f"{self.cache_file.stem}.corrupt.{stamp}.bak")
+            os.replace(self.cache_file, backup)
+            logger.warning("Quarantined corrupt cache file to %s", backup)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("Could not quarantine corrupt cache file: %s", e)
 
     def _save_cache(self) -> None:
         """Persist the cache to disk atomically.

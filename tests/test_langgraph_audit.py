@@ -246,10 +246,11 @@ class TestBothProviders:
 
                     result = _run(_rag_prefetch("test query"))
 
+                    mock_li_inst.retrieve.assert_called_once()
+                    mock_hs_inst.retrieve.assert_called_once()
                     assert "Llama chunk" in result
                     assert "Haystack chunk" in result
-                    assert "[LlamaIndex context]" in result
-                    assert "[Haystack context]" in result
+                    assert "[Fused RAG context (RRF)]" in result
 
     def test_one_provider_failure_preserves_other(self):
         """If LlamaIndex fails, Haystack results should survive."""
