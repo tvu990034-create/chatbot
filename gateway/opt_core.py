@@ -1249,8 +1249,11 @@ def _eval_safe(tokens: List[str]):
         if t == "(":
             advance()
             val = parse_expr()
-            if peek() == ")":
-                advance()
+            # An unclosed parenthesis is malformed, not an invitation to
+            # guess: "(2+3" must not evaluate (it used to return 5).
+            if peek() != ")":
+                raise ValueError("unbalanced parenthesis")
+            advance()
             return val
         if t == "-":
             advance()
@@ -1261,6 +1264,11 @@ def _eval_safe(tokens: List[str]):
         raise ValueError(f"unexpected token {t}")
 
     result = parse_expr()
+    # Every token must be consumed: "2 3" / "2+3 4" are not expressions with
+    # a prefix answer (the old code returned the prefix and ignored the
+    # rest, serving confidently wrong instant answers).
+    if pos != len(tokens):
+        raise ValueError(f"trailing tokens starting at {pos}")
     return result
 
 

@@ -55,6 +55,21 @@ class TestA_ArithmeticFastPath:
         assert quick_arithmetic("hello world") is None
         assert quick_arithmetic("") is None
 
+    def test_malformed_returns_none_not_prefix(self):
+        """Trailing tokens / unclosed parens must not evaluate: the old
+        parser returned the valid prefix ('2 3' -> '2', '(2+3' -> '5') and
+        served it instantly as a confident answer."""
+        from gateway.opt_core import quick_arithmetic
+        assert quick_arithmetic("2 3") is None
+        assert quick_arithmetic("2+3 4") is None
+        assert quick_arithmetic("(2+3") is None
+        assert quick_arithmetic("((2+3)*2") is None
+        assert quick_arithmetic("2+3)") is None
+        # Valid forms still work, including unary minus and nesting.
+        assert quick_arithmetic("(2+3)*2") == "10"
+        assert quick_arithmetic("-5+3") == "-2"
+        assert quick_arithmetic("2*(3+4)") == "14"
+
     def test_quick_path_does_not_enter_agent_graph(self):
         # arithmetic recognised as safe quick path
         from gateway.opt_core import is_safe_quick_path, quick_arithmetic

@@ -564,3 +564,18 @@ def test_make_gateway_rejects_bad_mode():
     """An unknown mode silently behaved as quality; fail loudly instead."""
     with pytest.raises(ValueError, match="unknown performance mode"):
         optimizer_cli.make_optimized_gateway("phi3:mini", "turbo")
+
+
+def test_run_eval_restores_timeout_when_gateway_fails(monkeypatch):
+    """The eval-timeout boost must not leak if gateway creation raises."""
+    from config import settings
+    monkeypatch.setattr(settings, "generation_timeout", 15)
+
+    def boom(*a, **k):
+        raise RuntimeError("no backend")
+
+    monkeypatch.setattr(optimizer_cli, "make_optimized_gateway", boom)
+    samples = [{"question": "What is 2+2?", "answer": "4"}]
+    with pytest.raises(RuntimeError, match="no backend"):
+        optimizer_cli.run_eval(samples=samples, n=1, show=False)
+    assert settings.generation_timeout == 15

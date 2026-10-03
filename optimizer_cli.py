@@ -761,14 +761,17 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
         samples = load_dataset(dataset, config, split, n, seed)
     samples = samples[:max(1, n)]
     from config import settings
-    prev_timeout = getattr(settings, "generation_timeout", None)
-    settings.generation_timeout = max(
-        int(getattr(settings, "generation_timeout", 15)), 240)
     gw = gateway if gateway is not None else make_optimized_gateway(model, mode)
     raw_fn = raw if raw is not None else raw_chat
     model_name = _resolve_model(model)
     max_tokens = baseline_max_tokens
     scored = extract != "latency"
+    # Raise the generation timeout for the eval window only; restored in the
+    # finally below.  Set AFTER gateway creation so a constructor failure
+    # cannot leak the elevated timeout into the rest of the process.
+    prev_timeout = getattr(settings, "generation_timeout", None)
+    settings.generation_timeout = max(
+        int(getattr(settings, "generation_timeout", 15)), 240)
 
     rows: List[Dict[str, Any]] = []
     try:
