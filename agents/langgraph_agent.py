@@ -355,8 +355,16 @@ def build_agent(extra_tools: list | None = None):
         if built.compressed:
             logger.info("Compressed context: %s", built.reasoning)
         is_math = any(w in query_text.lower() for w in (
-            "calculate", "solve", "equation", "+", "-", "*", "/",
+            "calculate", "solve", "equation",
         ))
+        if not is_math:
+            # Bare "+-*/" matched everything hyphenated ("well-known"),
+            # slashed ("and/or", URLs) and C++ — digit-anchored operators
+            # only, so prose is never misclassified as math (wrong temp +
+            # reasoning budgets on chat questions).
+            import re as _re_math
+            is_math = bool(_re_math.search(
+                r"\d\s*[+\-*/]\s*\d", query_text))
         is_coding = detect_code_intent(query_text)
         is_complex = len(query_text) > 100
         needs_reasoning = any(w in query_text.lower() for w in (
@@ -458,6 +466,11 @@ def build_agent(extra_tools: list | None = None):
         router_state.record_start(model_to_use)
         try:
             from gateway.opt_core import adaptive_generation_timeout
+            try:
+                from gateway.universal_enhanced_gateway import (
+                    THINKING_MODEL_MARKERS as _THINK2)
+            except Exception:  # noqa: BLE001
+                _THINK2 = ("qwen3",)
             kwargs = {
                 "model": model_to_use,
                 "messages": formatted_msgs,
@@ -466,6 +479,8 @@ def build_agent(extra_tools: list | None = None):
                 "timeout": adaptive_generation_timeout(
                     final_max_tokens,
                     getattr(settings, "generation_timeout", 15),
+                    thinking=any(m in (model_to_use or "").lower()
+                                 for m in _THINK2),
                 ),
                 "api_base": settings.litellm_api_base or "http://127.0.0.1:11434",
             }

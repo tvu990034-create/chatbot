@@ -159,7 +159,7 @@ class RAGIngestRequest(BaseModel):
 
 
 class RAGQueryRequest(BaseModel):
-    question: str
+    question: str = Field(..., min_length=1, max_length=32_000)
     provider: str = Field("auto")
 
 

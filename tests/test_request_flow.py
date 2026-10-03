@@ -558,3 +558,11 @@ class TestRequestBounds:
             "images": ["x"] * 9,
         })
         assert resp.status_code == 422
+
+    def test_rag_query_rejects_giant_question(self):
+        client = self._client()
+        resp = client.post("/rag/query", json={
+            "question": "x" * 32_001,
+            "provider": "haystack",
+        })
+        assert resp.status_code == 422

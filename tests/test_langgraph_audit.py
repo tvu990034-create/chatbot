@@ -600,6 +600,34 @@ class TestAgentNodeAsync:
 
 
 # ===================================================================
+# 15b. agent_node timeout + math detection
+# ===================================================================
+
+class TestAgentNodeTimeoutAndMath:
+    """agent_node must give thinking models the load cushion (same 43s
+    storm class as the raw baseline) and must not classify prose as math."""
+
+    def test_agent_node_timeout_is_thinking_aware(self):
+        import pathlib
+        src = pathlib.Path("agents/langgraph_agent.py").read_text(
+            encoding="utf-8")
+        node = src.split("async def agent_node", 1)[1]
+        assert "thinking=" in node
+
+    def test_agent_math_detection_digit_anchored(self):
+        import pathlib
+        src = pathlib.Path("agents/langgraph_agent.py").read_text(
+            encoding="utf-8")
+        node = src.split("async def agent_node", 1)[1].split(
+            "async def ", 1)[0]
+        # Operators anchored to digits: "C++", "well-known", "and/or" must
+        # not count as math (wrong temp + reasoning budgets on chat).
+        assert r"\d\s*[+\-*/]\s*\d" in node
+        seg = node.split("is_math = ", 1)[1].split("\n\n", 1)[0]
+        assert '"+"' not in seg and '"-"' not in seg
+
+
+# ===================================================================
 # 16. Agent cache scoping + hygiene
 # ===================================================================
 
