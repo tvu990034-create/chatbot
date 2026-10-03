@@ -488,10 +488,13 @@ def three_point_card(lo: int = 160, mid: int = 384,
     Three points are the minimum: the middle point slower than BOTH
     neighbors proves a local max.  Defaults anchor the two measured points
     (160 = known ramble, 384 = known clean) plus a high-side probe.
-    Sorted, de-duplicated, never raises.
+    Sorted, de-duplicated, never raises (garbage in -> [384]).
     """
-    pts = sorted({int(lo), int(mid), int(hi)})
-    return [b for b in pts if b > 0] or [int(mid)]
+    try:
+        pts = sorted({int(lo), int(mid), int(hi)})
+    except (TypeError, ValueError):
+        return [384]
+    return [b for b in pts if b > 0] or [384]
 
 
 def pick_b_star(medians: Dict[int, float],
@@ -509,18 +512,33 @@ def pick_b_star(medians: Dict[int, float],
     (most likely to contain an answer at all).  Empty input -> b_star -1.
     """
     ok = ok_by_budget or {}
-    med = {int(b): float(m) for b, m in (medians or {}).items()
-           if math.isfinite(float(m))}
+    med: Dict[int, float] = {}
+    for b, m in (medians or {}).items():
+        try:
+            f = float(m)
+        except (TypeError, ValueError):
+            continue
+        if math.isfinite(f):
+            med[int(b)] = f
     peak = peak_budget(med)
     correct = [b for b in med if ok.get(b)]
     if not correct:
         return {"b_star": peak, "peak": peak, "n_correct": 0,
                 "measured": sorted(med)}
     lens = lengths or {}
-    pen = max(0.0, float(length_penalty))
+    try:
+        pen = max(0.0, float(length_penalty))
+    except (TypeError, ValueError):
+        pen = 0.0
+
+    def _clen(b: int) -> float:
+        try:
+            return max(0.0, float(lens.get(b, 0.0)))
+        except (TypeError, ValueError):
+            return 0.0
 
     def _score(b: int) -> Tuple[float, int]:
-        return (med[b] + pen * float(lens.get(b, 0.0)), b)
+        return (med[b] + pen * _clen(b), b)
 
     best = min(correct, key=_score)
     return {"b_star": best, "peak": peak, "n_correct": len(correct),

@@ -158,7 +158,6 @@ from dataclasses import dataclass
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from functools import lru_cache
 import threading
-from collections import Counter
 import ast
 
 import numpy as np

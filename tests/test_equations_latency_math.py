@@ -270,6 +270,8 @@ def test_three_point_card_default_anchors_measured_points():
 def test_three_point_card_sorted_unique_safe():
     assert three_point_card(768, 384, 160) == [160, 384, 768]
     assert three_point_card(384, 384, 384) == [384]
+    assert three_point_card(None, None, None) == [384]
+    assert three_point_card(-5, 0, 384) == [384]
 
 
 def test_pick_b_star_qwen3_probe_avoids_ramble_peak():
@@ -302,3 +304,8 @@ def test_pick_b_star_empty_safe():
     sel = pick_b_star({}, {})
     assert sel["b_star"] == -1
     assert sel["peak"] == -1
+    # Garbage measurements never raise; unusable points are skipped.
+    sel = pick_b_star({160: float("nan"), 384: "fast", 768: 200.0},
+                      {768: True}, length_penalty="x",
+                      lengths={768: None})
+    assert sel["b_star"] == 768

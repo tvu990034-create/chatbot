@@ -1267,6 +1267,11 @@ async def achat_stream(user_message: str, history: list[dict] | None = None, *,
     router_state.record_start(model_to_use)
     try:
         from gateway.opt_core import adaptive_generation_timeout
+        try:
+            from gateway.universal_enhanced_gateway import (
+                THINKING_MODEL_MARKERS as _THINK)
+        except Exception:  # noqa: BLE001
+            _THINK = ("qwen3",)
         kwargs = {
             "model": model_to_use,
             "messages": formatted_msgs,
@@ -1275,8 +1280,10 @@ async def achat_stream(user_message: str, history: list[dict] | None = None, *,
             "timeout": adaptive_generation_timeout(
                 final_max_tokens,
                 getattr(settings, "generation_timeout", 15),
+                thinking=any(m in (model_to_use or "").lower()
+                             for m in _THINK),
             ),
-            "api_base": settings.litellm_api_base or "http://localhost:11434",
+            "api_base": settings.litellm_api_base or "http://127.0.0.1:11434",
             "stream": True,
         }
         if api_base:
