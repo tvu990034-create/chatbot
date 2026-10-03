@@ -566,3 +566,30 @@ class TestRequestBounds:
             "provider": "haystack",
         })
         assert resp.status_code == 422
+
+
+class TestEmptyReplyRecovery:
+    """Thinking models return empty content on the plain litellm path;
+    the endpoint must recover via the thinking-aware gateway, not serve ''."""
+
+    def test_empty_direct_reply_recovers(self):
+        from unittest.mock import AsyncMock, MagicMock, patch
+        from fastapi.testclient import TestClient
+        from server import app as app_module
+
+        gw = MagicMock()
+        gw.chat.return_value = "recovered answer"
+        gw.model_name = "qwen3:4b"
+        with patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_achat, \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=gw):
+            mock_achat.return_value = ("", False, "m")
+            client = TestClient(app_module.app, raise_server_exceptions=False)
+            resp = client.post("/chat", json={
+                "message": "Zxq unique recovery probe quux?",
+                "use_agent": False, "use_rag": False, "use_cache": False,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "recovered answer"
+        gw.chat.assert_called_once()

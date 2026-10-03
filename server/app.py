@@ -286,6 +286,23 @@ async def chat_endpoint(req: ChatRequest):
                 use_router=req.use_router,
                 speed_mode=req.speed_mode,
             )
+            if not (reply or "").strip():
+                # Thinking models (qwen3) return empty content on the plain
+                # litellm path when hidden reasoning consumes the budget.
+                # Recover through the thinking-aware gateway instead of
+                # serving an empty reply.
+                try:
+                    from gateway.universal_enhanced_gateway import (
+                        get_universal_gateway)
+                    gw = get_universal_gateway(
+                        (req.model or settings.default_model or "phi3:mini"),
+                        True, "balanced")
+                    recovered = gw.chat(msgs, use_cache=req.use_cache)
+                    if recovered and recovered.strip():
+                        reply = recovered
+                        actual_model = gw.model_name
+                except Exception as exc:  # noqa: BLE001 - keep original reply
+                    logger.warning("Empty-reply recovery failed: %s", exc)
 
     except Exception as exc:
         logger.exception("Chat error [%s]: %s", request_id, exc)

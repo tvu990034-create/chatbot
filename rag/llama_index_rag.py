@@ -164,13 +164,28 @@ class LlamaIndexRAG:
         vector_store  = self._get_chroma_vector_store()
         storage_ctx   = StorageContext.from_defaults(vector_store=vector_store)
 
-        # Check if collection already has data
-        chroma_collection = vector_store.client.get_collection(self.collection_name) \
-            if hasattr(vector_store, "client") else None
-        has_data = (
-            chroma_collection is not None
-            and chroma_collection.count() > 0
-        )
+        # Check if collection already has data.  ChromaVectorStore.client is
+        # the underlying Collection in current llama-index versions (it has
+        # .count() directly); older versions exposed a real client with
+        # .get_collection().  Assuming either shape broke index builds with
+        # AttributeError and silently killed all RAG retrieval.
+        store_client = getattr(vector_store, "client", None)
+        chroma_collection = None
+        if store_client is not None:
+            if hasattr(store_client, "get_collection"):
+                try:
+                    chroma_collection = store_client.get_collection(
+                        self.collection_name)
+                except Exception:  # noqa: BLE001 - treat as empty
+                    chroma_collection = None
+            elif hasattr(store_client, "count"):
+                chroma_collection = store_client
+        has_data = False
+        if chroma_collection is not None:
+            try:
+                has_data = chroma_collection.count() > 0
+            except Exception:  # noqa: BLE001 - treat as empty
+                has_data = False
 
         if has_data and not force_rebuild:
             logger.info("Loading existing LlamaIndex index from ChromaDB …")
