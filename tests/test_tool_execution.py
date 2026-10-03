@@ -332,12 +332,39 @@ class TestTIRException:
 
 
 # ===================================================================
+# 7b. TIR sandbox surface (allowlist + dunder scan)
+# ===================================================================
+
+class TestTIRSandbox:
+    """Model-generated snippets run with an allowlist interpreter:
+    dangerous imports and dunder escapes fail closed."""
+
+    def test_os_import_blocked(self):
+        from gateway.opt_core import execute_python_isolated
+        ok, _r, _o = execute_python_isolated(
+            "import os\nprint(os.getcwd())", timeout=5)
+        assert ok is False
+
+    def test_dunder_escape_blocked(self):
+        from gateway.opt_core import execute_python_isolated
+        ok, _r, _o = execute_python_isolated(
+            "print(().__class__.__base__)", timeout=5)
+        assert ok is False
+
+    def test_pure_compute_imports_allowed(self):
+        from gateway.opt_core import execute_python_isolated
+        ok, result, _o = execute_python_isolated(
+            "import math\nmath.isqrt(17)", timeout=5)
+        assert ok is True
+        assert result == 4
+
+
+# ===================================================================
 # 8. TIR subprocess timeout
 # ===================================================================
 
 class TestTIRTimeout:
     """TIR must enforce a real wall-clock timeout via subprocess."""
-
     def test_infinite_loop_times_out(self):
         """An infinite loop must be killed by the subprocess timeout."""
         from gateway.opt_core import execute_python_isolated

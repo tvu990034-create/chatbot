@@ -1014,10 +1014,42 @@ def validate_code(code: str, language: Optional[str] = None) -> Tuple[bool, Opti
 # ---------------------------------------------------------------------------
 
 _TIR_RUNNER = r"""
-import ast, sys
+import ast, sys, math
+# Restricted builtins: exec() auto-adds FULL builtins to a bare namespace,
+# so an explicit allowlist is mandatory — otherwise model-generated snippets
+# can import os/sys/subprocess (env secrets, filesystem, network).  Math
+# snippets need only pure computation; everything else fails closed.
+_SAFE_BUILTINS = {
+    "abs": abs, "min": min, "max": max, "sum": sum,
+    "range": range, "len": len, "print": print, "round": round,
+    "int": int, "float": float, "str": str, "bool": bool,
+    "list": list, "dict": dict, "tuple": tuple, "set": set,
+    "enumerate": enumerate, "zip": zip, "sorted": sorted,
+    "pow": pow, "divmod": divmod, "isinstance": isinstance,
+}
+# Pure-compute stdlib only: no IO, no exec, no import machinery.  (random is
+# included: nondeterminism is harmless, and it has no exfil path.)
+import importlib as _importlib
+_ALLOWED_IMPORTS = frozenset({
+    "math", "time", "itertools", "functools", "decimal", "fractions",
+    "statistics", "random", "collections", "re",
+})
+def _safe_import(name, *args, **kwargs):
+    if name in _ALLOWED_IMPORTS:
+        return _importlib.import_module(name)
+    raise ImportError("blocked import: %s" % (name,))
+_SAFE_BUILTINS["__import__"] = _safe_import
 src = sys.stdin.read()
-ns = {}
+ns = {"__builtins__": dict(_SAFE_BUILTINS), "math": math}
 tree = ast.parse(src, mode="exec")
+# Dunder attribute/name access is the classic sandbox-escape vector
+# (().__class__.__base__.__subclasses__() reaches subprocess without any
+# import).  Legit math snippets never need dunders: fail closed.
+for _node in ast.walk(tree):
+    if isinstance(_node, ast.Attribute) and "__" in _node.attr:
+        raise ValueError("dunder attribute access blocked")
+    if isinstance(_node, ast.Name) and _node.id.startswith("__"):
+        raise ValueError("dunder name access blocked")
 if tree.body and isinstance(tree.body[-1], ast.Expr):
     last = tree.body.pop()
     exec(compile(ast.Module(body=tree.body, type_ignores=[]), "<tir>", "exec"), ns, ns)
