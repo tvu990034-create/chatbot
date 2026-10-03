@@ -296,10 +296,10 @@ def ingest(
 def chat(
     message:   str = typer.Argument(..., help="Message to send to the chatbot"),
     model:     Optional[str] = typer.Option(None, "--model", "-m"),
-    no_rag:    bool = typer.Option(False, "--no-rag",   help="Disable RAG retrieval"),
+    no_rag:    bool = typer.Option(False, "--no-rag",   help="Disable RAG retrieval (agent path; direct path never retrieves)"),
     no_agent:  bool = typer.Option(False, "--no-agent", help="(deprecated) direct balanced call — this is the default"),
     use_agent: bool = typer.Option(False, "--use-agent", help="Route through the LangGraph agent (tools/RAG)"),
-    stream:    bool = typer.Option(True,  "--stream/--no-stream"),
+    stream:    bool = typer.Option(True,  "--stream/--no-stream", help="(accepted for compatibility; output prints at once, no live streaming)"),
 ) -> None:
     """Send a single message to the chatbot and print the reply."""
     _print_banner()
@@ -308,7 +308,7 @@ def chat(
         # Agent flow (LangGraph tools/RAG).
         from agents.langgraph_agent import chat as agent_chat
         console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
-        reply = agent_chat(message)
+        reply = agent_chat(message, model=model, use_rag=not no_rag)
         console.print(reply)
         return
 

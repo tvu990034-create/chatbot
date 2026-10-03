@@ -928,7 +928,7 @@ def run_eval(dataset: str = "openai/gsm8k", config: str = "main",
 @app.command()
 def chat(
     message: str = typer.Argument(..., help="Message to send through the optimizer"),
-    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed, balanced or quality"),
+    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed (tight caps, drafts verified), balanced (default; think-off reasoning) or quality (generous budgets)"),
     model: Optional[str] = typer.Option(None, "--model", "-m"),
     baseline: bool = typer.Option(False, "--baseline",
                                   help="Also run the raw path and compare latency"),
@@ -942,7 +942,7 @@ def chat(
 
 @app.command()
 def run(
-    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed, balanced or quality"),
+    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed (tight caps, drafts verified), balanced (default; think-off reasoning) or quality (generous budgets)"),
     model: Optional[str] = typer.Option(None, "--model", "-m"),
     system_prompt: Optional[str] = typer.Option(None, "--system"),
 ) -> None:
@@ -1024,7 +1024,7 @@ def stats(json_output: bool = typer.Option(False, "--json")) -> None:
 @app.command()
 def bench(
     n: int = typer.Option(5, "--n", help="Number of questions to use"),
-    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed, balanced or quality"),
+    mode: str = typer.Option(DEFAULT_MODE, "--mode", help="speed (tight caps, drafts verified), balanced (default; think-off reasoning) or quality (generous budgets)"),
     model: Optional[str] = typer.Option(None, "--model", "-m"),
     baseline: bool = typer.Option(True, "--baseline/--no-baseline",
                                   help="Also time the raw path"),
@@ -1050,7 +1050,7 @@ def eval(
     split: str = typer.Option("test", "--split", help="Which split to evaluate"),
     n: int = typer.Option(40, "--n", help="Number of questions to evaluate"),
     seed: int = typer.Option(1, "--seed"),
-    mode: str = typer.Option(EVAL_MODE, "--mode", help="speed, balanced or quality"),
+    mode: str = typer.Option(EVAL_MODE, "--mode", help="speed (tight caps, drafts verified), balanced (default; think-off reasoning) or quality (generous budgets)"),
     model: Optional[str] = typer.Option(None, "--model", "-m"),
     baseline: bool = typer.Option(True, "--baseline/--no-baseline",
                                   help="Also run each question through the raw path"),

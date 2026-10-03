@@ -29,7 +29,8 @@ python -m venv .venv
 .venv\Scripts\activate        # Windows
 source .venv/bin/activate     # macOS / Linux
 
-pip install -r requirements.txt
+pip install -e .          # runtime (includes local RAG/server deps)
+pip install -e ".[dev]"   # + pytest, linters (for running the test suite)
 ```
 
 ### 3. Configure
@@ -67,8 +68,11 @@ python main.py chat "How many days are in a week?"
 python main.py chat "Prove that sqrt(2) is irrational"
 python main.py chat --model qwen3:4b "Why is the sky blue?"   # use a specific model
 python main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent (tools/RAG)
-python main.py chat --no-rag "..."                            # skip RAG retrieval
+python main.py chat --use-agent --no-rag "..."                 # agent without retrieval
 ```
+
+(`--no-rag` applies to the agent path; the direct path never retrieves.
+`--stream` is accepted for compatibility but output prints at once.)
 
 Each `chat` call runs the balanced gateway: greetings and simple arithmetic
 answer instantly, other trivia in seconds on a fast model, and hard reasoning
@@ -90,6 +94,36 @@ python main.py benchmark --json                  # JSON output
 ```
 
 Run `python main.py --help` for the full list of options.
+
+### Turbo bench / eval (optimized vs raw)
+
+```bash
+python optimizer_cli.py bench --n 5 --mode speed      # 5 curated questions, timed
+python optimizer_cli.py bench --n 5 --mode balanced   # default smart path
+python optimizer_cli.py eval --n 5                     # grade 5 GSM8K items, report to benchmark_results/
+```
+
+Modes: `speed` (tight token caps, short drafts get a verification pass),
+`balanced` (default; bounded think-off reasoning), `quality` (generous
+budgets, multi-model selection on hard queries).
+
+---
+
+## Troubleshooting
+
+- **Ollama not reachable** (`Connection refused` / hangs): start it first
+  (`ollama serve`), then `ollama pull qwen3:4b` (reasoning) and/or
+  `ollama pull phi3:mini` (fast trivial answers). The CLI validates the
+  model is installed and falls back with a message when it is not.
+- **First answer is slow**: the model loads into memory on first use
+  (~60s for qwen3:4b on CPU). Later answers reuse the loaded model
+  (`keep_alive`), and repeats are served from cache instantly.
+- **A call times out**: CPU generation is ~1-4 tokens/s; large budgets
+  need minutes. Timeouts scale with the token budget automatically.
+- **Stale or wrong cached answer**: caches live under `cache/` (plus a
+  `semantic_embs.json` sidecar). Stop the app and delete `cache/*.json`
+  to start cold — corrupt files are quarantined to `.bak` automatically.
+- **A dependency is missing**: reinstall with `pip install -e ".[dev]"`.
 
 ---
 
