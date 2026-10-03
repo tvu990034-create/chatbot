@@ -600,3 +600,32 @@ def test_run_eval_restores_timeout_when_gateway_fails(monkeypatch):
     with pytest.raises(RuntimeError, match="no backend"):
         optimizer_cli.run_eval(samples=samples, n=1, show=False)
     assert settings.generation_timeout == 15
+
+
+def test_main_chat_agent_forwards_model_and_no_rag():
+    """main.py chat --use-agent must forward --model/--no-rag (were dropped)."""
+    from unittest.mock import patch
+    import main
+    with patch("agents.langgraph_agent.chat",
+               return_value="canned") as mock_chat:
+        result = CliRunner().invoke(
+            main.app, ["chat", "--use-agent", "--no-rag",
+                       "--model", "mymodel", "hi"])
+    assert result.exit_code == 0
+    mock_chat.assert_called_once()
+    _args, kwargs = mock_chat.call_args
+    assert kwargs.get("model") == "mymodel"
+    assert kwargs.get("use_rag") is False
+
+
+def test_main_chat_direct_uses_gateway():
+    """Direct path still routes through the balanced gateway."""
+    from unittest.mock import MagicMock, patch
+    import main
+    gw = MagicMock()
+    gw.chat.return_value = "direct hi"
+    with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+               return_value=gw):
+        result = CliRunner().invoke(main.app, ["chat", "hi"])
+    assert result.exit_code == 0
+    assert "direct hi" in result.stdout
