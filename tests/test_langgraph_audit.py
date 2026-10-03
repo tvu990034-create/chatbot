@@ -597,3 +597,87 @@ class TestAgentNodeAsync:
         assert "async def __call__" in src, (
             "TruncatedToolNode.__call__ must be async def"
         )
+
+
+# ===================================================================
+# 16. Agent cache scoping + hygiene
+# ===================================================================
+
+class _FakeAgent:
+    """Minimal stand-in for the compiled graph (counts invocations)."""
+
+    def __init__(self, text):
+        from langchain_core.messages import HumanMessage
+        self.text = text
+        self.calls = 0
+        self._hm = HumanMessage
+
+    async def ainvoke(self, *a, **k):
+        self.calls += 1
+        return {"messages": [self._hm(content=self.text)]}
+
+
+def _agent_test_patches(monkeypatch, agent):
+    import agents.langgraph_agent as la
+    from langchain_core.messages import BaseMessage, HumanMessage
+    monkeypatch.setattr(la, "get_agent", lambda *a, **k: agent)
+    monkeypatch.setattr(
+        la, "_get_langgraph",
+        lambda: (None, BaseMessage, HumanMessage,
+                 None, None, None, None, None, None, None, None))
+    monkeypatch.setattr("gateway.opt_core.is_safe_quick_path", lambda *a, **k: False)
+
+
+class TestAgentCacheScoping:
+    """Agent achat() cache must scope by speed mode and never store
+    degraded replies (same rules as the gateway path)."""
+
+    def test_speed_and_standard_use_distinct_slots(self, monkeypatch):
+        import agents.langgraph_agent as la
+        from gateway.simple_cache import SimpleCache
+        agent = _FakeAgent("canned answer here")
+        _agent_test_patches(monkeypatch, agent)
+        store = SimpleCache(persist=False)
+        monkeypatch.setattr("gateway.simple_cache.get_cache",
+                            lambda: store)
+        q = "Zxq describe the harbor lights quux?"
+        r1 = _run(la.achat(q, use_rag=False, speed_mode=False))
+        r2 = _run(la.achat(q, use_rag=False, speed_mode=True))
+        assert (r1.reply, r2.reply) == ("canned answer here",) * 2
+        # Different mode -> cache miss -> agent ran again.
+        assert agent.calls == 2
+        # Same mode repeats hit.
+        _run(la.achat(q, use_rag=False, speed_mode=True))
+        assert agent.calls == 2
+
+    def test_degraded_reply_never_cached(self, monkeypatch):
+        import agents.langgraph_agent as la
+        from gateway.simple_cache import SimpleCache
+        agent = _FakeAgent("I apologize, trouble processing that one")
+        _agent_test_patches(monkeypatch, agent)
+        store = SimpleCache(persist=False)
+        monkeypatch.setattr("gateway.simple_cache.get_cache",
+                            lambda: store)
+        q = "Zxq describe the harbor lights quux?"
+        _run(la.achat(q, use_rag=False))
+        _run(la.achat(q, use_rag=False))
+        assert agent.calls == 2
+
+    def test_empty_agent_messages_yields_empty_reply(self, monkeypatch):
+        import agents.langgraph_agent as la
+        from gateway.simple_cache import SimpleCache
+
+        class _EmptyAgent:
+            calls = 0
+
+            async def ainvoke(self, *a, **k):
+                type(self).calls += 1
+                return {"messages": []}
+
+        _agent_test_patches(monkeypatch, _EmptyAgent())
+        store = SimpleCache(persist=False)
+        monkeypatch.setattr("gateway.simple_cache.get_cache",
+                            lambda: store)
+        out = _run(la.achat("Zxq describe the harbor lights quux?",
+                            use_rag=False))
+        assert out.reply == ""

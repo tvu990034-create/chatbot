@@ -792,9 +792,16 @@ def chat(user_message: str, history: list[dict] | None = None, *,
                 system_prompt=system_prompt or "",
                 rag_enabled=use_rag,
                 messages=list(history or []),
+                # speed_mode changes generation even for identical caller
+                # params: keep speed/standard answers in distinct slots.
+                extra={"speed_mode": bool(speed_mode)},
             )
             cached = get_cache().get(
-                user_message, context={"history": history or []}, _key=cache_key)
+                user_message,
+                context={"history": history or [],
+                         "performance_mode": ("speed" if speed_mode
+                                              else "balanced")},
+                _key=cache_key)
             if cached is not None:
                 logger.debug("Cache hit (sync): %.40s…", user_message)
                 return cached
@@ -846,9 +853,19 @@ def chat(user_message: str, history: list[dict] | None = None, *,
             config={"recursion_limit": settings.agent_recursion_limit},
         )
     )
-    reply = getattr(result["messages"][-1], "content", "")
+    reply = ""
+    terminal = result.get("messages") or []
+    if terminal:
+        reply = getattr(terminal[-1], "content", "") or ""
 
-    if use_cache and reply:
+    # Never store degraded texts (same rule as the gateway path).
+    _storeable = bool(reply and reply.strip())
+    if _storeable:
+        _low = reply.lower()
+        _storeable = not (
+            reply.strip().startswith("[") or "trouble processing" in _low
+            or "apologize" in _low)
+    if use_cache and _storeable:
         try:
             from gateway.simple_cache import get_cache
             from gateway.opt_core import make_cache_identity
@@ -860,10 +877,14 @@ def chat(user_message: str, history: list[dict] | None = None, *,
                 system_prompt=system_prompt or "",
                 rag_enabled=use_rag,
                 messages=list(history or []),
+                extra={"speed_mode": bool(speed_mode)},
             )
             get_cache().set(
                 query=user_message, response=reply,
-                context={"history": history or []}, _key=cache_key)
+                context={"history": history or [],
+                         "performance_mode": ("speed" if speed_mode
+                                              else "balanced")},
+                _key=cache_key)
         except Exception:
             pass
 
@@ -954,9 +975,17 @@ async def achat(user_message: str, history: list[dict] | None = None, *,
                 system_prompt=system_prompt or "",
                 rag_enabled=use_rag,
                 messages=list(history or []),
+                # speed_mode changes generation (capped temp/tokens) even
+                # when the caller params are identical: without it a speed
+                # answer and a standard answer share one slot.
+                extra={"speed_mode": bool(speed_mode)},
             )
             cached = get_cache().get(
-                user_message, context={"history": history or []}, _key=cache_key)
+                user_message,
+                context={"history": history or [],
+                         "performance_mode": ("speed" if speed_mode
+                                              else "balanced")},
+                _key=cache_key)
             if cached is not None:
                 logger.debug("Cache hit: %.40s…", user_message)
                 return ChatResult(
@@ -1029,7 +1058,10 @@ async def achat(user_message: str, history: list[dict] | None = None, *,
             rag_task.cancel()
         raise
 
-    reply = getattr(result["messages"][-1], "content", "")
+    reply = ""
+    terminal = result.get("messages") or []
+    if terminal:
+        reply = getattr(terminal[-1], "content", "") or ""
     rag_used = bool(result.get("rag_context"))
     reasoning_used = result.get("advanced_reasoning_used", False)
     policy_reason = result.get("generation_policy", "")
@@ -1039,7 +1071,15 @@ async def achat(user_message: str, history: list[dict] | None = None, *,
     actual_output_tokens = result.get("output_tokens") or 0
 
     # --- 4. Cache store ---
-    if use_cache and reply:
+    # Never store degraded texts: a transient failure cached here becomes a
+    # permanent wrong answer for the query (same rule as the gateway path).
+    _storeable = bool(reply and reply.strip())
+    if _storeable:
+        _low = reply.lower()
+        _storeable = not (
+            reply.strip().startswith("[") or "trouble processing" in _low
+            or "apologize" in _low)
+    if use_cache and _storeable:
         try:
             from gateway.simple_cache import get_cache
             cache_key = make_cache_identity(
@@ -1050,10 +1090,14 @@ async def achat(user_message: str, history: list[dict] | None = None, *,
                 system_prompt=system_prompt or "",
                 rag_enabled=use_rag,
                 messages=list(history or []),
+                extra={"speed_mode": bool(speed_mode)},
             )
             get_cache().set(
                 query=user_message, response=reply,
-                context={"history": history or []}, _key=cache_key)
+                context={"history": history or [],
+                         "performance_mode": ("speed" if speed_mode
+                                              else "balanced")},
+                _key=cache_key)
         except Exception:
             pass
 
