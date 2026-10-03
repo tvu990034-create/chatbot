@@ -13,7 +13,7 @@ import os
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any, AsyncGenerator, Optional
+from typing import Any, AsyncGenerator, Literal, Optional
 
 from fastapi import FastAPI, File, HTTPException, UploadFile, status
 from fastapi.middleware.cors import CORSMiddleware
@@ -67,7 +67,10 @@ class Message(BaseModel):
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=32_000)
-    history: list[Message] = Field(default_factory=list)
+    # Bound the turn count as well as per-message bytes: an unbounded history
+    # list parses (and token-estimates) without limit upstream of the context
+    # budget trim.  200 turns is far beyond any real conversation window.
+    history: list[Message] = Field(default_factory=list, max_length=200)
     model: str | None = Field(None, description="Override the default LLM model")
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(None, ge=1, le=32_000)
@@ -75,7 +78,7 @@ class ChatRequest(BaseModel):
     use_agent: bool = Field(True, description="Route through LangGraph agent")
     use_cache: bool = Field(True, description="Simple cache lookup")
     use_router: bool = Field(True, description="Model router")
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(None, max_length=32_000)
     speed_mode: bool = Field(False, description="Cap tokens/temp and skip generation policy")
 
 
@@ -307,17 +310,17 @@ async def chat_endpoint(req: ChatRequest):
 
 
 class ChatV1Request(BaseModel):
-    messages: list[dict]
+    messages: list[dict] = Field(..., max_length=400)
     model: str = "ollama/phi3:mini"
     provider: str = "ollama"
     temperature: float | None = Field(None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(None, ge=1, le=32_000)
-    system_prompt: str | None = None
+    system_prompt: str | None = Field(None, max_length=32_000)
     use_rag: bool = Field(True)
     use_router: bool = Field(True)
     use_cache: bool = True
-    performance_mode: str = "balanced"
-    images: list[str] = []
+    performance_mode: Literal["speed", "balanced", "quality"] = "balanced"
+    images: list[str] = Field(default_factory=list, max_length=8)
 
 
 def validate_v1_messages(messages: list[dict]) -> None:

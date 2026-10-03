@@ -1480,6 +1480,22 @@ class TestMeasuredThinkoffBStar:
             assert seg.index("_thinkoff_call(") < seg.index("_raw_reasoning_call(")
 
 
+class TestOllamaGenerateUrl:
+    """Raw transports must honor settings.litellm_api_base (127.0.0.1
+    fallback keeps the Windows IPv6-first stall away)."""
+
+    def test_default_and_override(self, monkeypatch):
+        from gateway import universal_enhanced_gateway as g
+        from config import settings
+        monkeypatch.setattr(settings, "litellm_api_base", None)
+        assert (g._ollama_generate_url()
+                == "http://127.0.0.1:11434/api/generate")
+        monkeypatch.setattr(settings, "litellm_api_base",
+                            "http://10.0.0.5:11434/")
+        assert (g._ollama_generate_url()
+                == "http://10.0.0.5:11434/api/generate")
+
+
 class TestSemanticSecondStage:
     """The installed semantic layer patched a singleton nothing read.
     Step 3 must consult it on exact miss; writes must mirror into it."""

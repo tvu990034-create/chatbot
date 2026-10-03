@@ -128,6 +128,10 @@ def _trim_context(messages: List[Dict[str, str]],
 def make_optimized_gateway(model: Optional[str] = None, mode: str = DEFAULT_MODE):
     from gateway.universal_enhanced_gateway import get_universal_gateway
     _quiet_library_logging()
+    if mode not in ("speed", "balanced", "quality"):
+        raise ValueError(
+            f"unknown performance mode {mode!r}: "
+            "expected 'speed', 'balanced' or 'quality'")
     gw = get_universal_gateway(model_name=_resolve_model(model),
                                enable_all_optimizations=True,
                                performance_mode=mode)

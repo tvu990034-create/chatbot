@@ -11,10 +11,12 @@ callers (SemanticCache, RouterState, RAG provider, agent policy).
 
 from __future__ import annotations
 
+import atexit
 import hashlib
 import json
 import logging
 import threading
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 from config import settings
@@ -35,6 +37,67 @@ _embs_lock = threading.Lock()
 def _cache_embed(query: str) -> List[float]:
     from gateway.opt_core import hashed_embedding
     return hashed_embedding(query)
+
+
+def _embs_path(cache: Any) -> Optional[Path]:
+    """Sidecar file for the embedding index, next to the cache dir."""
+    d = getattr(cache, "cache_dir", None)
+    if d is None:
+        return None
+    try:
+        return Path(d) / "semantic_embs.json"
+    except Exception:  # noqa: BLE001
+        return None
+
+
+def _save_embs(cache: Any) -> None:
+    """Persist the embedding index so semantic hits survive restarts.
+
+    Without this every restart runs semantically cold until rewrites
+    repopulate the index (every near-miss pays a full model call).
+    Best-effort; never raises.
+    """
+    p = _embs_path(cache)
+    if p is None:
+        return
+    try:
+        with _embs_lock:
+            items = list(_embs.items())[-1024:]
+        blob = {}
+        for k, v in items:
+            try:
+                blob[k] = [v[0], [float(x) for x in v[1]],
+                           v[2] if len(v) == 3 else ""]
+            except Exception:  # noqa: BLE001 - skip malformed entries
+                continue
+        p.write_text(json.dumps(blob), encoding="utf-8")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("optimization wiring: embs save failed: %s", exc)
+
+
+def _load_embs(cache: Any) -> None:
+    """Restore a persisted embedding index at install time."""
+    p = _embs_path(cache)
+    if p is None:
+        return
+    try:
+        if not p.exists():
+            return
+        raw = json.loads(p.read_text(encoding="utf-8"))
+        if not isinstance(raw, dict):
+            return
+        with _embs_lock:
+            for k, v in list(raw.items())[-1024:]:
+                # Tag is None when no conversation history was present.
+                if (isinstance(v, (list, tuple)) and len(v) == 3
+                        and (v[0] is None or isinstance(v[0], str))
+                        and isinstance(v[2], str)):
+                    try:
+                        _embs[k] = (v[0], [float(x) for x in v[1]], v[2])
+                    except Exception:  # noqa: BLE001 - skip bad rows
+                        continue
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("optimization wiring: embs load failed: %s", exc)
 
 
 def _ctx_tag(context: Optional[Dict]) -> Optional[str]:
@@ -156,6 +219,11 @@ def install_semantic_cache(cache: Any) -> bool:
                 if len(_embs) > 1024:
                     # Keep the dict bounded: drop oldest key.
                     _embs.pop(next(iter(_embs)), None)
+                persist_now = len(_embs) % 100 == 0
+            # Persist periodically (amortized: every 100th indexed write) so
+            # restarts restore semantic hits instead of running cold.
+            if persist_now:
+                _save_embs(cache)
 
         cache.set = _semantic_set
 
@@ -177,6 +245,17 @@ def install_semantic_cache(cache: Any) -> bool:
         cache._semantic_stats = {
             "hits": 0, "misses": 0,
         } | getattr(cache, "_semantic_stats", {})
+        # Restore a persisted index so this process serves semantic hits
+        # immediately instead of waiting for rewrites to repopulate it.
+        _load_embs(cache)
+        # Flush-on-exit only for persistent caches: test instances are
+        # transient (their dirs vanish at teardown) and must not accumulate
+        # shutdown hooks.
+        if getattr(cache, "_persist", False):
+            try:
+                atexit.register(_save_embs, cache)
+            except Exception:  # noqa: BLE001 - shutdown hook is best-effort
+                pass
         logger.info("optimization wiring: semantic cache installed on %s", type(cache).__name__)
         return True
     except Exception as exc:  # noqa: BLE001 – must never break inference

@@ -5,6 +5,7 @@ All behavior tests run fully offline: the optimizer smoke checks are pure
 Python, and any model calls are replaced with fake gateways.
 """
 from typer.testing import CliRunner
+import pytest
 
 import optimizer_cli
 
@@ -557,3 +558,9 @@ def test_run_eval_latency_row_does_not_flip_scored_for_rest():
     assert summary["optimized"]["answered"] == 3
     assert summary["optimized"]["correct"] == 2
     assert summary["optimized"]["accuracy"] == 1.0
+
+
+def test_make_gateway_rejects_bad_mode():
+    """An unknown mode silently behaved as quality; fail loudly instead."""
+    with pytest.raises(ValueError, match="unknown performance mode"):
+        optimizer_cli.make_optimized_gateway("phi3:mini", "turbo")

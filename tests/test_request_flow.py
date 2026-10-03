@@ -519,3 +519,42 @@ class TestChatEndpointParams:
         assert isinstance(body["cache_hit"], bool)
         assert isinstance(body["optimizations_applied"], int)
         assert call_kwargs["use_router"] is True
+
+
+# ===================================================================
+# 14. Request bounds — oversized payloads rejected before inference
+# ===================================================================
+
+class TestRequestBounds:
+    """Unbounded history/system_prompt/messages/images let one request burn
+    unbounded parse + token-estimate CPU upstream of the context trim."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_chat_rejects_giant_history(self):
+        client = self._client()
+        hist = [{"role": "user", "content": "hi"}] * 201
+        resp = client.post("/chat", json={"message": "hi", "history": hist})
+        assert resp.status_code == 422
+
+    def test_chat_rejects_giant_system_prompt(self):
+        client = self._client()
+        resp = client.post("/chat", json={"message": "hi",
+                                          "system_prompt": "x" * 32_001})
+        assert resp.status_code == 422
+
+    def test_v1_rejects_bad_mode_and_giant_images(self):
+        client = self._client()
+        resp = client.post("/api/v1/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "performance_mode": "turbo",
+        })
+        assert resp.status_code == 422
+        resp = client.post("/api/v1/chat", json={
+            "messages": [{"role": "user", "content": "hi"}],
+            "images": ["x"] * 9,
+        })
+        assert resp.status_code == 422

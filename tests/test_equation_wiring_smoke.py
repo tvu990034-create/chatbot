@@ -84,6 +84,35 @@ def test_embs_index_bounded():
         wiring._embs.clear()
 
 
+def test_embs_persisted_across_restart(tmp_path):
+    """Without persistence every restart runs semantically cold until
+    rewrites repopulate the index (each near-miss pays a model call)."""
+    from gateway.simple_cache import SimpleCache
+    from gateway import equation_wiring as wiring
+    wiring._embs.clear()
+    try:
+        c1 = SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=50)
+        assert wiring.install_semantic_cache(c1) is True
+        ctx = {"model": "m", "performance_mode": "balanced"}
+        c1.set("what is the capital of france?", "Paris",
+               context=ctx, _key="k1")
+        c1.set("describe the harbor lights?", "Harbor.",
+               context=ctx, _key="k2")
+        wiring._save_embs(c1)
+        # The responses themselves persist via the store's own save; the
+        # embedding index alone is not sufficient (best-key lookup must hit).
+        c1.save_now()
+        assert (tmp_path / "semantic_embs.json").exists()
+        # Simulate a restart: empty index, fresh instance, same dir.
+        wiring._embs.clear()
+        c2 = SimpleCache(cache_dir=str(tmp_path), persist=True, max_size=50)
+        assert wiring.install_semantic_cache(c2) is True
+        assert c2.get("what is the capital of france?",
+                      context=ctx, _key="k-unknown") == "Paris"
+    finally:
+        wiring._embs.clear()
+
+
 def test_ewma_router_install():
     from gateway.opt_core import RouterState
     from gateway.equation_wiring import install_ewma_router

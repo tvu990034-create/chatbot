@@ -458,6 +458,18 @@ _THINKOFF_BSTAR_DEFAULT = 384
 _THINKOFF_BSTAR: Dict[str, int] = {}
 
 
+def _ollama_generate_url() -> str:
+    """Raw /api/generate URL honoring settings.litellm_api_base.
+
+    Single choke point for the plain-requests transports (which bypass
+    litellm): 127.0.0.1 default because Windows resolves localhost
+    IPv6-first and stalls ~2s per call.
+    """
+    base = (getattr(settings, "litellm_api_base", None)
+            or "http://127.0.0.1:11434").rstrip("/")
+    return base + "/api/generate"
+
+
 def _thinkoff_scan_path() -> str:
     import os
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -3732,7 +3744,7 @@ Code:"""
         timed_out = False
         try:
             with _requests.post(
-                    "http://127.0.0.1:11434/api/generate",
+                    _ollama_generate_url(),
                     json={"model": self.model_name, "prompt": query,
                           "stream": True, "keep_alive": "30m",
                           "options": options},
@@ -3820,7 +3832,7 @@ Code:"""
         try:
             import requests as _requests
             r = _requests.post(
-                "http://127.0.0.1:11434/api/generate",
+                _ollama_generate_url(),
                 json={"model": self.model_name, "prompt": prompt,
                       "stream": False, "keep_alive": "30m",
                       "options": {"num_predict": budget,
@@ -3865,7 +3877,7 @@ Code:"""
             if think is not None:
                 payload["think"] = think
             r = _requests.post(
-                "http://127.0.0.1:11434/api/generate",
+                _ollama_generate_url(),
                 json=payload,
                 timeout=timeout,
             )
@@ -3913,7 +3925,7 @@ Code:"""
             import requests as _requests
             query = messages[-1]["content"][:1200]
             r = _requests.post(
-                "http://127.0.0.1:11434/api/generate",
+                _ollama_generate_url(),
                 json={"model": self.model_name, "prompt": query, "stream": False,
                       "keep_alive": "30m",
                       "options": {"num_predict": 768}},
