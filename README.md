@@ -139,6 +139,24 @@ chains), classified and routed on the fly:
 | Reasoning | "Prove sqrt(2) is irrational" | selected reasoning model | ~1-4 min on CPU |
 | Repeat | any question you already asked | answer cache | ~0s |
 
+Measured on qwen3:4b CPU (5-question diag): balanced factual 9.6s vs raw
+35s; explainer 33s vs raw 34-74s; speed reasoning runs hotter (bigger
+budgets + verification pass), so `balanced` is the default fast path and
+`speed` wins on short/trivial traffic. Latency SLOs: instant <1s,
+factual <60s, explainer <120s, code <300s (balanced, warm model).
+
+Keep the model resident: ollama unloads models after 5 idle minutes by
+default (next request pays ~60s cold load). All local calls request
+`keep_alive=30m`; for full effect also set `OLLAMA_KEEP_ALIVE=30m` in the
+ollama *server* environment.
+
+The think-off token budget is measured, not hardcoded: run
+`python benchmark_results/probe_num_predict.py --three-point` on a quiet
+machine (20-40 min CPU) and the gateway adopts the resulting b* from
+`benchmark_results/num_predict_scan.json` automatically. Re-probe when
+the model, hardware, or ollama version changes. (Benchmarks don't run in
+CI: shared runners are too noisy for latency assertions.)
+
 Model routing tiers (the first **installed** candidate of the right tier is
 used):
 
