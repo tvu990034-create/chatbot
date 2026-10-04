@@ -100,12 +100,97 @@ Run `python main.py --help` for the full list of options.
 ```bash
 python optimizer_cli.py bench --n 5 --mode speed      # 5 curated questions, timed
 python optimizer_cli.py bench --n 5 --mode balanced   # default smart path
+python optimizer_cli.py bench --n 2 --no-baseline --questions "6*7|8+9"
 python optimizer_cli.py eval --n 5                     # grade 5 GSM8K items, report to benchmark_results/
 ```
 
 Modes: `speed` (tight token caps, short drafts get a verification pass),
 `balanced` (default; bounded think-off reasoning), `quality` (generous
 budgets, multi-model selection on hard queries).
+
+### Interactive chat (REPL)
+
+```bash
+python optimizer_cli.py run                # type messages, live answers + timings
+python optimizer_cli.py run --mode speed   # same loop, speed budgets
+```
+
+In-chat commands: `/quit` (or `/exit`), `/reset` (clear history),
+`/stats` (cache hits, timings), `/help`.
+
+### Health check + telemetry
+
+```bash
+python optimizer_cli.py check              # 30 module checks, offline, ~seconds
+python optimizer_cli.py stats              # live cache hits, hit rate, timings
+python optimizer_cli.py stats --json       # machine-readable
+```
+
+---
+
+## Server (REST API) step by step
+
+Start it (default `http://127.0.0.1:8000`):
+
+```bash
+python main.py api                          # REST server
+python main.py api --port 9000 --no-reload  # custom port, no auto-reload
+python main.py both                          # API + Gradio UI, two processes
+```
+
+Health and docs (no model needed):
+
+```bash
+curl http://127.0.0.1:8000/health
+curl http://127.0.0.1:8000/openapi.json   # full schema
+# Interactive docs: http://127.0.0.1:8000/docs
+```
+
+Chat (Windows PowerShell shown; any HTTP client works):
+
+```powershell
+# Basic chat (agent path with tools/RAG by default)
+Invoke-WebRequest http://127.0.0.1:8000/chat -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message": "What is 12*8?", "use_agent": true}'
+
+# Multi-turn: pass history along
+Invoke-WebRequest http://127.0.0.1:8000/chat -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message": "And 13*13?", "history": [{"role": "user", "content": "What is 12*8?"}, {"role": "assistant", "content": "96"}]}'
+
+# Speed mode for one request
+Invoke-WebRequest http://127.0.0.1:8000/chat -Method Post `
+  -ContentType "application/json" `
+  -Body '{"message": "What is 12*8?", "speed_mode": true}'
+
+# OpenAI-style endpoint
+Invoke-WebRequest http://127.0.0.1:8000/api/v1/chat -Method Post `
+  -ContentType "application/json" `
+  -Body '{"messages": [{"role": "user", "content": "Hi"}], "performance_mode": "balanced"}'
+
+# Streaming (server-sent events, one JSON object per line)
+curl -N -X POST http://127.0.0.1:8000/chat/stream `
+  -H "Content-Type: application/json" `
+  -d '{"message": "Hello there!"}'
+```
+
+Limits are enforced before inference: message ≤ 32k chars, history ≤ 200
+turns, oversized payloads get HTTP 422, failures return HTTP 500 with the
+error (never a hang).
+
+### RAG step by step
+
+```bash
+mkdir data\docs                                   # Windows (default docs dir)
+echo "The harbor lights mark the entrance." > data\docs\harbor.txt
+python main.py ingest --path data\docs            # build the vector index
+python main.py ingest --path data\docs --rebuild  # force rebuild
+```
+
+Then ask with retrieval (agent path, or `use_rag` on the endpoints).
+`/rag/ingest` accepts files-only multipart uploads (max 20 files, 10MB
+each, 50MB total); `/rag/query` takes `{"question": "..."}`.
 
 ---
 
