@@ -8,6 +8,83 @@ cloud, no GPU required.
 
 ---
 
+## Copy–paste command reference
+
+Setup (once):
+
+```bash
+git clone https://github.com/tvu990034-create/chatbot.git
+cd chatbot
+ollama pull qwen3:4b
+ollama pull phi3:mini
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS / Linux
+pip install -e .
+cp .env.example .env
+```
+
+Smoke test (proves the install works):
+
+```bash
+python optimizer_cli.py check --quiet
+python main.py chat "Hello there!"
+python main.py chat "What is 12 * 8?"
+```
+
+Chat:
+
+```bash
+python main.py chat "What is the capital of France?"
+python main.py chat --model phi3:mini "What is 7*6?"
+python main.py chat --use-agent "Tell me about LangGraph"
+python main.py chat --use-agent --no-rag "What is 7*6?"
+python optimizer_cli.py run                    # interactive loop (/quit to exit)
+python optimizer_cli.py run --mode speed
+python optimizer_cli.py chat "Hi" --mode balanced --baseline
+```
+
+Server + API:
+
+```bash
+python main.py api --port 8000 --no-reload
+# docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/health
+python main.py both                              # API + Gradio UI together
+```
+
+RAG (documents):
+
+```bash
+mkdir data\docs
+echo "The harbor lights mark the entrance." > data\docs\note.txt
+python main.py ingest --path data\docs
+python main.py ingest --path data\docs --rebuild
+```
+
+Measure:
+
+```bash
+python optimizer_cli.py bench --n 5
+python optimizer_cli.py bench --n 5 --mode speed
+python optimizer_cli.py eval --n 5
+python optimizer_cli.py stats
+python main.py status
+python main.py benchmark --top 3
+```
+
+Maintain:
+
+```bash
+del cache\*.json              # Windows: cold restart (forget cached answers)
+# rm cache/*.json             # macOS / Linux
+python -m pytest tests -q     # full test suite (needs: pip install -e ".[dev]")
+```
+
+Advanced (`finetune`, `adapters`, `merge`, `advanced-benchmark`) each
+document themselves — run any of them with `--help`.
+
+---
+
 ## Quick start
 
 ### 1. Install Ollama + a model pair
