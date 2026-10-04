@@ -136,10 +136,11 @@ In `.env` ensure:
 
 ```
 DEFAULT_MODEL=ollama/qwen3:4b
-PERFORMANCE_MODE=balanced
 ```
 
 That is all — balanced mode is the default and needs nothing else.
+(There is no `PERFORMANCE_MODE` setting: speed/balanced/quality is chosen
+per call via `--mode`, not the environment.)
 
 ---
 

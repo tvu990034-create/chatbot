@@ -1,6 +1,10 @@
 # Local-chatbot runtime dependencies (mirrors pyproject.toml).
 # Install with:  pip install -r requirements.txt
 # Developers (tests/linters):  pip install -e ".[dev]"
+# CPU-first torch: this project targets CPU inference, so resolve torch
+# from the CPU wheel index (avoids the multi-GB CUDA bundle).  GPU users:
+# install a CUDA torch first and pip will keep it (already-satisfied wins).
+--extra-index-url https://download.pytorch.org/whl/cpu
 litellm>=1.94.0
 langgraph>=0.2.0
 langchain-core>=0.3.0
