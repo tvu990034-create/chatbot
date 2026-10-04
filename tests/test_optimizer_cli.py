@@ -629,3 +629,13 @@ def test_main_chat_direct_uses_gateway():
         result = CliRunner().invoke(main.app, ["chat", "hi"])
     assert result.exit_code == 0
     assert "direct hi" in result.stdout
+
+
+def test_main_ingest_none_provider_warns(monkeypatch):
+    """Provider 'none' must say so instead of silently ingesting nothing."""
+    import main
+    from config import settings, RAGProvider
+    monkeypatch.setattr(settings, "rag_provider", RAGProvider.NONE)
+    result = CliRunner().invoke(main.app, ["ingest", "--path", "."])
+    assert result.exit_code == 0
+    assert "nothing ingested" in result.stdout

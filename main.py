@@ -257,6 +257,12 @@ def ingest(
     target = path or settings.rag_docs_dir
     console.print(f"Ingesting from: [bold]{target}[/bold]")
 
+    if settings.rag_provider == RAGProvider.NONE:
+        console.print(
+            "[yellow]RAG provider is 'none': nothing ingested. "
+            "Set RAG_PROVIDER=llama_index (or both) to enable.[/yellow]")
+        return
+
     file_paths: list[Path] = []
     if Path(target).is_file():
         file_paths = [Path(target)]
