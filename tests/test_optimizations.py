@@ -1,4 +1,4 @@
-﻿"""
+"""
 Tests for Pass 2A optimization fixes.
 
 Covers:
