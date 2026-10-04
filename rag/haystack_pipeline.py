@@ -157,9 +157,12 @@ class HaystackRAG:
             document_store=self._document_store,
             top_k=self.top_k,
         ))
-        qry.add_component("prompt",    PromptBuilder(template=self.prompt_template))
+        qry.add_component("prompt",            PromptBuilder(template=self.prompt_template))
         qry.add_component("llm",       OpenAIGenerator(
-            api_base_url=settings.litellm_api_base or "http://localhost:4000",
+            # The generator speaks OpenAI-protocol: point it at the local
+            # ollama OpenAI endpoint where models actually live (a litellm
+            # proxy default of :4000 left every generation failing here).
+            api_base_url=settings.litellm_api_base or "http://127.0.0.1:11434",
             model=settings.default_model.split("/")[-1],
             api_key="dummy-key-litellm-handles-auth",
             generation_kwargs={
@@ -239,6 +242,15 @@ class HaystackRAG:
         if not self._is_built:
             self.build_pipeline()
             self.ingest()
+
+        # Empty store: skip query embedding entirely (it can never match
+        # anything; the encode alone costs ~50-200ms CPU per request).
+        try:
+            if (self._document_store is not None
+                    and self._document_store.count_documents() == 0):
+                return {"answer": "", "chunks": [], "sources": []}
+        except Exception:  # noqa: BLE001 - fall through to normal retrieval
+            pass
 
         embedder  = self._query_pipeline.get_component("embedder")
         retriever = self._query_pipeline.get_component("retriever")

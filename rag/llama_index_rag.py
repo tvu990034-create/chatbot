@@ -104,6 +104,10 @@ class LlamaIndexRAG:
         self.top_k            = top_k or settings.rag_top_k
         self._index: Any      = None
         self._query_engine: Any = None
+        # True when the index is known-empty: retrieval short-circuits
+        # before embedding the query (~50-200ms CPU wasted per request on
+        # an index that cannot match anything).
+        self._empty_index: bool = False
         # Serializes mutation of the shared query-engine llm kwargs so
         # concurrent aquery()/query() calls cannot overwrite each other's budget.
         self._engine_kwargs_lock = threading.Lock()
@@ -199,11 +203,13 @@ class LlamaIndexRAG:
             # Check if docs directory exists and has files
             if not docs_path.exists():
                 logger.warning("docs_dir %s does not exist – index will be empty.", self.docs_dir)
+                self._empty_index = True
                 self._index = VectorStoreIndex.from_vector_store(
                     vector_store, storage_context=storage_ctx
                 )
             elif not any(docs_path.iterdir()):
                 logger.warning("docs_dir %s is empty – index will be empty.", self.docs_dir)
+                self._empty_index = True
                 self._index = VectorStoreIndex.from_vector_store(
                     vector_store, storage_context=storage_ctx
                 )
@@ -219,6 +225,7 @@ class LlamaIndexRAG:
                     transformations=[splitter],
                     show_progress=True,
                 )
+                self._empty_index = False
                 logger.info("Indexed %d document(s).", len(documents))
 
         self._query_engine = self._index.as_query_engine(similarity_top_k=self.top_k)
@@ -288,6 +295,12 @@ class LlamaIndexRAG:
         """
         if self._query_engine is None:
             self.build_index()
+
+        # Known-empty index: skip query embedding entirely (it can never
+        # match anything; the encode alone costs ~50-200ms CPU per request).
+        if getattr(self, "_empty_index", False):
+            return {"answer": "", "chunks": [], "sources": [],
+                    "retrieval_confidence": 0.0}
 
         source_nodes = self._retrieve_nodes(question)
         confidence, budget = self._eq8_gate(source_nodes)
@@ -479,6 +492,7 @@ class LlamaIndexRAG:
         nodes = splitter.get_nodes_from_documents(documents)
         self._index.insert_nodes(nodes)
         self._query_engine = self._index.as_query_engine(similarity_top_k=self.top_k)
+        self._empty_index = False
         logger.info("Added %d node(s) from %d file(s).", len(nodes), len(file_paths))
         return len(nodes)
 

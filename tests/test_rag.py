@@ -89,3 +89,58 @@ def test_public_paths_share_retrieve_nodes_seam():
         out = asyncio.run(rag.aquery("q?"))
         assert seam.call_count == 3
         assert "could not find" in out["answer"]
+
+
+def test_llama_empty_index_skips_embedding(tmp_path):
+    """An index known to be empty must not pay a query encode (~50-200ms
+    CPU) per request: retrieve short-circuits before retrieval."""
+    from unittest.mock import patch
+    from rag.llama_index_rag import LlamaIndexRAG
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    persist = tmp_path / "chroma"
+    rag = LlamaIndexRAG(docs_dir=docs, persist_dir=persist)
+    assert rag._empty_index is False
+    rag.build_index()
+    assert rag._empty_index is True
+    with patch.object(LlamaIndexRAG, "_retrieve_nodes",
+                      side_effect=AssertionError("must not retrieve")):
+        out = rag.retrieve("anything at all?")
+    assert out == {"answer": "", "chunks": [], "sources": [],
+                   "retrieval_confidence": 0.0}
+
+
+def test_llama_add_documents_clears_empty_flag(tmp_path):
+    from rag.llama_index_rag import LlamaIndexRAG
+
+    docs = tmp_path / "docs"
+    docs.mkdir()
+    (docs / "note.txt").write_text(
+        "The harbor lights mark the entrance. " * 20, encoding="utf-8")
+    persist = tmp_path / "chroma"
+    rag = LlamaIndexRAG(docs_dir=docs, persist_dir=persist)
+    rag.build_index()
+    assert rag._empty_index is False
+    assert rag.retrieve("harbor lights")["chunks"]
+
+
+def test_haystack_empty_store_skips_embedding():
+    """Same short-circuit for the Haystack provider."""
+    try:
+        from rag.haystack_pipeline import HaystackRAG
+        rag = HaystackRAG()
+        out = rag.retrieve("anything at all?")
+    except ImportError as e:
+        pytest.skip(f"Haystack not installed: {e}")
+        return
+    assert out == {"answer": "", "chunks": [], "sources": []}
+
+
+def test_haystack_llm_points_at_ollama():
+    """The query generator must target the local ollama OpenAI endpoint,
+    not a hypothetical :4000 proxy (every generation failed there)."""
+    import pathlib
+    src = pathlib.Path("rag/haystack_pipeline.py").read_text(encoding="utf-8")
+    assert "http://127.0.0.1:11434" in src
+    assert "localhost:4000" not in src
