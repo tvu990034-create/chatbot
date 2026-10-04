@@ -272,6 +272,33 @@ Limits are enforced before inference: message ≤ 32k chars, history ≤ 200
 turns, oversized payloads get HTTP 422, failures return HTTP 500 with the
 error (never a hang).
 
+### For training teams (OpenAI-compatible API)
+
+Point any OpenAI-compatible harness at the server with no other changes —
+eval loops, data-gen pipelines, and agent trainers just work, and every
+request gets the optimizer stack (cache, routing, think-off generation):
+
+```python
+from openai import OpenAI
+client = OpenAI(base_url="http://127.0.0.1:8000/v1", api_key="not-needed")
+
+print([m.id for m in client.models.list()])   # live backend models
+r = client.chat.completions.create(
+    model="qwen3:4b",
+    messages=[{"role": "user", "content": "What is 14*14?"}],
+    temperature=0.1, max_tokens=64)
+print(r.choices[0].message.content, r.usage.total_tokens)
+```
+
+`POST /v1/chat/completions` (non-streaming) and `GET /v1/models` follow
+the OpenAI shape (`chatcmpl-*` ids, `choices[].message`, `usage` token
+counts from the same estimator that drives context budgeting). Why route
+training traffic through it: repeat prompts (templates, few-shot prefixes,
+retries) are served from cache in milliseconds instead of re-generated;
+greetings/arithmetic never touch the model at all; per-request wall clocks
+are bounded so a wedged generation can't stall a training batch. Point
+`lm-eval-harness` style runners at `/v1` the same way.
+
 ### RAG step by step
 
 ```bash

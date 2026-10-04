@@ -605,6 +605,73 @@ class TestRagEndpoints:
         assert resp.json()["llama_index"]["answer"] == "A"
 
 
+class TestOpenAICompat:
+    """Training/eval harnesses speak OpenAI's protocol: /v1/chat/completions
+    must return the exact shape with the agent answer inside."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        return TestClient(app, raise_server_exceptions=False)
+
+    def test_completions_shape(self):
+        from unittest.mock import AsyncMock, patch
+        from types import SimpleNamespace
+        client = self._client()
+        fake = SimpleNamespace(reply="hi there", cache_hit=False,
+                               model_used="m", rag_used=False,
+                               generation_policy="balanced")
+        with patch("agents.langgraph_agent.achat",
+                   new_callable=AsyncMock, return_value=fake):
+            resp = client.post("/v1/chat/completions", json={
+                "model": "qwen3:4b",
+                "messages": [{"role": "system", "content": "Be brief."},
+                             {"role": "user", "content": "Hi"}],
+            })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["object"] == "chat.completion"
+        assert body["id"].startswith("chatcmpl-")
+        assert isinstance(body["created"], int)
+        assert body["choices"][0]["message"] == {
+            "role": "assistant", "content": "hi there"}
+        assert body["choices"][0]["finish_reason"] == "stop"
+        usage = body["usage"]
+        assert usage["total_tokens"] == (usage["prompt_tokens"]
+                                         + usage["completion_tokens"])
+        assert usage["completion_tokens"] > 0
+
+    def test_completions_rejects_stream_and_empty(self):
+        client = self._client()
+        resp = client.post("/v1/chat/completions", json={
+            "model": "m",
+            "messages": [{"role": "user", "content": "Hi"}],
+            "stream": True,
+        })
+        assert resp.status_code == 400
+        resp = client.post("/v1/chat/completions", json={
+            "model": "m", "messages": [],
+        })
+        assert resp.status_code == 422
+
+    def test_models_falls_back_without_backend(self, monkeypatch):
+        import urllib.request
+        from fastapi.testclient import TestClient
+        from server.app import app
+        from config import settings
+        client = TestClient(app, raise_server_exceptions=False)
+
+        def boom(*a, **k):
+            raise ConnectionRefusedError("down")
+
+        monkeypatch.setattr(urllib.request, "urlopen", boom)
+        resp = client.get("/v1/models")
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["object"] == "list"
+        assert body["data"][0]["id"] == settings.default_model
+
+
 class TestEmptyReplyRecovery:
     """Thinking models return empty content on the plain litellm path;
     the endpoint must recover via the thinking-aware gateway, not serve ''."""

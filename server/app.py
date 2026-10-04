@@ -480,6 +480,119 @@ async def chat_v1_endpoint(req: ChatV1Request):
 
 
 # ---------------------------------------------------------------------------
+# OpenAI-compatible API (for training/eval harnesses: lm-eval, custom loops)
+# ---------------------------------------------------------------------------
+
+class OpenAIChatMessage(BaseModel):
+    role: str = Field(..., pattern="^(system|user|assistant)$")
+    content: str = Field(..., min_length=1, max_length=32_000)
+
+
+class OpenAIChatRequest(BaseModel):
+    """Subset of the OpenAI chat-completions schema routers actually send:
+    model + messages + sampling caps.  Extra provider fields are ignored."""
+
+    model: str = Field(default_factory=lambda: settings.default_model)
+    messages: list[OpenAIChatMessage] = Field(..., min_length=1,
+                                              max_length=400)
+    temperature: float | None = Field(None, ge=0.0, le=2.0)
+    max_tokens: int | None = Field(None, ge=1, le=32_000)
+    stream: bool = False
+
+
+@app.post("/v1/chat/completions", tags=["openai"])
+async def openai_chat_completions(req: OpenAIChatRequest):
+    """Drop-in OpenAI chat-completions endpoint (non-streaming).
+
+    Point any OpenAI-compatible client here with
+    ``base_url=http://127.0.0.1:8000/v1`` and no other changes: requests
+    run the same agent path (cache, routing, RAG, think-off generation)
+    as /api/v1/chat, and usage tokens are estimated by the same counter
+    that drives context budgeting.
+    """
+    if req.stream:
+        raise HTTPException(
+            status_code=400,
+            detail="streaming is not supported on this endpoint "
+                   "(use /chat/stream); retry with stream=false")
+    request_id = str(uuid.uuid4())[:8]
+    try:
+        system_prompt = "\n".join(
+            m.content for m in req.messages if m.role == "system") or None
+        convo = [{"role": m.role, "content": m.content}
+                 for m in req.messages if m.role != "system"]
+        if convo and convo[-1]["role"] == "user":
+            last_user = convo[-1]["content"]
+            history = convo[:-1]
+        elif convo:
+            last_user = convo[-1]["content"]
+            history = convo[:-1]
+        else:
+            last_user, history = "", []
+        from agents.langgraph_agent import achat
+        result = await achat(
+            last_user, history=history,
+            model=req.model, temperature=req.temperature,
+            max_tokens=req.max_tokens, system_prompt=system_prompt,
+        )
+        reply = result.reply or ""
+        from gateway.opt_core import estimate_tokens
+        prompt_tokens = sum(
+            estimate_tokens(m.get("content", "")) for m in convo)
+        completion_tokens = estimate_tokens(reply)
+        return {
+            "id": f"chatcmpl-{request_id}",
+            "object": "chat.completion",
+            "created": int(time.time()),
+            "model": result.model_used or req.model,
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": reply},
+                "finish_reason": "stop",
+            }],
+            "usage": {
+                "prompt_tokens": prompt_tokens,
+                "completion_tokens": completion_tokens,
+                "total_tokens": prompt_tokens + completion_tokens,
+            },
+        }
+    except HTTPException:
+        raise
+    except Exception as exc:
+        logger.exception("OpenAI-compat error [%s]: %s", request_id, exc)
+        raise HTTPException(status_code=500, detail=str(exc)) from exc
+
+
+@app.get("/v1/models", tags=["openai"])
+async def openai_models():
+    """List installed backend models in OpenAI shape (harnesses probe this
+    before running).  Falls back to the configured default when the
+    backend is unreachable."""
+    import urllib.request
+    import json as _json
+    models: list[str] = []
+    try:
+        base = (getattr(settings, "litellm_api_base", None)
+                or "http://127.0.0.1:11434").rstrip("/")
+        with urllib.request.urlopen(f"{base}/api/tags",
+                                    timeout=5) as resp:
+            data = _json.loads(resp.read())
+        models = [m.get("name", "") for m in data.get("models", [])
+                  if m.get("name")]
+    except Exception as exc:  # noqa: BLE001 - fail soft to configured default
+        logger.warning("model list unavailable, using default: %s", exc)
+    if not models:
+        models = [settings.default_model]
+    now = int(time.time())
+    return {
+        "object": "list",
+        "data": [{"id": name, "object": "model", "created": now,
+                  "owned_by": "local"}
+                 for name in models],
+    }
+
+
+# ---------------------------------------------------------------------------
 # Chat (streaming SSE)
 # ---------------------------------------------------------------------------
 
