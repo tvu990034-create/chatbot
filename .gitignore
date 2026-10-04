@@ -59,6 +59,7 @@ react-ui/.turbo/
 # Documentation reports
 *.md
 !README.md
+!BUSINESS.md
 
 # Benchmark outputs (regenerated locally, not committed)
 benchmark_results/
