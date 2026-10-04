@@ -1479,6 +1479,15 @@ class TestMeasuredThinkoffBStar:
             assert "_thinkoff_call(" in seg
             assert seg.index("_thinkoff_call(") < seg.index("_raw_reasoning_call(")
 
+    def test_easy_path_suppresses_thinking(self):
+        """Easy factual queries must not burn the budget on hidden reasoning:
+        top-level think=False is the only mechanism ollama honors."""
+        import inspect
+        from gateway import universal_enhanced_gateway as g
+        src = inspect.getsource(g)
+        seg = src.split("Easy path: suppress thinking", 1)[1][:800]
+        assert "think=False" in seg
+
 
 class TestOllamaGenerateUrl:
     """Raw transports must honor settings.litellm_api_base (127.0.0.1
@@ -1620,6 +1629,9 @@ class TestCalibrationVerifyGate:
         src = inspect.getsource(g)
         assert "should_defer_to_verify(" in src
         assert "calibrated_confidence(" in src
+        # Math/code verify at the standard bar; other reasoning only when
+        # confidence is very low (a second full generation per explainer).
+        assert "threshold=_bar" in src
 
     def test_verify_outcome_feeds_adaptive_temperature(self):
         """The verify verdict closes the adaptive-temperature loop (which

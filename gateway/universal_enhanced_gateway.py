@@ -191,6 +191,10 @@ def completion(*args, **kwargs):
     # Keep the model resident across calls (ollama default unloads after 5
     # idle minutes, forcing a ~60s cold reload on the next request).
     kwargs.setdefault("keep_alive", "30m")
+    # No litellm-level retries: our own ladders (retry caps, deadline
+    # remainder, Eq36 fast failure) already manage retries, and stacked
+    # retries multiply tails (timeout x attempts per call x ladder levels).
+    kwargs.setdefault("num_retries", 0)
     return _ensure_litellm()(*args, **kwargs)
 
 from config import settings
@@ -1161,7 +1165,16 @@ class UniversalEnhancedGateway:
                         estimate_confidence_from_response(
                             response_text, _qtype),
                         temperature=float(_at or 1.0))
-                    _verify_needed = should_defer_to_verify(_conf)
+                    # Math/code drafts are cheap to get wrong and expensive
+                    # to serve wrong: verify at the standard bar.  Other
+                    # reasoning drafts (explainers) verify only when
+                    # confidence is very low — the think-off path that wrote
+                    # them is already careful, and a second full generation
+                    # for every explainer doubles speed-mode cost.
+                    _bar = (0.6 if (query_analysis.is_math
+                                    or query_analysis.is_coding) else 0.4)
+                    _verify_needed = should_defer_to_verify(
+                        _conf, threshold=_bar)
                 except Exception:  # noqa: BLE001
                     _verify_needed = True
                 if _verify_needed:
@@ -3613,10 +3626,15 @@ Code:"""
                 if cont:
                     response_text = f"{response_text}\n\n{cont}"
         else:
-            # Easy path: default thinking (options["think"] is ignored by
-            # ollama; /no_think handles brevity) and the routed fast model.
+            # Easy path: suppress thinking via top-level think=False (the
+            # only mechanism ollama honors; options["think"] is ignored and
+            # the /no_think prompt directive is unreliable).  Default
+            # full-thinking here made trivial factual queries burn the whole
+            # budget on hidden reasoning and trip the timeout cascade
+            # (10+ min for one question), while raw generation answers the
+            # same prompt in ~10s.
             response_text = self._raw_reasoning_call(query, budget=budget, timeout=timeout,
-                                                     model=active_model)
+                                                     think=False, model=active_model)
 
         if response_text and response_text.strip():
             response_text = response_text.strip()
