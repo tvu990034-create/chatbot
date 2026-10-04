@@ -395,6 +395,6 @@ pytest
 
 ---
 
-## Licence
+## License
 
 MIT
