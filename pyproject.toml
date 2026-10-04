@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=68", "wheel"]
-build-backend = "setuptools.backends.legacy:build"
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "local-chatbot"
@@ -71,8 +71,20 @@ dev = [
 vllm = ["vllm>=0.6.0"]
 sglang = ["sglang>=0.4.0"]
 
-[project.scripts]
-local-chatbot = "local_chatbot.main:app"
+# Explicit package list: flat-layout auto-discovery chokes on data/log
+# directories, and the old [project.scripts] entry pointed at a
+# non-existent local_chatbot package, so both are fixed here.  (Most users
+# should prefer `pip install -r requirements.txt`, which needs no build.)
+[tool.setuptools.packages.find]
+where = ["."]
+include = [
+    "agents*", "backends*", "factuality*", "finetuning*", "gateway*",
+    "merging*", "prompt_compression*", "rag*", "reasoning*", "server*",
+    "tools*", "ui*",
+]
+
+[tool.setuptools]
+py-modules = ["config", "config_manager", "main", "optimizer_cli"]
 
 [tool.ruff]
 line-length = 100

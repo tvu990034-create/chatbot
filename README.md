@@ -20,8 +20,9 @@ ollama pull phi3:mini
 python -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
-pip install -e .
-cp .env.example .env
+pip install -r requirements.txt
+Copy-Item .env.example .env   # Windows PowerShell
+# cp .env.example .env        # macOS / Linux
 ```
 
 Smoke test (proves the install works):
@@ -98,22 +99,37 @@ ollama pull phi3:mini   # fast model for trivia (auto-detected)
 
 Only pulling one model is fine too — simple chat will just use that model.
 
-### 2. Install dependencies
+### 2. Install Python (real one, on PATH)
+
+You need Python 3.10–3.13. On Windows install from
+[python.org](https://www.python.org/downloads/) and tick
+**"Add python.exe to PATH"** — the Microsoft Store shortcut alone fails
+with `Python was not found`. Verify first:
 
 ```bash
-cd local-chatbot
-python -m venv .venv
-.venv\Scripts\activate        # Windows
-source .venv/bin/activate     # macOS / Linux
-
-pip install -e .          # runtime (includes local RAG/server deps)
-pip install -e ".[dev]"   # + pytest, linters (for running the test suite)
+python --version     # must print 3.10+ (not open the Store)
 ```
 
-### 3. Configure
+### 3. Install dependencies
 
 ```bash
-cp .env.example .env
+cd chatbot
+python -m venv .venv
+.venv\Scripts\activate        # Windows
+# source .venv/bin/activate   # macOS / Linux
+
+pip install -r requirements.txt
+```
+
+(`pip install -e .` also works. If you previously saw
+`BackendUnavailable: Cannot import 'setuptools...'`, pull the latest code
+— the build backend is fixed.)
+
+### 4. Configure
+
+```bash
+Copy-Item .env.example .env   # Windows PowerShell
+# cp .env.example .env        # macOS / Linux
 ```
 
 In `.env` ensure:
@@ -285,7 +301,11 @@ each, 50MB total); `/rag/query` takes `{"question": "..."}`.
 - **Stale or wrong cached answer**: caches live under `cache/` (plus a
   `semantic_embs.json` sidecar). Stop the app and delete `cache/*.json`
   to start cold — corrupt files are quarantined to `.bak` automatically.
-- **A dependency is missing**: reinstall with `pip install -e ".[dev]"`.
+- **A dependency is missing**: reinstall with `pip install -r requirements.txt`
+  (add `[dev]` via `pip install -e ".[dev]"` if you run the test suite).
+- **`Python was not found`** (Windows): you have only the Store shortcut —
+  install real Python from python.org with PATH enabled, close and reopen
+  the terminal, then `python --version`.
 
 ---
 

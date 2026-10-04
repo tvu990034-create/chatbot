@@ -1,0 +1,30 @@
+# Local-chatbot runtime dependencies (mirrors pyproject.toml).
+# Install with:  pip install -r requirements.txt
+# Developers (tests/linters):  pip install -e ".[dev]"
+litellm>=1.94.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+langchain-community>=0.3.0
+llama-index-core>=0.12.0
+llama-index-llms-litellm>=0.3.0
+llama-index-embeddings-huggingface>=0.4.0
+llama-index-vector-stores-chroma>=0.3.0
+llama-index-readers-file>=0.3.0
+haystack-ai>=3.0.0
+chroma-haystack>=2.0.0
+chromadb>=0.5.0
+sentence-transformers>=3.0.0
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+python-multipart>=0.0.9
+pydantic>=2.7.0
+pydantic-settings>=2.3.0
+gradio>=4.44.0
+httpx>=0.27.0
+python-dotenv>=1.0.0
+tenacity>=8.3.0
+rich>=13.7.0
+typer>=0.12.0
+numpy
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
