@@ -1,5 +1,7 @@
 # 🤖 Local Chatbot — CLI
 
+![CI](https://github.com/tvu990034-create/chatbot/actions/workflows/ci.yml/badge.svg)
+
 A fully local AI chatbot run from the terminal. It talks to a local Ollama
 model through a **balanced mode** that routes trivial questions to a fast
 model, hard reasoning to a strong reasoning model, caches repeat questions,
