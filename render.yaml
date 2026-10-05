@@ -1,0 +1,39 @@
+services:
+  - type: web
+    name: chatbot-backend
+    env: python
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn local_chatbot.server:app --host 0.0.0.0 --port $PORT
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12
+      - key: MODEL_PATH
+        value: models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+      - key: KNOWLEDGE_BASE_PATH
+        value: data/knowledge_base
+      - key: N_CTX
+        value: 2048
+      - key: N_THREADS
+        value: 4
+      - key: N_GPU_LAYERS
+        value: -1
+      - key: N_BATCH
+        value: 512
+      - key: TEMPERATURE
+        value: 0.1
+      - key: MAX_TOKENS
+        value: 512
+      - key: CHUNK_LIMIT
+        value: 3
+      - key: USE_FAQ
+        value: true
+      - key: USE_ZERO_TOKEN
+        value: true
+      - key: ONE_LINER_MODE
+        value: false
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 8000
+    healthCheckPath: /health

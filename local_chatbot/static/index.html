@@ -1,0 +1,254 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Local AI Chatbot</title>
+  <style>
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --border: #2a2a3a;
+      --text: #e4e4ef;
+      --muted: #8888a0;
+      --accent: #6366f1;
+      --accent-hover: #818cf8;
+      --user-bg: #2d2d44;
+      --bot-bg: #1e1e2e;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+    header {
+      padding: 16px 24px;
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: var(--surface);
+    }
+    header h1 { font-size: 1.1rem; font-weight: 600; }
+    header span { font-size: 0.75rem; color: var(--muted); }
+    .status { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; color: var(--muted); }
+    .dot { width: 8px; height: 8px; border-radius: 50%; background: #22c55e; }
+    .dot.offline { background: #ef4444; }
+    #messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .msg {
+      max-width: 75%;
+      padding: 12px 16px;
+      border-radius: 12px;
+      line-height: 1.5;
+      font-size: 0.95rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+    .msg.user { align-self: flex-end; background: var(--user-bg); border-bottom-right-radius: 4px; }
+    .msg.bot { align-self: flex-start; background: var(--bot-bg); border: 1px solid var(--border); border-bottom-left-radius: 4px; }
+    .meta { font-size: 0.7rem; color: var(--muted); margin-top: 6px; }
+    .welcome {
+      text-align: center;
+      color: var(--muted);
+      margin: auto;
+      max-width: 400px;
+    }
+    .welcome h2 { color: var(--text); margin-bottom: 8px; font-size: 1.3rem; }
+    .suggestions { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 16px; }
+    .suggestions button {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 8px 14px;
+      border-radius: 20px;
+      cursor: pointer;
+      font-size: 0.85rem;
+      transition: border-color 0.2s;
+    }
+    .suggestions button:hover { border-color: var(--accent); }
+    footer {
+      padding: 16px 24px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+    }
+    .input-row { display: flex; gap: 12px; max-width: 900px; margin: 0 auto; }
+    #input {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 0.95rem;
+      outline: none;
+      resize: none;
+      min-height: 48px;
+      max-height: 120px;
+    }
+    #input:focus { border-color: var(--accent); }
+    #send {
+      background: var(--accent);
+      color: white;
+      border: none;
+      padding: 0 24px;
+      border-radius: 12px;
+      cursor: pointer;
+      font-size: 0.95rem;
+      font-weight: 500;
+      transition: background 0.2s;
+    }
+    #send:hover { background: var(--accent-hover); }
+    #send:disabled { opacity: 0.5; cursor: not-allowed; }
+    .typing::after { content: "▋"; animation: blink 0.8s infinite; }
+    @keyframes blink { 50% { opacity: 0; } }
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>Local AI Chatbot</h1>
+      <span>100% local · RAG · LangGraph</span>
+    </div>
+    <div class="status">
+      <div class="dot" id="statusDot"></div>
+      <span id="statusText">Connecting...</span>
+    </div>
+  </header>
+
+  <div id="messages">
+    <div class="welcome" id="welcome">
+      <h2>How can I help you?</h2>
+      <p>Ask anything. Answers come from your local model and knowledge base.</p>
+      <div class="suggestions">
+        <button onclick="ask('What is BM25?')">What is BM25?</button>
+        <button onclick="ask('Explain transformers')">Explain transformers</button>
+        <button onclick="ask('What is the capital of France?')">Capital of France</button>
+      </div>
+    </div>
+  </div>
+
+  <footer>
+    <div class="input-row">
+      <textarea id="input" placeholder="Type a message..." rows="1"></textarea>
+      <button id="send">Send</button>
+    </div>
+  </footer>
+
+  <script>
+    const sessionId = "web-" + Math.random().toString(36).slice(2, 10);
+    const messagesEl = document.getElementById("messages");
+    const inputEl = document.getElementById("input");
+    const sendBtn = document.getElementById("send");
+    const welcomeEl = document.getElementById("welcome");
+    let streaming = false;
+
+    async function checkHealth() {
+      try {
+        const res = await fetch("/health");
+        const data = await res.json();
+        document.getElementById("statusDot").classList.toggle("offline", !data.model_loaded);
+        document.getElementById("statusText").textContent =
+          data.model_loaded ? "Model loaded" : "Simulated mode";
+      } catch {
+        document.getElementById("statusDot").classList.add("offline");
+        document.getElementById("statusText").textContent = "Offline";
+      }
+    }
+    checkHealth();
+
+    function addMessage(text, role, meta) {
+      if (welcomeEl) welcomeEl.remove();
+      const div = document.createElement("div");
+      div.className = "msg " + role;
+      div.textContent = text;
+      if (meta) {
+        const m = document.createElement("div");
+        m.className = "meta";
+        m.textContent = meta;
+        div.appendChild(m);
+      }
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return div;
+    }
+
+    async function sendMessage(text) {
+      if (!text.trim() || streaming) return;
+      streaming = true;
+      sendBtn.disabled = true;
+      addMessage(text, "user");
+      inputEl.value = "";
+
+      const botDiv = addMessage("", "bot");
+      botDiv.classList.add("typing");
+      let full = "";
+
+      try {
+        const res = await fetch("/chat", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ message: text, session_id: sessionId }),
+        });
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (!line.startsWith("data: ")) continue;
+            const data = JSON.parse(line.slice(6));
+            if (data.type === "token") {
+              full += data.value;
+              botDiv.textContent = full;
+              botDiv.classList.add("typing");
+            } else if (data.type === "done") {
+              botDiv.classList.remove("typing");
+              const meta = document.createElement("div");
+              meta.className = "meta";
+              meta.textContent = `${data.source} · ${data.latency_ms}ms`;
+              botDiv.appendChild(meta);
+            }
+          }
+          messagesEl.scrollTop = messagesEl.scrollHeight;
+        }
+      } catch (err) {
+        botDiv.textContent = "Error: Could not reach the server.";
+        botDiv.classList.remove("typing");
+      }
+
+      streaming = false;
+      sendBtn.disabled = false;
+      inputEl.focus();
+    }
+
+    function ask(text) { sendMessage(text); }
+
+    sendBtn.addEventListener("click", () => sendMessage(inputEl.value));
+    inputEl.addEventListener("keydown", (e) => {
+      if (e.key === "Enter" && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage(inputEl.value);
+      }
+    });
+    inputEl.focus();
+  </script>
+</body>
+</html>

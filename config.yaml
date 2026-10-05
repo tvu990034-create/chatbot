@@ -1,0 +1,117 @@
+# Cloud AI Chatbot - Enterprise Configuration
+# This file contains all configurable parameters for the chatbot system
+# Copy this file to config.yaml and modify as needed for your deployment
+
+# Inference Backend Configuration
+inference:
+  backend: "simulatedcloud"  # Options: simulatedcloud, openai
+  simulated_latency_ms: 50    # Latency for simulated engine (ms)
+  
+  # OpenAI Configuration (only used when backend=openai)
+  openai:
+    model: "gpt-4.1-nano"
+    api_key: ""  # Set via environment variable OPENAI_API_KEY
+    base_url: ""
+    temperature: 0.0
+    max_tokens: 256
+
+# Retrieval Configuration
+retrieval:
+  embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+  cross_encoder: "cross-encoder/ms-marco-MiniLM-L-6-v2"
+  
+  # Retrieval parameters
+  bm25_top_k: 100
+  dense_top_k: 200
+  rerank_top_k: 5
+  
+  # FAISS HNSW parameters
+  hnsw_m: 32
+  hnsw_ef_search: 64
+  
+  # Bloom filter for deduplication
+  bloom_bits_per_element: 8
+  bloom_hash_functions: 6
+
+# PageRank Configuration
+pagerank:
+  damping: 0.85
+  boost_gamma: 0.1
+  prune_beta: 0.5
+  prune_keep_k: 80
+  prune_score_floor: 0.01
+
+# Dynamic Index Switching
+dynamic_index:
+  enabled: true
+  short_query_max_words: 2
+
+# Essential Keywords Truncation
+essential_keywords:
+  enabled: true
+  alpha: 0.3
+
+# Cache Configuration
+cache:
+  max_entries: 5000
+  initial_threshold: 4
+  bloom_filter_enabled: true
+
+# Prompt Configuration
+prompt:
+  system_prompt: "You are a helpful AI assistant."
+  minimal_prompt: true
+  one_liner_mode: false
+
+# Score Gating
+score_gating:
+  enabled: true
+  threshold: 0.5
+
+# Zero-Token Responder
+zero_token:
+  enabled: true
+  phrases_file: "deployment/zero_token_phrases.json"
+
+# FAQ Database
+faq:
+  enabled: true
+  database_file: "deployment/faq.json"
+
+# Boredom Stopper
+boredom_stopper:
+  enabled: false
+
+# Dynamic Max Tokens
+dynamic_tokens:
+  enabled: true
+  max_cap: 256
+  min_cap: 32
+
+# Chunk Limit
+chunk_limit: 1
+
+# CORS Configuration
+cors:
+  allowed_origins:
+    - "http://localhost:3000"
+    - "http://localhost:8000"
+  allow_credentials: true
+  allow_methods:
+    - "GET"
+    - "POST"
+    - "PUT"
+    - "DELETE"
+  allow_headers:
+    - "*"
+
+# Logging Configuration
+logging:
+  level: "INFO"  # Options: DEBUG, INFO, WARNING, ERROR
+  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+
+# Monitoring Configuration
+monitoring:
+  enabled: false
+  prometheus_port: 9090
+  metrics_path: "/metrics"
