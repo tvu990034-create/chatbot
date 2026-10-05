@@ -22,7 +22,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | User Experience | 7 | 5 | 2 | 71.43% |
 | Edge Cases | 5 | 5 | 0 | 100% |
 | Code Quality | 1 | 1 | 0 | 100% |
-| **Total** | **41** | **29** | **12** | **70.73%** |
+| Magic Numbers | 3 | 2 | 1 | 66.67% |
+| **Total** | **44** | **31** | **13** | **70.45%** |
 
 ---
 
@@ -147,14 +148,29 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## Magic Number Bugs (3 total)
+
+### Fixed (2/3)
+44. ✅ Bug #44: Hardcoded history window size
+46. ✅ Bug #46: Magic numbers in config.py
+
+### Documented Only (1/3)
+45. ⏸️ Bug #45: Magic number in static HTML (low priority)
+
+**Files Modified**: `local_chatbot/graph.py`, `local_chatbot/optimized_graph.py`, `local_chatbot/config.py`
+
+**Impact**: More maintainable code, clearer intent, easier to tune parameters
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
 - `engine.py` - Model validation, cleanup, thread safety, logging, model missing error
-- `graph.py` - Session timeout, history formatting, thread safety, logging, context-aware fallbacks, query validation, session ID validation, response type validation, removed dead code
+- `graph.py` - Session timeout, history formatting, thread safety, logging, context-aware fallbacks, query validation, session ID validation, response type validation, removed dead code, added HISTORY_WINDOW_SIZE constant
 - `rag.py` - Caching, document cache, LRU eviction, thread safety, logging, empty chunks handling, fast_path empty string handling
-- `optimized_graph.py` - Logging
-- `config.py` - Configuration validation
+- `optimized_graph.py` - Logging, added HISTORY_WINDOW_SIZE constant
+- `config.py` - Configuration validation, added DEFAULT_* constants
 
 ### CLI (User Interface)
 - `cli_chat.py` - Help/clear commands, exception handling
@@ -172,6 +188,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `USER_EXPERIENCE_BUGS.md` - User experience bugs
 - `EDGE_CASE_BUGS.md` - Edge case and validation bugs
 - `CLEANUP_BUGS.md` - Code quality and cleanup bugs
+- `MAGIC_NUMBER_BUGS.md` - Magic number issues
 - `BUG_SUMMARY.md` - This summary
 
 ---
@@ -188,6 +205,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 8. `3ada5c7` - Update bug summary with user experience bugs
 9. `95251ce` - Fix all edge case and validation bugs
 10. `87d4a1c` - Fix code quality issues and remove dead code
+11. `923dcea` - Update bug summary with edge cases and code quality
+12. `c4405a9` - Fix magic number issues with named constants
 
 ---
 
@@ -219,9 +238,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 The chatbot project has been thoroughly audited and significantly improved:
 
-- **29 bugs fixed** across performance, concurrency, security, user experience, edge cases, and code quality
-- **12 bugs documented** for future reference
-- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, and robust edge case handling
+- **31 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, and magic numbers
+- **13 bugs documented** for future reference
+- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, and maintainable code
 - **Legacy cloud code** documented but not extensively modified (out of scope)
 
 The chatbot is now:
@@ -232,4 +251,4 @@ The chatbot is now:
 - ✅ Better debugged (logging everywhere)
 - ✅ Better user experience (help commands, error recovery, clear feedback)
 - ✅ More robust (input validation, edge case handling)
-- ✅ Cleaner code (dead code removed)
+- ✅ Cleaner code (dead code removed, magic numbers replaced with constants)
