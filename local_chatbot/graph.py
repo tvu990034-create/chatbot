@@ -138,6 +138,26 @@ class LocalChatGraph:
         return {**state, "response": response, "source": "llm"}
 
     def chat(self, query: str, session_id: str = "default") -> ChatResult:
+        # Edge Case Bug #37: Validate query
+        if not query or not isinstance(query, str):
+            return ChatResult(
+                response="Please provide a valid question.",
+                source="validation",
+                latency_ms=0.0
+            )
+        query = query.strip()
+        if not query:
+            return ChatResult(
+                response="Please provide a valid question.",
+                source="validation",
+                latency_ms=0.0
+            )
+
+        # Edge Case Bug #41: Validate session ID
+        if not session_id or not isinstance(session_id, str):
+            session_id = "default"
+        session_id = session_id.strip() or "default"
+
         start = time.perf_counter()
         state: ChatState = {"session_id": session_id, "query": query, "history": []}
 
@@ -159,6 +179,10 @@ class LocalChatGraph:
                 response = "I couldn't process that. Try rephrasing your question."
             else:
                 response = "Sorry, I couldn't process that."
+
+        # Edge Case Bug #39: Ensure response is a string
+        if not isinstance(response, str):
+            response = str(response)
 
         self.memory.add(session_id, "user", query)
         self.memory.add(session_id, "assistant", response)

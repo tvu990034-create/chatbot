@@ -118,11 +118,11 @@ class RAGPipeline:
     def fast_path(self, query: str) -> Tuple[str | None, str | None]:
         if self.zero_token:
             answer = self.zero_token.respond(query)
-            if answer:
+            if answer is not None:  # Edge Case Bug #38: Allow empty string as valid response
                 return answer, "zero_token"
         if self.faq:
             answer = self.faq.get(query)
-            if answer:
+            if answer is not None:
                 return answer, "faq"
         return None, None
 
@@ -135,6 +135,15 @@ class RAGPipeline:
 
         result = self.retrieval.retrieve(query)
         chunks = [text for _, text, _ in result.chunks]
+
+        # Edge Case Bug #40: Handle empty chunks list
+        if not chunks:
+            return (
+                f"I couldn't find relevant information about '{query}' in the knowledge base.",
+                self.cfg.max_tokens,
+                []
+            )
+
         prompt = build_minimal_prompt(query, chunks, one_liner=self.cfg.one_liner_mode)
         max_tokens = compute_dynamic_max_tokens(query, max_cap=self.cfg.max_tokens)
         sources = [{"text": c[:200], "score": s} for _, c, s in result.chunks[:3]]
