@@ -3,11 +3,14 @@ Data Ingestion System for Knowledge Base
 Loads documents from various sources (text files, JSON, etc.) for the RAG system.
 """
 
+import logging
 import os
 import json
 import glob
 from typing import List, Dict, Tuple, Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class DataIngestion:
@@ -19,21 +22,36 @@ class DataIngestion:
     def __init__(self, knowledge_base_path: str = "data/knowledge_base"):
         self.knowledge_base_path = knowledge_base_path
         self.supported_formats = {'.txt', '.json', '.md', '.csv'}
+
+    def _validate_path(self, path: str) -> bool:
+        """Ensure path is within knowledge base directory (Security Issue #25 fix)."""
+        try:
+            real_path = os.path.realpath(path)
+            real_kb = os.path.realpath(self.knowledge_base_path)
+            return real_path.startswith(real_kb)
+        except Exception as e:
+            logger.warning(f"Path validation failed for {path}: {e}")
+            return False
     
     def load_all_documents(self) -> Tuple[List[str], List[str]]:
         """
         Load all documents from the knowledge base directory.
-        
+
         Returns:
             Tuple of (documents list, document IDs list)
         """
         documents = []
         doc_ids = []
-        
-        if not os.path.exists(self.knowledge_base_path):
-            print(f"Warning: Knowledge base path {self.knowledge_base_path} does not exist")
+
+        # Security Issue #25 fix: Validate path
+        if not self._validate_path(self.knowledge_base_path):
+            logger.error(f"Invalid knowledge base path: {self.knowledge_base_path}")
             return documents, doc_ids
-        
+
+        if not os.path.exists(self.knowledge_base_path):
+            logger.warning(f"Knowledge base path {self.knowledge_base_path} does not exist")
+            return documents, doc_ids
+
         # Load all supported files
         for file_path in glob.glob(os.path.join(self.knowledge_base_path, "**/*"), recursive=True):
             if os.path.isfile(file_path):
@@ -42,23 +60,28 @@ class DataIngestion:
                     docs, ids = self.load_file(file_path)
                     documents.extend(docs)
                     doc_ids.extend(ids)
-        
-        print(f"Loaded {len(documents)} documents from knowledge base")
+
+        logger.info(f"Loaded {len(documents)} documents from knowledge base")
         return documents, doc_ids
     
     def load_file(self, file_path: str) -> Tuple[List[str], List[str]]:
         """
         Load documents from a single file.
-        
+
         Args:
             file_path: Path to the file to load
-            
+
         Returns:
             Tuple of (documents list, document IDs list)
         """
         ext = os.path.splitext(file_path)[1].lower()
         filename = os.path.basename(file_path)
-        
+
+        # Security Issue #26 fix: Check for double extensions
+        if '.' in filename.rsplit('.', 1)[0]:
+            logger.warning(f"Invalid filename with multiple extensions: {filename}")
+            return [], []
+
         try:
             if ext == '.json':
                 return self._load_json(file_path, filename)
@@ -69,10 +92,10 @@ class DataIngestion:
             elif ext == '.csv':
                 return self._load_csv(file_path, filename)
             else:
-                print(f"Unsupported file format: {ext}")
+                logger.warning(f"Unsupported file format: {ext}")
                 return [], []
         except Exception as e:
-            print(f"Error loading file {file_path}: {e}")
+            logger.error(f"Error loading file {file_path}: {e}")
             return [], []
     
     def _load_json(self, file_path: str, filename: str) -> Tuple[List[str], List[str]]:
