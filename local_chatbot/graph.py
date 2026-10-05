@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import logging
+import threading
 import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
@@ -9,6 +11,8 @@ from typing import Annotated, Any, Dict, List, Optional, TypedDict
 from local_chatbot.config import ChatbotConfig
 from local_chatbot.engine import LocalEngine
 from local_chatbot.rag import RAGPipeline
+
+logger = logging.getLogger(__name__)
 
 
 class ChatState(TypedDict, total=False):
@@ -37,30 +41,35 @@ class ConversationMemory:
         self._last_access: Dict[str, float] = {}
         self.max_turns = max_turns
         self.session_timeout = session_timeout_seconds
+        self._lock = threading.Lock()  # Bug #19 fix: Thread safety
 
     def add(self, session_id: str, role: str, content: str) -> None:
         import time
-        self._cleanup_expired_sessions()
-        if session_id not in self._sessions:
-            self._sessions[session_id] = []
-        self._sessions[session_id].append({"role": role, "content": content})
-        self._last_access[session_id] = time.time()
-        if len(self._sessions[session_id]) > self.max_turns * 2:
-            self._sessions[session_id] = self._sessions[session_id][-(self.max_turns * 2):]
+        with self._lock:  # Bug #19 fix: Thread safety
+            self._cleanup_expired_sessions()
+            if session_id not in self._sessions:
+                self._sessions[session_id] = []
+            self._sessions[session_id].append({"role": role, "content": content})
+            self._last_access[session_id] = time.time()
+            if len(self._sessions[session_id]) > self.max_turns * 2:
+                self._sessions[session_id] = self._sessions[session_id][-(self.max_turns * 2):]
 
     def get(self, session_id: str) -> List[Dict[str, str]]:
-        return self._sessions.get(session_id, [])
+        with self._lock:  # Bug #19 fix: Thread safety
+            return self._sessions.get(session_id, [])
 
     def get_formatted_history(self, session_id: str) -> str:
         """Get formatted history string (Bug #12 fix)."""
-        history = self.get(session_id)
-        if not history:
-            return ""
-        return "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
+        with self._lock:  # Bug #19 fix: Thread safety
+            history = self._sessions.get(session_id, [])
+            if not history:
+                return ""
+            return "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
 
     def clear(self, session_id: str) -> None:
-        self._sessions.pop(session_id, None)
-        self._last_access.pop(session_id, None)
+        with self._lock:  # Bug #19 fix: Thread safety
+            self._sessions.pop(session_id, None)
+            self._last_access.pop(session_id, None)
 
     def _cleanup_expired_sessions(self) -> None:
         """Remove sessions that haven't been accessed recently (Bug #15 fix)."""
@@ -68,7 +77,8 @@ class ConversationMemory:
         now = time.time()
         expired = [sid for sid, last in self._last_access.items() if now - last > self.session_timeout]
         for sid in expired:
-            self.clear(sid)
+            self._sessions.pop(sid, None)
+            self._last_access.pop(sid, None)
 
 
 class LocalChatGraph:

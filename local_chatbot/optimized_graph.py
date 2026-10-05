@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import time
 from dataclasses import dataclass, field
 from typing import Annotated, Any, Dict, List, Optional, TypedDict
@@ -11,6 +12,8 @@ from local_chatbot.engine import LocalEngine
 from speed_engine.config import SpeedConfig
 from speed_engine.pipeline import SpeedPipeline, Source
 from speed_engine.prefilter import FAQDatabase, ZeroTokenResponder
+
+logger = logging.getLogger(__name__)
 
 
 class ChatState(TypedDict, total=False):
@@ -86,7 +89,8 @@ class OptimizedChatGraph:
             di = DataIngestion(knowledge_base_path=self.cfg.knowledge_base_path)
             texts, ids = di.load_all_documents()
             documents = list(zip(ids, texts))
-        except Exception:
+        except Exception as e:
+            logger.warning(f"Failed to load documents from {self.cfg.knowledge_base_path}: {e}")
             # Default documents
             documents = [
                 ("doc1", "Paris is the capital of France."),

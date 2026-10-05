@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import logging
 import os
+import threading
 from typing import Optional
 
 from local_chatbot.config import ChatbotConfig
+
+logger = logging.getLogger(__name__)
 
 
 class LocalEngine:
@@ -16,11 +20,11 @@ class LocalEngine:
         self.model = None
         self.use_simulated = False
         self._loaded = False
+        self._load_lock = threading.Lock()  # Bug #20 fix: Thread safety
         
         # Early model path validation (Bug #16 fix)
         if not self._validate_model_path():
-            import logging
-            logging.warning(f"Model path validation failed: {self.cfg.model_path}")
+            logger.warning(f"Model path validation failed: {self.cfg.model_path}")
             self.use_simulated = True
             self._loaded = True
         
@@ -38,36 +42,38 @@ class LocalEngine:
         return True
 
     def _load(self) -> None:
-        if self._loaded:
-            return
+        with self._load_lock:  # Bug #20 fix: Thread safety
+            if self._loaded:
+                return
 
-        try:
-            from llama_cpp import Llama
-        except ImportError:
-            self.use_simulated = True
+            try:
+                from llama_cpp import Llama
+            except ImportError:
+                self.use_simulated = True
+                self._loaded = True
+                return
+
+            if not os.path.exists(self.cfg.model_path):
+                self.use_simulated = True
+                self._loaded = True
+                return
+
+            try:
+                self.model = Llama(
+                    model_path=self.cfg.model_path,
+                    n_ctx=self.cfg.n_ctx,
+                    n_threads=self.cfg.n_threads,
+                    n_batch=self.cfg.n_batch,
+                    n_gpu_layers=self.cfg.n_gpu_layers,
+                    verbose=False,
+                )
+                self._prefill_system()
+            except Exception as e:
+                logger.warning(f"Failed to load model: {e}")
+                self.use_simulated = True
+                self.model = None
+
             self._loaded = True
-            return
-
-        if not os.path.exists(self.cfg.model_path):
-            self.use_simulated = True
-            self._loaded = True
-            return
-
-        try:
-            self.model = Llama(
-                model_path=self.cfg.model_path,
-                n_ctx=self.cfg.n_ctx,
-                n_threads=self.cfg.n_threads,
-                n_batch=self.cfg.n_batch,
-                n_gpu_layers=self.cfg.n_gpu_layers,
-                verbose=False,
-            )
-            self._prefill_system()
-        except Exception:
-            self.use_simulated = True
-            self.model = None
-
-        self._loaded = True
 
     def _prefill_system(self) -> None:
         # Bug #1 fix: Remove system prefill overhead
@@ -115,13 +121,13 @@ class LocalEngine:
             try:
                 del self.model
                 self.model = None
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug(f"Error during model cleanup: {e}")
         self._loaded = False
 
     def __del__(self):
         """Automatic cleanup on garbage collection (Bug #13 fix)."""
         try:
             self.cleanup()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug(f"Error in __del__: {e}")

@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import sys
+import threading
 from pathlib import Path
 from typing import List, Tuple, Dict
 
@@ -12,6 +14,8 @@ from speed_engine.prompt import build_minimal_prompt, compute_dynamic_max_tokens
 from speed_engine.retrieval import RetrievalPipeline
 
 from local_chatbot.config import ChatbotConfig
+
+logger = logging.getLogger(__name__)
 
 # Add to sys.path once at module load (Bug #2 fix)
 ROOT = Path(__file__).parent.parent
@@ -33,8 +37,8 @@ def _load_documents(kb_path: str, force_reload: bool = False) -> List[Tuple[str,
         di = DataIngestion(knowledge_base_path=kb_path)
         texts, ids = di.load_all_documents()
         documents = list(zip(ids, texts))
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"Failed to load documents from {kb_path}: {e}")
 
     if not documents:
         documents = _default_documents()
@@ -59,21 +63,24 @@ class RAGPipeline:
 
     # Class-level document cache (Bug #4 fix)
     _document_cache: Dict[str, List[Tuple[str, str]]] = {}
+    _document_cache_lock = threading.Lock()  # Bug #17 fix: Thread safety
 
     @classmethod
     def clear_document_cache(cls) -> None:
         """Clear the document cache to force reload (Bug #11 fix)."""
-        cls._document_cache.clear()
+        with cls._document_cache_lock:
+            cls._document_cache.clear()
 
     def __init__(self, cfg: ChatbotConfig):
         self.cfg = cfg
-        # Check cache first (Bug #4 fix)
+        # Check cache first (Bug #4 fix, Bug #17 fix: Thread safety)
         cache_key = cfg.knowledge_base_path
-        if cache_key in self._document_cache:
-            documents = self._document_cache[cache_key]
-        else:
-            documents = _load_documents(cfg.knowledge_base_path, force_reload=False)
-            self._document_cache[cache_key] = documents
+        with self._document_cache_lock:
+            if cache_key in self._document_cache:
+                documents = self._document_cache[cache_key]
+            else:
+                documents = _load_documents(cfg.knowledge_base_path, force_reload=False)
+                self._document_cache[cache_key] = documents
 
         self.retrieval = RetrievalPipeline(
             documents=documents,
@@ -88,6 +95,7 @@ class RAGPipeline:
         from collections import OrderedDict
         self._retrieval_cache: OrderedDict[str, Tuple[str, int, list]] = OrderedDict()
         self._cache_max_entries = 1000
+        self._cache_lock = threading.Lock()  # Bug #18 fix: Thread safety
 
         self.faq = FAQDatabase({
             "What is BM25?": "BM25 is a bag-of-words retrieval function used in search engines.",
@@ -119,10 +127,11 @@ class RAGPipeline:
         return None, None
 
     def build_prompt(self, query: str) -> Tuple[str, int, list]:
-        # Check cache (Bug #7 fix)
-        if query in self._retrieval_cache:
-            self._retrieval_cache.move_to_end(query)  # LRU
-            return self._retrieval_cache[query]
+        # Check cache (Bug #7 fix, Bug #18 fix: Thread safety)
+        with self._cache_lock:
+            if query in self._retrieval_cache:
+                self._retrieval_cache.move_to_end(query)  # LRU
+                return self._retrieval_cache[query]
 
         result = self.retrieval.retrieve(query)
         chunks = [text for _, text, _ in result.chunks]
@@ -130,8 +139,9 @@ class RAGPipeline:
         max_tokens = compute_dynamic_max_tokens(query, max_cap=self.cfg.max_tokens)
         sources = [{"text": c[:200], "score": s} for _, c, s in result.chunks[:3]]
 
-        # Cache result with LRU eviction (Bug #10 fix)
-        self._retrieval_cache[query] = (prompt, max_tokens, sources)
-        if len(self._retrieval_cache) > self._cache_max_entries:
-            self._retrieval_cache.popitem(last=False)  # Remove oldest
+        # Cache result with LRU eviction (Bug #10 fix, Bug #18 fix: Thread safety)
+        with self._cache_lock:
+            self._retrieval_cache[query] = (prompt, max_tokens, sources)
+            if len(self._retrieval_cache) > self._cache_max_entries:
+                self._retrieval_cache.popitem(last=False)  # Remove oldest
         return prompt, max_tokens, sources
