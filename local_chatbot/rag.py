@@ -4,7 +4,8 @@ from __future__ import annotations
 
 import os
 import sys
-from typing import List, Tuple
+from pathlib import Path
+from typing import List, Tuple, Dict
 
 from speed_engine.prefilter import FAQDatabase, ZeroTokenResponder
 from speed_engine.prompt import build_minimal_prompt, compute_dynamic_max_tokens
@@ -12,13 +13,14 @@ from speed_engine.retrieval import RetrievalPipeline
 
 from local_chatbot.config import ChatbotConfig
 
+# Add to sys.path once at module load (Bug #2 fix)
+ROOT = Path(__file__).parent.parent
+sys.path.insert(0, str(ROOT))
+
 
 def _load_documents(kb_path: str) -> List[Tuple[str, str]]:
     """Load documents from the knowledge base directory."""
     documents: List[Tuple[str, str]] = []
-
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    sys.path.insert(0, root)
 
     try:
         from app.data_ingestion import DataIngestion
@@ -50,9 +52,18 @@ def _default_documents() -> List[Tuple[str, str]]:
 class RAGPipeline:
     """Retrieval-augmented generation with fast-path shortcuts."""
 
+    # Class-level document cache (Bug #4 fix)
+    _document_cache: Dict[str, List[Tuple[str, str]]] = {}
+
     def __init__(self, cfg: ChatbotConfig):
         self.cfg = cfg
-        documents = _load_documents(cfg.knowledge_base_path)
+        # Check cache first (Bug #4 fix)
+        cache_key = cfg.knowledge_base_path
+        if cache_key in self._document_cache:
+            documents = self._document_cache[cache_key]
+        else:
+            documents = _load_documents(cfg.knowledge_base_path)
+            self._document_cache[cache_key] = documents
 
         self.retrieval = RetrievalPipeline(
             documents=documents,
@@ -62,6 +73,9 @@ class RAGPipeline:
             use_query_truncation=True,
             use_pagerank_prune=True,
         )
+
+        # Query cache (Bug #7 fix)
+        self._retrieval_cache: Dict[str, Tuple[str, int, list]] = {}
 
         self.faq = FAQDatabase({
             "What is BM25?": "BM25 is a bag-of-words retrieval function used in search engines.",
@@ -93,9 +107,16 @@ class RAGPipeline:
         return None, None
 
     def build_prompt(self, query: str) -> Tuple[str, int, list]:
+        # Check cache (Bug #7 fix)
+        if query in self._retrieval_cache:
+            return self._retrieval_cache[query]
+
         result = self.retrieval.retrieve(query)
         chunks = [text for _, text, _ in result.chunks]
         prompt = build_minimal_prompt(query, chunks, one_liner=self.cfg.one_liner_mode)
         max_tokens = compute_dynamic_max_tokens(query, max_cap=self.cfg.max_tokens)
         sources = [{"text": c[:200], "score": s} for _, c, s in result.chunks[:3]]
+
+        # Cache result (Bug #7 fix)
+        self._retrieval_cache[query] = (prompt, max_tokens, sources)
         return prompt, max_tokens, sources

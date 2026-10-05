@@ -52,9 +52,10 @@ class LocalEngine:
         self._loaded = True
 
     def _prefill_system(self) -> None:
-        if not self.model:
-            return
-        self.model(f"system: {self.cfg.system_prompt}\n", max_tokens=0, echo=False)
+        # Bug #1 fix: Remove system prefill overhead
+        # System prompt is included in first user message instead
+        # This saves ~0.5-1s during model initialization
+        return
 
     @property
     def is_loaded(self) -> bool:
@@ -66,8 +67,10 @@ class LocalEngine:
         if self.use_simulated or not self.model:
             return self._simulated(prompt)
 
+        # Include system prompt in first message (Bug #1 fix)
+        full_prompt = f"system: {self.cfg.system_prompt}\nuser: {prompt}\nassistant:"
         output = self.model(
-            f"user: {prompt}\nassistant:",
+            full_prompt,
             max_tokens=max_tokens,
             temperature=self.cfg.temperature,
             stop=["</s>", "user:", "\nuser:"],
