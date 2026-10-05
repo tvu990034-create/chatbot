@@ -23,7 +23,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Edge Cases | 5 | 5 | 0 | 100% |
 | Code Quality | 1 | 1 | 0 | 100% |
 | Magic Numbers | 3 | 2 | 1 | 66.67% |
-| **Total** | **44** | **31** | **13** | **70.45%** |
+| Documentation | 2 | 2 | 0 | 100% |
+| **Total** | **46** | **33** | **13** | **71.74%** |
 
 ---
 
@@ -163,6 +164,18 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## Documentation Bugs (2 total)
+
+### Fixed (2/2) - 100%
+47. ✅ Bug #47: Missing CLI commands in README
+48. ✅ Bug #48: Incorrect directory name in README
+
+**Files Modified**: `README.md`
+
+**Impact**: Users discover all CLI features, setup instructions work correctly
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
@@ -171,6 +184,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `rag.py` - Caching, document cache, LRU eviction, thread safety, logging, empty chunks handling, fast_path empty string handling
 - `optimized_graph.py` - Logging, added HISTORY_WINDOW_SIZE constant
 - `config.py` - Configuration validation, added DEFAULT_* constants
+
+### Documentation
+- `README.md` - Fixed directory name, added CLI commands documentation
 
 ### CLI (User Interface)
 - `cli_chat.py` - Help/clear commands, exception handling
@@ -189,6 +205,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `EDGE_CASE_BUGS.md` - Edge case and validation bugs
 - `CLEANUP_BUGS.md` - Code quality and cleanup bugs
 - `MAGIC_NUMBER_BUGS.md` - Magic number issues
+- `DOCUMENTATION_BUGS.md` - Documentation issues
 - `BUG_SUMMARY.md` - This summary
 
 ---
@@ -207,6 +224,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 10. `87d4a1c` - Fix code quality issues and remove dead code
 11. `923dcea` - Update bug summary with edge cases and code quality
 12. `c4405a9` - Fix magic number issues with named constants
+13. `86106ac` - Update bug summary with magic number bugs
+14. `dee3917` - Fix documentation bugs in README
 
 ---
 
@@ -238,9 +257,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 The chatbot project has been thoroughly audited and significantly improved:
 
-- **31 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, and magic numbers
+- **33 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, magic numbers, and documentation
 - **13 bugs documented** for future reference
-- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, and maintainable code
+- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, maintainable code, and accurate documentation
 - **Legacy cloud code** documented but not extensively modified (out of scope)
 
 The chatbot is now:
@@ -252,3 +271,4 @@ The chatbot is now:
 - ✅ Better user experience (help commands, error recovery, clear feedback)
 - ✅ More robust (input validation, edge case handling)
 - ✅ Cleaner code (dead code removed, magic numbers replaced with constants)
+- ✅ Better documented (accurate README, CLI commands documented)
