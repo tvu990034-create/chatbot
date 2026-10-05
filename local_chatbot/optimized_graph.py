@@ -15,6 +15,9 @@ from speed_engine.prefilter import FAQDatabase, ZeroTokenResponder
 
 logger = logging.getLogger(__name__)
 
+# Magic Number Bug #44: Use named constant for history window
+HISTORY_WINDOW_SIZE = 6
+
 
 class ChatState(TypedDict, total=False):
     session_id: str
@@ -237,7 +240,7 @@ class OptimizedChatGraph:
         # Add conversation history
         history = self.memory.get(state.get("session_id", "default"))
         if history:
-            context = "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
+            context = "\n".join(f"{m['role']}: {m['content']}" for m in history[-HISTORY_WINDOW_SIZE:])
             prompt = f"Previous conversation:\n{context}\n\n{prompt}"
 
         # Generate using real engine

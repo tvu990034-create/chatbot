@@ -35,7 +35,12 @@ class ChatResult:
 class ConversationMemory:
     """In-memory conversation history per session."""
 
-    def __init__(self, max_turns: int = 20, session_timeout_seconds: int = 3600):
+    # Magic Number Bug #44: Use named constants
+    HISTORY_WINDOW_SIZE = 6
+    DEFAULT_MAX_TURNS = 20
+    DEFAULT_SESSION_TIMEOUT = 3600  # 1 hour in seconds
+
+    def __init__(self, max_turns: int = DEFAULT_MAX_TURNS, session_timeout_seconds: int = DEFAULT_SESSION_TIMEOUT):
         self._sessions: Dict[str, List[Dict[str, str]]] = {}
         self._last_access: Dict[str, float] = {}
         self.max_turns = max_turns
@@ -63,7 +68,7 @@ class ConversationMemory:
             history = self._sessions.get(session_id, [])
             if not history:
                 return ""
-            return "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
+            return "\n".join(f"{m['role']}: {m['content']}" for m in history[-self.HISTORY_WINDOW_SIZE:])
 
     def clear(self, session_id: str) -> None:
         with self._lock:  # Bug #19 fix: Thread safety

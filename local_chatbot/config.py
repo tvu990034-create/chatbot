@@ -6,30 +6,40 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
+# Magic Number Bug #46: Use named constants for default values
+DEFAULT_MODEL_PATH = "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+DEFAULT_KNOWLEDGE_BASE_PATH = "data/knowledge_base"
+DEFAULT_N_CTX = 2048
+DEFAULT_N_GPU_LAYERS = -1  # -1 means use all available GPU layers
+DEFAULT_N_BATCH = 512
+DEFAULT_TEMPERATURE = 0.1
+DEFAULT_MAX_TOKENS = 512
+DEFAULT_CHUNK_LIMIT = 3
+DEFAULT_HOST = "0.0.0.0"
+DEFAULT_PORT = 8000
+
 
 @dataclass
 class ChatbotConfig:
     model_path: str = field(
-        default_factory=lambda: os.getenv(
-            "MODEL_PATH", "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-        )
+        default_factory=lambda: os.getenv("MODEL_PATH", DEFAULT_MODEL_PATH)
     )
     knowledge_base_path: str = field(
-        default_factory=lambda: os.getenv("KNOWLEDGE_BASE_PATH", "data/knowledge_base")
+        default_factory=lambda: os.getenv("KNOWLEDGE_BASE_PATH", DEFAULT_KNOWLEDGE_BASE_PATH)
     )
-    n_ctx: int = int(os.getenv("N_CTX", "2048"))
+    n_ctx: int = int(os.getenv("N_CTX", str(DEFAULT_N_CTX)))
     n_threads: int = int(os.getenv("N_THREADS", "0")) or (os.cpu_count() or 4)
-    n_gpu_layers: int = int(os.getenv("N_GPU_LAYERS", "-1"))
-    n_batch: int = int(os.getenv("N_BATCH", "512"))
-    temperature: float = float(os.getenv("TEMPERATURE", "0.1"))
-    max_tokens: int = int(os.getenv("MAX_TOKENS", "512"))
-    chunk_limit: int = int(os.getenv("CHUNK_LIMIT", "3"))
+    n_gpu_layers: int = int(os.getenv("N_GPU_LAYERS", str(DEFAULT_N_GPU_LAYERS)))
+    n_batch: int = int(os.getenv("N_BATCH", str(DEFAULT_N_BATCH)))
+    temperature: float = float(os.getenv("TEMPERATURE", str(DEFAULT_TEMPERATURE)))
+    max_tokens: int = int(os.getenv("MAX_TOKENS", str(DEFAULT_MAX_TOKENS)))
+    chunk_limit: int = int(os.getenv("CHUNK_LIMIT", str(DEFAULT_CHUNK_LIMIT)))
     use_faq: bool = os.getenv("USE_FAQ", "true").lower() in ("true", "1", "yes")
     use_zero_token: bool = os.getenv("USE_ZERO_TOKEN", "true").lower() in ("true", "1", "yes")
     one_liner_mode: bool = os.getenv("ONE_LINER_MODE", "false").lower() in ("true", "1", "yes")
     lazy_load_model: bool = os.getenv("LAZY_LOAD_MODEL", "true").lower() in ("true", "1", "yes")
-    host: str = os.getenv("HOST", "0.0.0.0")
-    port: int = int(os.getenv("PORT", "8000"))
+    host: str = os.getenv("HOST", DEFAULT_HOST)
+    port: int = int(os.getenv("PORT", str(DEFAULT_PORT)))
     system_prompt: str = (
         "You are a helpful local AI assistant. Answer clearly and accurately "
         "using the provided context when available."
