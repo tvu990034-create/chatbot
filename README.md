@@ -7,7 +7,7 @@ A fast, local AI chatbot that runs from your terminal. No API keys, no cloud, no
 ### Step 1: Clone the repository
 ```bash
 git clone https://github.com/tvu990034-create/chatbot.git
-cd chatbot
+cd chatbot-phase1
 ```
 
 ### Step 2: Download the model (636MB)
@@ -56,8 +56,22 @@ You: What is the capital of France?
 Bot: The capital of France is Paris.
   [Source: faq, Latency: 4ms]
 
+You: help
+Available commands:
+  quit/exit/q - Exit the chatbot
+  help/h/? - Show this help message
+  clear - Clear conversation history
+
+You: clear
+Conversation history cleared.
+
 You: quit
 ```
+
+**Available CLI Commands:**
+- `quit/exit/q` - Exit the chatbot
+- `help/h/?` - Show available commands
+- `clear` - Clear conversation history
 
 ## 📋 All Available Commands
 
