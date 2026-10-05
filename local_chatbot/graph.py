@@ -6,7 +6,7 @@ import logging
 import threading
 import time
 from dataclasses import dataclass, field
-from typing import Annotated, Any, Dict, List, Optional, TypedDict
+from typing import Any, Dict, List, Optional, TypedDict
 
 from local_chatbot.config import ChatbotConfig
 from local_chatbot.engine import LocalEngine
@@ -22,7 +22,6 @@ class ChatState(TypedDict, total=False):
     source: str
     sources: List[Dict[str, Any]]
     latency_ms: float
-    history: Annotated[List[Dict[str, str]], "append"]
 
 
 @dataclass
