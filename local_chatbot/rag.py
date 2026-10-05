@@ -73,9 +73,12 @@ class RAGPipeline:
         self.zero_token = ZeroTokenResponder({
             "hi": "Hello! How can I help you today?",
             "hello": "Hi there! What would you like to know?",
+            "hey": "Hey! What can I help you with?",
+            "hey there": "Hello! How can I assist you?",
             "thanks": "You're welcome!",
             "thank you": "You're welcome!",
             "bye": "Goodbye! Have a great day.",
+            "goodbye": "Goodbye! Have a great day.",
         }) if cfg.use_zero_token else None
 
     def fast_path(self, query: str) -> Tuple[str | None, str | None]:
