@@ -51,35 +51,50 @@ chatbot-phase1/
 
 ## Quick Start
 
-### Local Development
+### For New Users (5 minutes)
 
-1. **Install dependencies:**
+1. **Clone the repository:**
 ```bash
-python -m venv .venv312
-.venv312\Scripts\activate
+git clone https://github.com/tvu990034-create/chatbot.git
+cd chatbot
+```
+
+2. **Download the model (636MB):**
+```bash
+# Create models directory
+mkdir models
+
+# Download from: https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
+# File: tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+# Place it in the models/ directory
+```
+
+3. **Set up Python environment:**
+```bash
+python -m venv .venv
+.venv\Scripts\activate    # Windows
+# source .venv/bin/activate  # macOS/Linux
 pip install -r requirements.txt
 ```
 
-2. **Configure environment (optional):**
+4. **Configure environment:**
 ```bash
-# The .env file already exists with default settings
-# Edit .env to customize model path, knowledge base, etc.
+Copy-Item .env.example .env   # Windows PowerShell
+# cp .env.example .env        # macOS/Linux
 ```
 
-3. **Run the CLI:**
+5. **Run the CLI:**
 ```bash
 python cli_chat.py
 ```
 
-4. **Or run the web server:**
+6. **Or run the web server:**
 ```bash
 python run_local_chatbot.py
+# Then open http://localhost:8000
 ```
 
-5. **Health check (web server):**
-```bash
-curl http://localhost:8000/health
-```
+### For Developers
 
 ### Docker Deployment (Web Server)
 
