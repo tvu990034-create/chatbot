@@ -42,6 +42,18 @@ def main():
                 print("\nGoodbye!")
                 break
 
+            if user_input.lower() in ['help', 'h', '?']:
+                print("\nAvailable commands:")
+                print("  quit/exit/q - Exit the chatbot")
+                print("  help/h/? - Show this help message")
+                print("  clear - Clear conversation history")
+                print()
+
+            if user_input.lower() == 'clear':
+                chatbot.memory.clear(session_id)
+                print("Conversation history cleared.")
+                continue
+
             if not user_input:
                 continue
 
@@ -58,9 +70,8 @@ def main():
             break
         except Exception as e:
             print(f"\nError: {e}")
-            import traceback
-            traceback.print_exc()
-            break
+            print("You can continue typing or type 'quit' to exit.")
+            # Don't break - let user continue (UX Bug #30 fix)
 
 
 if __name__ == "__main__":

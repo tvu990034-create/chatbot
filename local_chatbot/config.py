@@ -34,3 +34,20 @@ class ChatbotConfig:
         "You are a helpful local AI assistant. Answer clearly and accurately "
         "using the provided context when available."
     )
+
+    def __post_init__(self):
+        """Validate configuration after initialization (UX Bug #36 fix)."""
+        if not self.model_path:
+            raise ValueError("MODEL_PATH cannot be empty")
+        if not self.knowledge_base_path:
+            raise ValueError("KNOWLEDGE_BASE_PATH cannot be empty")
+        if self.n_ctx <= 0:
+            raise ValueError("N_CTX must be positive")
+        if self.max_tokens <= 0:
+            raise ValueError("MAX_TOKENS must be positive")
+        if self.temperature < 0 or self.temperature > 2:
+            raise ValueError("TEMPERATURE must be between 0 and 2")
+        if self.chunk_limit <= 0:
+            raise ValueError("CHUNK_LIMIT must be positive")
+        if self.port <= 0 or self.port > 65535:
+            raise ValueError("PORT must be between 1 and 65535")

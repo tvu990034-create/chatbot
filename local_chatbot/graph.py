@@ -147,9 +147,18 @@ class LocalChatGraph:
             result = self._run_sequential(state)
 
         latency = (time.perf_counter() - start) * 1000
-        response = result.get("response", "Sorry, I couldn't process that.")
+        response = result.get("response")
         source = result.get("source", "unknown")
         sources = result.get("sources", [])
+
+        # UX Bug #35 fix: Provide better fallback responses
+        if not response:
+            if source == "llm":
+                response = "I couldn't generate a response. The model might not be loaded or may have encountered an error."
+            elif source == "unknown":
+                response = "I couldn't process that. Try rephrasing your question."
+            else:
+                response = "Sorry, I couldn't process that."
 
         self.memory.add(session_id, "user", query)
         self.memory.add(session_id, "assistant", response)

@@ -89,6 +89,9 @@ class LocalEngine:
         self._load()
         max_tokens = max_tokens or self.cfg.max_tokens
         if self.use_simulated or not self.model:
+            # UX Bug #31 fix: Provide helpful error when model file is missing
+            if not os.path.exists(self.cfg.model_path):
+                return f"Model file not found at {self.cfg.model_path}. Please download the model and place it in the models/ directory. See README.md for instructions."
             return self._simulated(prompt)
 
         # Include system prompt in first message (Bug #1 fix)
