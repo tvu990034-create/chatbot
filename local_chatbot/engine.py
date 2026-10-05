@@ -16,8 +16,26 @@ class LocalEngine:
         self.model = None
         self.use_simulated = False
         self._loaded = False
+        
+        # Early model path validation (Bug #16 fix)
+        if not self._validate_model_path():
+            import logging
+            logging.warning(f"Model path validation failed: {self.cfg.model_path}")
+            self.use_simulated = True
+            self._loaded = True
+        
         if not cfg.lazy_load_model:
             self._load()
+
+    def _validate_model_path(self) -> bool:
+        """Validate model path exists and is a GGUF file (Bug #16 fix)."""
+        if not os.path.exists(self.cfg.model_path):
+            return False
+        if not os.path.isfile(self.cfg.model_path):
+            return False
+        if not self.cfg.model_path.lower().endswith('.gguf'):
+            return False
+        return True
 
     def _load(self) -> None:
         if self._loaded:
@@ -90,3 +108,20 @@ class LocalEngine:
         if "hello" in lower or "hi" in lower:
             return "Hello! I'm your local AI assistant. How can I help?"
         return "I'm running in simulated mode. Install llama-cpp-python and add a GGUF model for real inference."
+
+    def cleanup(self) -> None:
+        """Clean up model resources (Bug #13 fix)."""
+        if self.model:
+            try:
+                del self.model
+                self.model = None
+            except Exception:
+                pass
+        self._loaded = False
+
+    def __del__(self):
+        """Automatic cleanup on garbage collection (Bug #13 fix)."""
+        try:
+            self.cleanup()
+        except Exception:
+            pass

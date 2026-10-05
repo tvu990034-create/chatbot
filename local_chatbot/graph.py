@@ -32,22 +32,43 @@ class ChatResult:
 class ConversationMemory:
     """In-memory conversation history per session."""
 
-    def __init__(self, max_turns: int = 20):
+    def __init__(self, max_turns: int = 20, session_timeout_seconds: int = 3600):
         self._sessions: Dict[str, List[Dict[str, str]]] = {}
+        self._last_access: Dict[str, float] = {}
         self.max_turns = max_turns
+        self.session_timeout = session_timeout_seconds
 
     def add(self, session_id: str, role: str, content: str) -> None:
+        import time
+        self._cleanup_expired_sessions()
         if session_id not in self._sessions:
             self._sessions[session_id] = []
         self._sessions[session_id].append({"role": role, "content": content})
+        self._last_access[session_id] = time.time()
         if len(self._sessions[session_id]) > self.max_turns * 2:
             self._sessions[session_id] = self._sessions[session_id][-(self.max_turns * 2):]
 
     def get(self, session_id: str) -> List[Dict[str, str]]:
         return self._sessions.get(session_id, [])
 
+    def get_formatted_history(self, session_id: str) -> str:
+        """Get formatted history string (Bug #12 fix)."""
+        history = self.get(session_id)
+        if not history:
+            return ""
+        return "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
+
     def clear(self, session_id: str) -> None:
         self._sessions.pop(session_id, None)
+        self._last_access.pop(session_id, None)
+
+    def _cleanup_expired_sessions(self) -> None:
+        """Remove sessions that haven't been accessed recently (Bug #15 fix)."""
+        import time
+        now = time.time()
+        expired = [sid for sid, last in self._last_access.items() if now - last > self.session_timeout]
+        for sid in expired:
+            self.clear(sid)
 
 
 class LocalChatGraph:
@@ -99,10 +120,10 @@ class LocalChatGraph:
     def _node_generate(self, state: ChatState) -> ChatState:
         prompt = state.get("_prompt", state["query"])
         max_tokens = state.get("_max_tokens", self.cfg.max_tokens)
-        history = self.memory.get(state.get("session_id", "default"))
+        # Use formatted history (Bug #12 fix)
+        history = self.memory.get_formatted_history(state.get("session_id", "default"))
         if history:
-            context = "\n".join(f"{m['role']}: {m['content']}" for m in history[-6:])
-            prompt = f"Previous conversation:\n{context}\n\n{prompt}"
+            prompt = f"Previous conversation:\n{history}\n\n{prompt}"
         response = self.engine.generate(prompt, max_tokens=max_tokens)
         return {**state, "response": response, "source": "llm"}
 

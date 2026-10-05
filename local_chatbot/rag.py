@@ -18,8 +18,13 @@ ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
 
 
-def _load_documents(kb_path: str) -> List[Tuple[str, str]]:
+def _load_documents(kb_path: str, force_reload: bool = False) -> List[Tuple[str, str]]:
     """Load documents from the knowledge base directory."""
+    # Bug #11 fix: Allow cache invalidation
+    cache_key = kb_path
+    if force_reload and cache_key in RAGPipeline._document_cache:
+        del RAGPipeline._document_cache[cache_key]
+
     documents: List[Tuple[str, str]] = []
 
     try:
@@ -55,6 +60,11 @@ class RAGPipeline:
     # Class-level document cache (Bug #4 fix)
     _document_cache: Dict[str, List[Tuple[str, str]]] = {}
 
+    @classmethod
+    def clear_document_cache(cls) -> None:
+        """Clear the document cache to force reload (Bug #11 fix)."""
+        cls._document_cache.clear()
+
     def __init__(self, cfg: ChatbotConfig):
         self.cfg = cfg
         # Check cache first (Bug #4 fix)
@@ -62,7 +72,7 @@ class RAGPipeline:
         if cache_key in self._document_cache:
             documents = self._document_cache[cache_key]
         else:
-            documents = _load_documents(cfg.knowledge_base_path)
+            documents = _load_documents(cfg.knowledge_base_path, force_reload=False)
             self._document_cache[cache_key] = documents
 
         self.retrieval = RetrievalPipeline(
@@ -74,8 +84,10 @@ class RAGPipeline:
             use_pagerank_prune=True,
         )
 
-        # Query cache (Bug #7 fix)
-        self._retrieval_cache: Dict[str, Tuple[str, int, list]] = {}
+        # Query cache with LRU eviction (Bug #7 & #10 fix)
+        from collections import OrderedDict
+        self._retrieval_cache: OrderedDict[str, Tuple[str, int, list]] = OrderedDict()
+        self._cache_max_entries = 1000
 
         self.faq = FAQDatabase({
             "What is BM25?": "BM25 is a bag-of-words retrieval function used in search engines.",
@@ -109,6 +121,7 @@ class RAGPipeline:
     def build_prompt(self, query: str) -> Tuple[str, int, list]:
         # Check cache (Bug #7 fix)
         if query in self._retrieval_cache:
+            self._retrieval_cache.move_to_end(query)  # LRU
             return self._retrieval_cache[query]
 
         result = self.retrieval.retrieve(query)
@@ -117,6 +130,8 @@ class RAGPipeline:
         max_tokens = compute_dynamic_max_tokens(query, max_cap=self.cfg.max_tokens)
         sources = [{"text": c[:200], "score": s} for _, c, s in result.chunks[:3]]
 
-        # Cache result (Bug #7 fix)
+        # Cache result with LRU eviction (Bug #10 fix)
         self._retrieval_cache[query] = (prompt, max_tokens, sources)
+        if len(self._retrieval_cache) > self._cache_max_entries:
+            self._retrieval_cache.popitem(last=False)  # Remove oldest
         return prompt, max_tokens, sources
