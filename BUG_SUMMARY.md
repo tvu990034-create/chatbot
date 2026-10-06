@@ -24,7 +24,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Code Quality | 1 | 1 | 0 | 100% |
 | Magic Numbers | 3 | 2 | 1 | 66.67% |
 | Documentation | 2 | 2 | 0 | 100% |
-| **Total** | **46** | **33** | **13** | **71.74%** |
+| Environment Variables | 2 | 2 | 0 | 100% |
+| **Total** | **48** | **35** | **13** | **72.92%** |
 
 ---
 
@@ -176,6 +177,18 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## Environment Variable Bugs (2 total)
+
+### Fixed (2/2) - 100%
+49. ✅ Bug #49: No whitespace handling for boolean environment variables
+50. ✅ Bug #50: No error handling for numeric environment variables
+
+**Files Modified**: `local_chatbot/config.py`
+
+**Impact**: More robust configuration, better error messages, prevents crashes on malformed env vars
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
@@ -183,7 +196,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `graph.py` - Session timeout, history formatting, thread safety, logging, context-aware fallbacks, query validation, session ID validation, response type validation, removed dead code, added HISTORY_WINDOW_SIZE constant
 - `rag.py` - Caching, document cache, LRU eviction, thread safety, logging, empty chunks handling, fast_path empty string handling
 - `optimized_graph.py` - Logging, added HISTORY_WINDOW_SIZE constant
-- `config.py` - Configuration validation, added DEFAULT_* constants
+- `config.py` - Configuration validation, added DEFAULT_* constants, added _env_int() and _env_float() helpers, added .strip() to boolean parsing, added logging
 
 ### Documentation
 - `README.md` - Fixed directory name, added CLI commands documentation
@@ -206,6 +219,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `CLEANUP_BUGS.md` - Code quality and cleanup bugs
 - `MAGIC_NUMBER_BUGS.md` - Magic number issues
 - `DOCUMENTATION_BUGS.md` - Documentation issues
+- `ENVIRONMENT_BUGS.md` - Environment variable issues
 - `BUG_SUMMARY.md` - This summary
 
 ---
@@ -226,6 +240,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 12. `c4405a9` - Fix magic number issues with named constants
 13. `86106ac` - Update bug summary with magic number bugs
 14. `dee3917` - Fix documentation bugs in README
+15. `04d52b4` - Update bug summary with documentation bugs
+16. `71d36f5` - Fix environment variable handling bugs
 
 ---
 
@@ -257,9 +273,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 The chatbot project has been thoroughly audited and significantly improved:
 
-- **33 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, magic numbers, and documentation
+- **35 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, magic numbers, documentation, and environment variables
 - **13 bugs documented** for future reference
-- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, maintainable code, and accurate documentation
+- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, maintainable code, accurate documentation, and robust configuration
 - **Legacy cloud code** documented but not extensively modified (out of scope)
 
 The chatbot is now:
@@ -269,6 +285,6 @@ The chatbot is now:
 - ✅ More secure (path traversal protection)
 - ✅ Better debugged (logging everywhere)
 - ✅ Better user experience (help commands, error recovery, clear feedback)
-- ✅ More robust (input validation, edge case handling)
+- ✅ More robust (input validation, edge case handling, environment variable error handling)
 - ✅ Cleaner code (dead code removed, magic numbers replaced with constants)
 - ✅ Better documented (accurate README, CLI commands documented)
