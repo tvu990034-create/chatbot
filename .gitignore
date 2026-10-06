@@ -60,6 +60,7 @@ react-ui/.turbo/
 *.md
 !README.md
 !BUSINESS.md
+!REPO_GUIDE.md
 
 # Benchmark outputs (regenerated locally, not committed)
 benchmark_results/
