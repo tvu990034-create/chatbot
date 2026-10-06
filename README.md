@@ -185,6 +185,8 @@ Normal - model loads on first LLM question (~77s). Subsequent responses are fast
 - [USER_SPEED_TEST_RESULTS.md](USER_SPEED_TEST_RESULTS.md) - User speed test results
 - [SETUP.md](SETUP.md) - Detailed setup guide
 - [QUICK_START.md](QUICK_START.md) - Quick start guide
+- [DEPLOYMENT.md](DEPLOYMENT.md) - Deployment guide (Docker, CI/CD)
+- [BUG_SUMMARY.md](BUG_SUMMARY.md) - Comprehensive bug audit summary
 
 ## 🤝 Contributing
 

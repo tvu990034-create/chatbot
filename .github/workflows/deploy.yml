@@ -1,0 +1,119 @@
+name: Deploy Local Chatbot
+
+on:
+  push:
+    branches: [ main, develop ]
+  pull_request:
+    branches: [ main ]
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # Build and test the application
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Python
+      uses: actions/setup-python@v4
+      with:
+        python-version: '3.12'
+
+    - name: Install dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+
+    - name: Test CLI imports
+      run: |
+        python -c "from local_chatbot.config import ChatbotConfig; print('Config OK')"
+        python -c "from local_chatbot.engine import LocalEngine; print('Engine OK')"
+        python -c "from local_chatbot.rag import RAGPipeline; print('RAG OK')"
+        python -c "from local_chatbot.graph import LocalChatGraph; print('Graph OK')"
+        python -c "from local_chatbot.server import app; print('Server OK')"
+
+    - name: Test CLI initialization
+      run: |
+        python -c "
+import time
+from local_chatbot.config import ChatbotConfig
+from local_chatbot.graph import LocalChatGraph
+
+start = time.time()
+cfg = ChatbotConfig()
+chatbot = LocalChatGraph(cfg)
+init_time = time.time() - start
+
+print(f'Init time: {init_time:.2f}s')
+assert init_time < 5.0, f'Too slow: {init_time:.2f}s'
+print('CLI init test PASSED')
+"
+
+    - name: Test fast path (FAQ)
+      run: |
+        python -c "
+import time
+from local_chatbot.config import ChatbotConfig
+from local_chatbot.graph import LocalChatGraph
+
+cfg = ChatbotConfig()
+chatbot = LocalChatGraph(cfg)
+
+start = time.time()
+result = chatbot.chat('What is the capital of France?')
+latency = time.time() - start
+
+print(f'Response: {result.response}')
+print(f'Source: {result.source}')
+print(f'Latency: {latency:.2f}s')
+assert result.source == 'faq', f'Expected FAQ source, got {result.source}'
+assert latency < 1.0, f'FAQ response too slow: {latency:.2f}s'
+print('Fast path test PASSED')
+"
+
+  # Build and push Docker image
+  build-and-push:
+    needs: build-and-test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Log in to Container Registry
+      if: github.event_name != 'pull_request'
+      uses: docker/login-action@v3
+      with:
+        registry: ${{ env.REGISTRY }}
+        username: ${{ github.actor }}
+        password: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Extract metadata
+      id: meta
+      uses: docker/metadata-action@v5
+      with:
+        images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}
+        tags: |
+          type=ref,event=branch
+          type=ref,event=pr
+          type=sha,prefix={{branch}}-
+          type=raw,value=latest,enable={{is_default_branch}}
+
+    - name: Build and push Docker image
+      uses: docker/build-push-action@v5
+      with:
+        context: .
+        file: ./Dockerfile
+        push: ${{ github.event_name != 'pull_request' }}
+        tags: ${{ steps.meta.outputs.tags }}
+        labels: ${{ steps.meta.outputs.labels }}
+        cache-from: type=gha
+        cache-to: type=gha,mode=max

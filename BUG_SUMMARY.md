@@ -25,7 +25,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Magic Numbers | 3 | 2 | 1 | 66.67% |
 | Documentation | 2 | 2 | 0 | 100% |
 | Environment Variables | 2 | 2 | 0 | 100% |
-| **Total** | **48** | **35** | **13** | **72.92%** |
+| Deployment | 4 | 4 | 0 | 100% |
+| **Total** | **52** | **39** | **13** | **75.00%** |
 
 ---
 
@@ -189,6 +190,20 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## Deployment Bugs (4 total)
+
+### Fixed (4/4) - 100%
+51. ✅ Bug #51: Dockerfile points to wrong application
+52. ✅ Bug #52: CI workflow runs wrong tests
+53. ✅ Bug #53: Deployment has cloud-specific steps
+54. ✅ Bug #54: Missing pytest tests for local chatbot
+
+**Files Modified**: `Dockerfile`, `.github/workflows/deploy.yml`, `tests/test_local_chatbot.py`
+
+**Impact**: Docker containers start correctly, CI tests correct code, deployment succeeds, local chatbot has test coverage
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
@@ -197,6 +212,11 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `rag.py` - Caching, document cache, LRU eviction, thread safety, logging, empty chunks handling, fast_path empty string handling
 - `optimized_graph.py` - Logging, added HISTORY_WINDOW_SIZE constant
 - `config.py` - Configuration validation, added DEFAULT_* constants, added _env_int() and _env_float() helpers, added .strip() to boolean parsing, added logging
+
+### Deployment
+- `Dockerfile` - Changed CMD to local chatbot, updated environment variables
+- `.github/workflows/deploy.yml` - Removed cloud-specific steps, added local chatbot tests
+- `tests/test_local_chatbot.py` - New comprehensive test suite for local chatbot
 
 ### Documentation
 - `README.md` - Fixed directory name, added CLI commands documentation
@@ -220,6 +240,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `MAGIC_NUMBER_BUGS.md` - Magic number issues
 - `DOCUMENTATION_BUGS.md` - Documentation issues
 - `ENVIRONMENT_BUGS.md` - Environment variable issues
+- `DEPLOYMENT_BUGS.md` - Deployment configuration bugs
 - `BUG_SUMMARY.md` - This summary
 
 ---
@@ -242,6 +263,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 14. `dee3917` - Fix documentation bugs in README
 15. `04d52b4` - Update bug summary with documentation bugs
 16. `71d36f5` - Fix environment variable handling bugs
+17. `81f7b98` - Update bug summary with environment variable bugs
+18. `8f89f19` - Add setup verification checklist
 
 ---
 
@@ -273,9 +296,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 The chatbot project has been thoroughly audited and significantly improved:
 
-- **35 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, magic numbers, documentation, and environment variables
+- **39 bugs fixed** across performance, concurrency, security, user experience, edge cases, code quality, magic numbers, documentation, environment variables, and deployment
 - **13 bugs documented** for future reference
-- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, maintainable code, accurate documentation, and robust configuration
+- **Local chatbot is production-ready** with thread safety, performance optimizations, security hardening, UX improvements, robust edge case handling, maintainable code, accurate documentation, robust configuration, and working deployment
 - **Legacy cloud code** documented but not extensively modified (out of scope)
 
 The chatbot is now:
@@ -287,4 +310,5 @@ The chatbot is now:
 - ✅ Better user experience (help commands, error recovery, clear feedback)
 - ✅ More robust (input validation, edge case handling, environment variable error handling)
 - ✅ Cleaner code (dead code removed, magic numbers replaced with constants)
-- ✅ Better documented (accurate README, CLI commands documented)
+- ✅ Better documented (accurate README, CLI commands documented, deployment guide)
+- ✅ Deployable (Dockerfile fixed, CI/CD fixed, automated tests added)
