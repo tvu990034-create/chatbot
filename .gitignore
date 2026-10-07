@@ -60,3 +60,44 @@ cache/
 *.tmp
 *.temp
 truncation_notice/
+
+# PDF files (large, not needed in repo)
+*.pdf
+
+# Legacy benchmarks and tests (cloud app)
+benchmarks/
+benchmark_*.py
+test_*.py
+cache.py
+improved_data_ingestion.py
+infinite_context.py
+local_server.py
+retrieval.py
+server_speed.py
+professional_benchmark.py
+test_chatbot.db
+test_results.json
+
+# Legacy documentation (outdated)
+*_ANALYSIS.md
+*_SUMMARY.md
+PROFESSIONAL_BENCHMARK_REPORT.md
+README_cloud.md
+README_LOCAL.md
+ULTRA_SPEED_ANALYSIS.md
+
+# Legacy deployment (cloud app)
+Procfile
+render.yaml
+deploy_*.bat
+deploy_*.sh
+run_local.*
+
+# Legacy directories
+chatbot/
+deployment/
+engine/
+kubernetes/
+legacy/
+load-test/
+web/
