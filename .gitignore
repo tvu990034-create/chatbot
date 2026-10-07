@@ -48,9 +48,12 @@ data/*.json
 data/*.csv
 cache/
 
-# Environment variables (keep .env.example)
+# Environment variables (keep .env.example and .env.production.example)
 .env
 .env.local
+.env.optimized
+.env.test
+.env.ultra
 .env.*.local
 
 # Logs
@@ -65,9 +68,9 @@ truncation_notice/
 *.pdf
 
 # Legacy benchmarks and tests (cloud app)
+# KEEP: benchmark_cli.py, benchmark_cli_after_load.py, benchmark_optimized.py, benchmark_cache.py, test_user_speed.py
 benchmarks/
-benchmark_*.py
-test_*.py
+benchmark_chatbot.py
 cache.py
 improved_data_ingestion.py
 infinite_context.py
@@ -77,6 +80,16 @@ server_speed.py
 professional_benchmark.py
 test_chatbot.db
 test_results.json
+test_enhanced_rag.py
+test_thinking.py
+test_local_chat.py
+test_local_llm.py
+test_knowledge_base.py
+test_retrieval_fix.py
+run_all_data.py
+benchmark_results_*.json
+bench_*.txt
+pro_bench_*.json
 
 # Legacy documentation (outdated)
 *_ANALYSIS.md
@@ -85,6 +98,12 @@ PROFESSIONAL_BENCHMARK_REPORT.md
 README_cloud.md
 README_LOCAL.md
 ULTRA_SPEED_ANALYSIS.md
+ENHANCED_RAG_SUMMARY.md
+OPTIMIZATION_ANALYSIS.md
+PDF_OPTIMIZATION_ANALYSIS.md
+DEPLOY.md
+DEPLOYMENT_SUMMARY.md
+*_extracted.txt
 
 # Legacy deployment (cloud app)
 Procfile
@@ -94,6 +113,8 @@ deploy_*.sh
 run_local.*
 
 # Legacy directories
+all_benchmarks/
+chat-ui/
 chatbot/
 deployment/
 engine/
@@ -101,3 +122,12 @@ kubernetes/
 legacy/
 load-test/
 web/
+
+# Legacy entry points
+cloud_server.py
+config.yaml
+Makefile
+extract_pdf_text.ps1
+
+# Note: app/ directory contains legacy cloud code with useful math/optimizations
+# Keep it for now, consider archiving to legacy/app/ in future
