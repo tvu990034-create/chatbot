@@ -19,17 +19,17 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Concurrency | 5 | 5 | 0 | 100% |
 | Security | 4 | 2 | 2 | 50% |
 | Resource Management | 3 | 0 | 3 | 0% |
-| User Experience | 8 | 6 | 2 | 75% |
+| User Experience | 9 | 7 | 2 | 77.78% |
 | Edge Cases | 5 | 5 | 0 | 100% |
 | Code Quality | 1 | 1 | 0 | 100% |
 | Magic Numbers | 3 | 2 | 1 | 66.67% |
 | Documentation | 2 | 2 | 0 | 100% |
 | Environment Variables | 2 | 2 | 0 | 100% |
 | Deployment | 4 | 4 | 0 | 100% |
-| Installation | 1 | 1 | 0 | 100% |
+| Installation | 2 | 2 | 0 | 100% |
 | Setup and Use | 9 | 6 | 3 | 66.67% |
 | Repository Cleanup | 1 | 1 | 0 | 100% |
-| **Total** | **64** | **48** | **16** | **75%** |
+| **Total** | **67** | **51** | **16** | **76.12%** |
 
 ---
 
@@ -108,9 +108,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
-## User Experience Bugs (8 total)
+## User Experience Bugs (9 total)
 
-### Fixed (6/8)
+### Fixed (7/9)
 30. ✅ Bug #30: CLI crashes on any exception
 31. ✅ Bug #31: No helpful error when model file missing
 32. ✅ Bug #32: No help command in CLI
@@ -118,8 +118,9 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 35. ✅ Bug #35: Generic fallback response
 36. ✅ Bug #36: No configuration validation at startup
 37. ✅ Bug #37: CLI loops forever on EOFError
+69. ✅ Bug #69: Unicode character crash in optimized CLI
 
-### Documented Only (2/8)
+### Documented Only (2/9)
 34. ⏸️ Bug #34: Empty input prints nothing (acceptable as-is)
 
 **Files Modified**: `cli_chat.py`, `cli_chat_optimized.py`, `local_chatbot/engine.py`, `local_chatbot/graph.py`, `local_chatbot/config.py`
@@ -208,10 +209,11 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
-## Installation Bugs (1 total)
+## Installation Bugs (2 total)
 
-### Fixed (1/1) - 100%
+### Fixed (2/2) - 100%
 56. ✅ Bug #56: Unnecessary scikit-learn dependency blocking Windows installation
+68. ✅ Bug #68: Missing pytest in requirements.txt
 
 **Files Modified**: `requirements.txt`, `requirements-local.txt`, `requirements-cloud.txt`
 
@@ -252,6 +254,19 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## README Command Testing Bugs (3 total)
+
+### Fixed (3/3) - 100%
+68. ✅ Bug #68: CLI EOFError infinite loop - Added explicit EOFError handler in cli_chat.py and cli_chat_optimized.py
+69. ✅ Bug #69: Unicode character crash in optimized CLI - Changed → to -> (ASCII)
+70. ✅ Bug #70: Missing pytest in requirements.txt - Added pytest>=7.4.0
+
+**Files Modified**: `cli_chat.py`, `cli_chat_optimized.py`, `requirements.txt`
+
+**Impact**: CLI works in non-interactive mode, optimized CLI works on Windows, tests can run after fresh install
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
@@ -267,7 +282,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `tests/test_local_chatbot.py` - New comprehensive test suite for local chatbot
 
 ### Installation
-- `requirements.txt` - Removed scikit-learn and cloud-specific dependencies
+- `requirements.txt` - Removed scikit-learn and cloud-specific dependencies, added pytest
 - `requirements-local.txt` - New file with core local chatbot dependencies
 - `requirements-cloud.txt` - New file with all dependencies including cloud app
 
@@ -304,6 +319,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `SETUP_USE_BUGS.md` - Setup and use issues
 - `CLEANUP_AUDIT.md` - Repository cleanup audit
 - `SETUP_TEST_RESULTS.md` - Setup test results
+- `README_COMMAND_TEST_RESULTS.md` - README command testing results
 - `BUG_SUMMARY.md` - This summary
 
 ---
