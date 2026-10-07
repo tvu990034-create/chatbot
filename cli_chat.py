@@ -22,6 +22,18 @@ def main():
     print("Initializing chatbot...")
     start = time.time()
     cfg = ChatbotConfig()
+    
+    # Check if model file exists (Setup Bug #60 fix)
+    import os
+    if not os.path.exists(cfg.model_path):
+        print(f"\nError: Model file not found at {cfg.model_path}")
+        print("Please download the model. See README.md for instructions.")
+        print("\nQuick download (Windows PowerShell):")
+        print("  Invoke-WebRequest -Uri \"https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf\" -OutFile \"models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf\"")
+        print("\nQuick download (macOS/Linux):")
+        print("  wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -P models/")
+        sys.exit(1)
+    
     chatbot = LocalChatGraph(cfg)
     init_time = time.time() - start
 

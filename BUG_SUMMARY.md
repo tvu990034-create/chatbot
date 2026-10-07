@@ -27,7 +27,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Environment Variables | 2 | 2 | 0 | 100% |
 | Deployment | 4 | 4 | 0 | 100% |
 | Installation | 1 | 1 | 0 | 100% |
-| **Total** | **53** | **40** | **13** | **75.47%** |
+| Setup and Use | 8 | 3 | 5 | 37.50% |
+| **Total** | **61** | **43** | **18** | **70.49%** |
 
 ---
 
@@ -216,6 +217,26 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
+## Setup and Use Bugs (8 total)
+
+### Fixed (3/8) - 37.50%
+56. ✅ Bug #56: No automated model download - Added wget/curl commands to README
+57. ✅ Bug #57: No directory creation in setup instructions - Added mkdir commands
+60. ✅ Bug #60: No model existence check at startup - Added check in cli_chat.py
+
+### Documented (5/8) - 62.50%
+58. ⏸️ Bug #58: No .env file validation before running
+59. ⏸️ Bug #59: No check for llama-cpp-python installation
+61. ⏸️ Bug #61: No setup script to automate setup
+62. ⏸️ Bug #62: Python version not explicitly specified
+63. ⏸️ Bug #63: No .gitignore for sensitive files
+
+**Files Modified**: `README.md`, `cli_chat.py`, `setup.bat`, `setup.sh`
+
+**Impact**: Faster onboarding, automated setup, better error messages, clearer instructions
+
+---
+
 ## Files Modified Summary
 
 ### local_chatbot (Primary Focus)
@@ -234,6 +255,12 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `requirements.txt` - Removed scikit-learn and cloud-specific dependencies
 - `requirements-local.txt` - New file with core local chatbot dependencies
 - `requirements-cloud.txt` - New file with all dependencies including cloud app
+
+### Setup and Use
+- `README.md` - Added automated model download commands, updated setup instructions
+- `cli_chat.py` - Added model existence check at startup
+- `setup.bat` - New Windows setup script
+- `setup.sh` - New macOS/Linux setup script
 
 ### Documentation
 - `README.md` - Fixed directory name, added CLI commands documentation
@@ -259,6 +286,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 - `ENVIRONMENT_BUGS.md` - Environment variable issues
 - `DEPLOYMENT_BUGS.md` - Deployment configuration bugs
 - `INSTALLATION_BUG.md` - Installation dependency issues
+- `SETUP_USE_BUGS.md` - Setup and use issues
 - `BUG_SUMMARY.md` - This summary
 
 ---
@@ -287,6 +315,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 20. `85c70fc` - Fix pytest tests to match actual API
 21. `9908f18` - Add workflow verification report
 22. `a6e96ac` - Add final audit summary
+23. `b89a67d` - Fix installation bug - remove unnecessary scikit-learn dependency
 
 ---
 
@@ -335,3 +364,4 @@ The chatbot is now:
 - ✅ Better documented (accurate README, CLI commands documented, deployment guide)
 - ✅ Deployable (Dockerfile fixed, CI/CD fixed, automated tests added)
 - ✅ Easy to install (no build tools required for Windows)
+- ✅ Easier to set up (automated download, setup scripts, better error messages)

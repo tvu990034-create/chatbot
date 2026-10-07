@@ -12,17 +12,24 @@ cd chatbot-phase1
 
 ### Step 2: Download the model (636MB)
 
-**Option A: Download directly**
+**Option A: Automated download (recommended)**
 ```bash
 # Create models directory
 mkdir models
 
-# Download from this link:
-# https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
-# Save it as: models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf
+# Download model (Windows PowerShell)
+Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" -OutFile "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+
+# Or on macOS/Linux
+wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -P models/
 ```
 
-**Option B: Use a different GGUF model**
+**Option B: Manual download**
+- Visit: https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF
+- Download: `tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf`
+- Save to: `models/` folder
+
+**Option C: Use a different GGUF model**
 - Any llama.cpp compatible GGUF model will work
 - Place it in the `models/` folder
 - Update `MODEL_PATH` in `.env` if filename differs
