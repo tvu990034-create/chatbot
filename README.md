@@ -46,10 +46,11 @@ wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/
 
 ### Step 3: Install Python dependencies
 
-**Windows Prerequisites**:
-- If you encounter build errors, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+**Windows Prerequisites (Important)**:
+- Python 3.14 on Windows requires [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) to compile llama-cpp-python
 - During installation, select "Desktop development with C++"
-- Alternatively, try: `pip install --only-binary :all: -r requirements.txt` to use pre-built wheels
+- **Alternative**: Use Python 3.11 or 3.12 (has pre-built wheels, no C++ Build Tools needed)
+- **Alternative**: Download pre-compiled wheel from [llama-cpp-python releases](https://github.com/abetlen/llama-cpp-python/releases)
 
 **Windows PowerShell:**
 ```powershell
@@ -57,8 +58,6 @@ py -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
-
-**Note**: If `py` doesn't work, try `python` instead.
 
 **macOS/Linux:**
 ```bash
