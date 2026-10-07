@@ -37,11 +37,11 @@ def main():
     chatbot = LocalChatGraph(cfg)
     init_time = time.time() - start
 
-    print(f"✓ Initialized in {init_time:.2f}s")
-    print(f"✓ Model: {cfg.model_path}")
-    print(f"✓ Knowledge base: {cfg.knowledge_base_path}")
-    print(f"✓ LangGraph: {'enabled' if chatbot._graph else 'disabled'}")
-    print(f"✓ Model loaded on first request (lazy loading)")
+    print(f"[OK] Initialized in {init_time:.2f}s")
+    print(f"[OK] Model: {cfg.model_path}")
+    print(f"[OK] Knowledge base: {cfg.knowledge_base_path}")
+    print(f"[OK] LangGraph: {'enabled' if chatbot._graph else 'disabled'}")
+    print(f"[OK] Model loaded on first request (lazy loading)")
     print()
 
     session_id = "cli_session"

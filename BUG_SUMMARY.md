@@ -27,8 +27,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Environment Variables | 2 | 2 | 0 | 100% |
 | Deployment | 4 | 4 | 0 | 100% |
 | Installation | 1 | 1 | 0 | 100% |
-| Setup and Use | 8 | 3 | 5 | 37.50% |
-| **Total** | **61** | **43** | **18** | **70.49%** |
+| Setup and Use | 9 | 6 | 3 | 66.67% |
+| **Total** | **62** | **46** | **16** | **74.19%** |
 
 ---
 
@@ -219,21 +219,23 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ## Setup and Use Bugs (8 total)
 
-### Fixed (3/8) - 37.50%
+### Fixed (6/9) - 66.67%
 56. ✅ Bug #56: No automated model download - Added wget/curl commands to README
 57. ✅ Bug #57: No directory creation in setup instructions - Added mkdir commands
 60. ✅ Bug #60: No model existence check at startup - Added check in cli_chat.py
+61. ✅ Bug #61: No setup script to automate setup - Created setup.bat and setup.sh
+64. ✅ Bug #64: Unicode character causes crash on Windows - Changed ✓ to [OK]
+65. ✅ Bug #65: langgraph/langchain-core dependencies cause installation timeout - Removed from requirements.txt
 
-### Documented (5/8) - 62.50%
+### Documented (3/9) - 33.33%
 58. ⏸️ Bug #58: No .env file validation before running
 59. ⏸️ Bug #59: No check for llama-cpp-python installation
-61. ⏸️ Bug #61: No setup script to automate setup
 62. ⏸️ Bug #62: Python version not explicitly specified
 63. ⏸️ Bug #63: No .gitignore for sensitive files
 
-**Files Modified**: `README.md`, `cli_chat.py`, `setup.bat`, `setup.sh`
+**Files Modified**: `README.md`, `cli_chat.py`, `setup.bat`, `setup.sh`, `requirements.txt`
 
-**Impact**: Faster onboarding, automated setup, better error messages, clearer instructions
+**Impact**: Faster onboarding, automated setup, better error messages, clearer instructions, no installation timeout, no encoding crashes
 
 ---
 
@@ -316,6 +318,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 21. `9908f18` - Add workflow verification report
 22. `a6e96ac` - Add final audit summary
 23. `b89a67d` - Fix installation bug - remove unnecessary scikit-learn dependency
+24. `79b7713` - Fix setup and use bugs - improve onboarding experience
 
 ---
 
