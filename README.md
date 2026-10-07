@@ -2,6 +2,8 @@
 
 A fast, local AI chatbot that runs from your terminal. No API keys, no cloud, no GPU required.
 
+**IMPORTANT**: This README provides commands for both Windows PowerShell and macOS/Linux. Use only the commands for your platform!
+
 ## 🚀 Quick Start (Copy & Paste)
 
 ### Step 1: Clone the repository
@@ -13,14 +15,22 @@ cd chatbot-phase1
 ### Step 2: Download the model (636MB)
 
 **Option A: Automated download (recommended)**
+
+**Windows PowerShell:**
+```powershell
+# Create models directory (may already exist - ignore error)
+New-Item -ItemType Directory -Path models -ErrorAction SilentlyContinue
+
+# Download model
+Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" -OutFile "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
+```
+
+**macOS/Linux:**
 ```bash
 # Create models directory
-mkdir models
+mkdir -p models
 
-# Download model (Windows PowerShell)
-Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" -OutFile "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
-
-# Or on macOS/Linux
+# Download model
 wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf -P models/
 ```
 
@@ -35,19 +45,33 @@ wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/
 - Update `MODEL_PATH` in `.env` if filename differs
 
 ### Step 3: Install Python dependencies
+
+**Windows PowerShell:**
+```powershell
+python -m venv .venv
+.venv\Scripts\activate
+pip install -r requirements.txt
+```
+
+**macOS/Linux:**
 ```bash
 python -m venv .venv
-.venv\Scripts\activate    # Windows
-# source .venv/bin/activate  # macOS/Linux
+source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
 **Note**: If you need the legacy cloud app dependencies, use `requirements-cloud.txt` instead (requires Microsoft C++ Build Tools on Windows).
 
 ### Step 4: Configure environment
+
+**Windows PowerShell:**
+```powershell
+Copy-Item .env.example .env
+```
+
+**macOS/Linux:**
 ```bash
-Copy-Item .env.example .env   # Windows PowerShell
-# cp .env.example .env        # macOS/Linux
+cp .env.example .env
 ```
 
 ### Step 5: Run the chatbot
@@ -94,11 +118,17 @@ python cli_chat_optimized.py
 ```
 
 ### Web Server
-```bash
-# Start web server
-python run_local_chatbot.py
 
-# Then open: http://localhost:8000
+**Windows PowerShell:**
+```powershell
+python run_local_chatbot.py
+# Then open: http://localhost:8000 in your browser
+```
+
+**macOS/Linux:**
+```bash
+python run_local_chatbot.py
+# Then open: http://localhost:8000 in your browser
 ```
 
 ### Benchmarking
