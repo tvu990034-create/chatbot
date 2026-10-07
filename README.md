@@ -35,6 +35,8 @@ python -m venv .venv
 pip install -r requirements.txt
 ```
 
+**Note**: If you need the legacy cloud app dependencies, use `requirements-cloud.txt` instead (requires Microsoft C++ Build Tools on Windows).
+
 ### Step 4: Configure environment
 ```bash
 Copy-Item .env.example .env   # Windows PowerShell

@@ -1,0 +1,27 @@
+# All dependencies including cloud app
+# Core local chatbot dependencies
+fastapi==0.104.1
+uvicorn[standard]==0.24.0
+faiss-cpu>=1.8.0
+rank-bm25>=0.2.2
+numpy>=1.26.0
+pydantic==2.5.0
+pydantic-settings==2.1.0
+python-multipart==0.0.6
+python-dotenv>=1.0.0
+requests>=2.31.0
+aiohttp>=3.9.0
+rich>=13.7.0
+llama-cpp-python>=0.2.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+sentence-transformers>=2.2.0
+
+# Cloud app dependencies (requires Microsoft C++ Build Tools on Windows)
+python-jose[cryptography]==3.3.0
+passlib[bcrypt]==1.7.4
+sqlalchemy==2.0.49
+aiosqlite==0.19.0
+scikit-learn==1.3.2
+openai>=1.0.0
+kaggle>=1.6.0

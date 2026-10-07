@@ -216,6 +216,12 @@ RUN apt-get update && apt-get install -y gcc g++
 
 **Solution**: Check that all required dependencies are in `requirements.txt` and Python version is 3.12
 
+### Microsoft Visual C++ Build Tools Error
+
+**Problem**: Installation fails with "Microsoft Visual C++ 14.0 or greater is required"
+
+**Solution**: This error occurs if you try to install `requirements-cloud.txt` on Windows without build tools. For the local chatbot, use `requirements.txt` instead (core dependencies only). If you need cloud app dependencies, install Microsoft C++ Build Tools from: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+
 ### Model Not Found
 
 **Problem**: Chatbot shows "Model not found" error
