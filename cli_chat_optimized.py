@@ -87,6 +87,10 @@ def main():
         except KeyboardInterrupt:
             print("\n\nGoodbye!")
             break
+        except EOFError:
+            # Exit gracefully in non-interactive mode (EOF Error fix)
+            print("\n\nGoodbye!")
+            break
         except Exception as e:
             print(f"\nError: {e}")
             print("You can continue typing or type 'quit' to exit.")

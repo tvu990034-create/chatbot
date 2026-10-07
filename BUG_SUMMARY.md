@@ -19,7 +19,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Concurrency | 5 | 5 | 0 | 100% |
 | Security | 4 | 2 | 2 | 50% |
 | Resource Management | 3 | 0 | 3 | 0% |
-| User Experience | 7 | 5 | 2 | 71.43% |
+| User Experience | 8 | 6 | 2 | 75% |
 | Edge Cases | 5 | 5 | 0 | 100% |
 | Code Quality | 1 | 1 | 0 | 100% |
 | Magic Numbers | 3 | 2 | 1 | 66.67% |
@@ -29,7 +29,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 | Installation | 1 | 1 | 0 | 100% |
 | Setup and Use | 9 | 6 | 3 | 66.67% |
 | Repository Cleanup | 1 | 1 | 0 | 100% |
-| **Total** | **63** | **47** | **16** | **74.60%** |
+| **Total** | **64** | **48** | **16** | **75%** |
 
 ---
 
@@ -108,17 +108,18 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
-## User Experience Bugs (7 total)
+## User Experience Bugs (8 total)
 
-### Fixed (5/7)
+### Fixed (6/8)
 30. ✅ Bug #30: CLI crashes on any exception
 31. ✅ Bug #31: No helpful error when model file missing
 32. ✅ Bug #32: No help command in CLI
 33. ✅ Bug #33: No way to clear conversation history
 35. ✅ Bug #35: Generic fallback response
 36. ✅ Bug #36: No configuration validation at startup
+37. ✅ Bug #37: CLI loops forever on EOFError
 
-### Documented Only (2/7)
+### Documented Only (2/8)
 34. ⏸️ Bug #34: Empty input prints nothing (acceptable as-is)
 
 **Files Modified**: `cli_chat.py`, `cli_chat_optimized.py`, `local_chatbot/engine.py`, `local_chatbot/graph.py`, `local_chatbot/config.py`
@@ -130,11 +131,11 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Edge Case Bugs (5 total)
 
 ### Fixed (5/5) - 100%
-37. ✅ Bug #37: No query validation in chat()
-38. ✅ Bug #38: Empty response not handled in fast_path
-39. ✅ Bug #39: No validation of response content type
-40. ✅ Bug #40: Empty chunks list not handled
-41. ✅ Bug #41: Session ID not validated
+38. ✅ Bug #38: No query validation in chat()
+39. ✅ Bug #39: Empty response not handled in fast_path
+40. ✅ Bug #40: No validation of response content type
+41. ✅ Bug #41: Empty chunks list not handled
+42. ✅ Bug #42: Session ID not validated
 
 **Files Modified**: `local_chatbot/graph.py`, `local_chatbot/rag.py`
 
@@ -145,8 +146,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Code Quality Bugs (1 total)
 
 ### Fixed (1/1) - 100%
-42. ✅ Bug #42: Unused TypedDict field 'history'
-43. ✅ Bug #43: Unused import (verified not a bug)
+43. ✅ Bug #43: Unused TypedDict field 'history'
+44. ✅ Bug #44: Unused import (verified not a bug)
 
 **Files Modified**: `local_chatbot/graph.py`
 
@@ -157,11 +158,11 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Magic Number Bugs (3 total)
 
 ### Fixed (2/3)
-44. ✅ Bug #44: Hardcoded history window size
-46. ✅ Bug #46: Magic numbers in config.py
+45. ✅ Bug #45: Hardcoded history window size
+47. ✅ Bug #47: Magic numbers in config.py
 
 ### Documented Only (1/3)
-45. ⏸️ Bug #45: Magic number in static HTML (low priority)
+46. ⏸️ Bug #46: Magic number in static HTML (low priority)
 
 **Files Modified**: `local_chatbot/graph.py`, `local_chatbot/optimized_graph.py`, `local_chatbot/config.py`
 
@@ -172,8 +173,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Documentation Bugs (2 total)
 
 ### Fixed (2/2) - 100%
-47. ✅ Bug #47: Missing CLI commands in README
-48. ✅ Bug #48: Incorrect directory name in README
+48. ✅ Bug #48: Missing CLI commands in README
+49. ✅ Bug #49: Incorrect directory name in README
 
 **Files Modified**: `README.md`
 
@@ -184,8 +185,8 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Environment Variable Bugs (2 total)
 
 ### Fixed (2/2) - 100%
-49. ✅ Bug #49: No whitespace handling for boolean environment variables
-50. ✅ Bug #50: No error handling for numeric environment variables
+50. ✅ Bug #50: No whitespace handling for boolean environment variables
+51. ✅ Bug #51: No error handling for numeric environment variables
 
 **Files Modified**: `local_chatbot/config.py`
 
@@ -196,10 +197,10 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Deployment Bugs (4 total)
 
 ### Fixed (4/4) - 100%
-51. ✅ Bug #51: Dockerfile points to wrong application
-52. ✅ Bug #52: CI workflow runs wrong tests
-53. ✅ Bug #53: Deployment has cloud-specific steps
-54. ✅ Bug #54: Missing pytest tests for local chatbot
+52. ✅ Bug #52: Dockerfile points to wrong application
+53. ✅ Bug #53: CI workflow runs wrong tests
+54. ✅ Bug #54: Deployment has cloud-specific steps
+55. ✅ Bug #55: Missing pytest tests for local chatbot
 
 **Files Modified**: `Dockerfile`, `.github/workflows/deploy.yml`, `tests/test_local_chatbot.py`
 
@@ -210,7 +211,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Installation Bugs (1 total)
 
 ### Fixed (1/1) - 100%
-55. ✅ Bug #55: Unnecessary scikit-learn dependency blocking Windows installation
+56. ✅ Bug #56: Unnecessary scikit-learn dependency blocking Windows installation
 
 **Files Modified**: `requirements.txt`, `requirements-local.txt`, `requirements-cloud.txt`
 
@@ -218,21 +219,21 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 
 ---
 
-## Setup and Use Bugs (8 total)
+## Setup and Use Bugs (9 total)
 
 ### Fixed (6/9) - 66.67%
-56. ✅ Bug #56: No automated model download - Added wget/curl commands to README
-57. ✅ Bug #57: No directory creation in setup instructions - Added mkdir commands
-60. ✅ Bug #60: No model existence check at startup - Added check in cli_chat.py
-61. ✅ Bug #61: No setup script to automate setup - Created setup.bat and setup.sh
-64. ✅ Bug #64: Unicode character causes crash on Windows - Changed ✓ to [OK]
-65. ✅ Bug #65: langgraph/langchain-core dependencies cause installation timeout - Removed from requirements.txt
+57. ✅ Bug #57: No automated model download - Added wget/curl commands to README
+58. ✅ Bug #58: No directory creation in setup instructions - Added mkdir commands
+61. ✅ Bug #61: No model existence check at startup - Added check in cli_chat.py
+62. ✅ Bug #62: No setup script to automate setup - Created setup.bat and setup.sh
+65. ✅ Bug #65: Unicode character causes crash on Windows - Changed ✓ to [OK]
+66. ✅ Bug #66: langgraph/langchain-core dependencies cause installation timeout - Removed from requirements.txt
 
 ### Documented (3/9) - 33.33%
-58. ⏸️ Bug #58: No .env file validation before running
-59. ⏸️ Bug #59: No check for llama-cpp-python installation
-62. ⏸️ Bug #62: Python version not explicitly specified
-63. ⏸️ Bug #63: No .gitignore for sensitive files
+59. ⏸️ Bug #59: No .env file validation before running
+60. ⏸️ Bug #60: No check for llama-cpp-python installation
+63. ⏸️ Bug #63: Python version not explicitly specified
+64. ⏸️ Bug #64: No .gitignore for sensitive files
 
 **Files Modified**: `README.md`, `cli_chat.py`, `setup.bat`, `setup.sh`, `requirements.txt`
 
@@ -243,7 +244,7 @@ Comprehensive bug audit performed on the chatbot project across multiple categor
 ## Repository Cleanup Bugs (1 total)
 
 ### Fixed (1/1) - 100%
-66. ✅ Bug #66: Many unused files in repository - Updated .gitignore to exclude legacy files
+67. ✅ Bug #67: Many unused files in repository - Updated .gitignore to exclude legacy files
 
 **Files Modified**: `.gitignore`, `CLEANUP_AUDIT.md`
 

@@ -2,10 +2,10 @@
 
 ## Summary
 
-Found **7 user experience bugs** that affect CLI usability, error handling, and user feedback.
+Found **8 user experience bugs** that affect CLI usability, error handling, and user feedback.
 
-**Total**: 7 bugs
-**Fixed**: 5 bugs
+**Total**: 8 bugs
+**Fixed**: 6 bugs
 **Documented Only**: 2 bugs
 
 ## Findings
@@ -94,6 +94,18 @@ Found **7 user experience bugs** that affect CLI usability, error handling, and 
 
 ---
 
+### UX Bug #37: CLI Loops Forever on EOFError ✅ FIXED
+
+**Location**: `cli_chat.py` line 80-86, `cli_chat_optimized.py` line 87-93
+
+**Issue**: When CLI is run in non-interactive mode (e.g., automated testing), it encounters EOFError when trying to read from stdin. The exception handler catches EOFError as a generic Exception and continues the loop, causing infinite error messages.
+
+**Impact**: Process hangs in non-interactive environments, uses CPU endlessly
+
+**Fix**: Added explicit EOFError handler that exits gracefully instead of looping.
+
+---
+
 ## Priority Recommendations
 
 ### High Priority (User Frustration) ✅ ALL FIXED
@@ -108,6 +120,7 @@ Found **7 user experience bugs** that affect CLI usability, error handling, and 
 ### Low Priority (Nice to Have)
 6. **UX Bug #34**: Empty input handling ⏸️ (acceptable as-is)
 7. **UX Bug #36**: Configuration validation ✅
+8. **UX Bug #37**: EOFError infinite loop ✅
 
 ---
 
@@ -120,6 +133,7 @@ Found **7 user experience bugs** that affect CLI usability, error handling, and 
 - [x] UX Bug #34: Improve empty input handling ⏸️ (not critical)
 - [x] UX Bug #35: Better fallback responses ✅
 - [x] UX Bug #36: Add configuration validation ✅
+- [x] UX Bug #37: Fix EOFError infinite loop ✅
 
 ---
 
@@ -133,13 +147,14 @@ After fixing UX bugs:
 | New user onboarding | Confused | Guided | High |
 | Feature discoverability | Low | High | Medium |
 | Error clarity | Generic | Specific | Medium |
+| Non-interactive mode support | Hangs forever | Exits cleanly | Critical |
 
 ---
 
 ## Files Modified
 
-- `cli_chat.py` - Added help/clear commands, exception handling
-- `cli_chat_optimized.py` - Added help/clear commands, exception handling
+- `cli_chat.py` - Added help/clear commands, exception handling, EOFError fix
+- `cli_chat_optimized.py` - Added help/clear commands, exception handling, EOFError fix
 - `local_chatbot/engine.py` - Added model missing error
 - `local_chatbot/graph.py` - Added context-aware fallback responses
 - `local_chatbot/config.py` - Added configuration validation
