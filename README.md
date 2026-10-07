@@ -46,12 +46,19 @@ wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/
 
 ### Step 3: Install Python dependencies
 
+**Windows Prerequisites**:
+- If you encounter build errors, install [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/)
+- During installation, select "Desktop development with C++"
+- Alternatively, try: `pip install --only-binary :all: -r requirements.txt` to use pre-built wheels
+
 **Windows PowerShell:**
 ```powershell
-python -m venv .venv
+py -m venv .venv
 .venv\Scripts\activate
 pip install -r requirements.txt
 ```
+
+**Note**: If `py` doesn't work, try `python` instead.
 
 **macOS/Linux:**
 ```bash
