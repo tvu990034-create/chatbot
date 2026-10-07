@@ -21,7 +21,7 @@ def main():
     # Initialize optimized chatbot
     print("Initializing optimized chatbot...")
     print("  - Loading speed_engine optimizations...")
-    print("  - Multi-layer caching (exact → SimHash → BM25)")
+    print("  - Multi-layer caching (exact -> SimHash -> BM25)")
     print("  - Advanced retrieval (BM25 + dense + PageRank)")
     print("  - Smart fast paths (FAQ, zero-token)")
     print("  - Score gating for relevance")
@@ -47,7 +47,7 @@ def main():
     print("Optimization layers active:")
     print("  1. Zero-token responder (~2ms)")
     print("  2. FAQ database (~4ms)")
-    print("  3. Cache layer (exact → SimHash → BM25)")
+    print("  3. Cache layer (exact -> SimHash -> BM25)")
     print("  4. Score gating (filter low-confidence)")
     print("  5. Dynamic token allocation")
     print("  6. Advanced retrieval (BM25 + dense + PageRank)")
