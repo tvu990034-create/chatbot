@@ -12,5 +12,6 @@ requests>=2.31.0
 aiohttp>=3.9.0
 rich>=13.7.0
 llama-cpp-python>=0.2.0
+pytest>=7.4.0
 # Remove langgraph and langchain-core - not actually used by local chatbot
 # sentence-transformers>=2.2.0
