@@ -1,5 +1,10 @@
 name: Deploy Local Chatbot
 
+# NOTE: docker/login-action stays at v3 and docker/metadata-action at v5
+# (neither has a newer stable major release line).  Everything else tracks
+# the Node 24 majors, and runners are pinned to ubuntu-24.04 so the
+# ubuntu-latest -> Ubuntu 26 migration cannot surprise this workflow.
+
 on:
   push:
     branches: [ main, develop ]
@@ -13,14 +18,14 @@ env:
 jobs:
   # Build and test the application
   build-and-test:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Set up Python
-      uses: actions/setup-python@v4
+      uses: actions/setup-python@v6
       with:
         python-version: '3.12'
 
@@ -46,14 +51,14 @@ jobs:
   # Build and push Docker image
   build-and-push:
     needs: build-and-test
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       packages: write
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v5
 
     - name: Log in to Container Registry
       if: github.event_name != 'pull_request'
@@ -75,7 +80,7 @@ jobs:
           type=raw,value=latest,enable={{is_default_branch}}
 
     - name: Build and push Docker image
-      uses: docker/build-push-action@v5
+      uses: docker/build-push-action@v6
       with:
         context: .
         file: ./Dockerfile
