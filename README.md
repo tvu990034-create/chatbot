@@ -43,6 +43,7 @@ wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/
 - Any llama.cpp compatible GGUF model will work
 - Place it in the `models/` folder
 - Update `MODEL_PATH` in `.env` if filename differs
+- **Recommended for better quality**: Llama-3-8B, Mistral-7B, or similar (faster and smarter than TinyLlama 1.1B)
 
 ### Step 3: Install Python dependencies
 
@@ -152,22 +153,15 @@ python test_user_speed.py
 
 ## 🎯 Performance
 
-**Real AI Generation (No Fast Paths)**:
+**Response Speed**:
 | Feature | Speed |
 |---------|-------|
 | Startup | ~2 seconds |
-| AI responses | ~3-5 seconds |
-| Model load (first request) | ~0.1s |
-| Cache hit | Slightly faster |
+| FAQ/fast-path responses | ~0.06ms (instant) |
+| AI responses (TinyLlama 1.1B) | ~3-5 seconds |
+| AI responses (larger models) | ~5-10 seconds |
 
-**With Fast Paths Enabled (FAQ/Zero-Token)**:
-| Feature | Speed |
-|---------|-------|
-| FAQ responses | ~0.06ms (pre-written answers) |
-| Zero-token greetings | ~0.07ms (generic responses) |
-| AI responses | ~3-5 seconds (real generation) |
-
-**Note**: Fast paths use pre-written answers for common questions, which makes them appear "fake fast". Disable them in `.env` by setting `USE_FAQ=false` and `USE_ZERO_TOKEN=false` for genuine AI responses on all questions.
+**Note**: Fast paths provide instant responses for common questions (greetings, FAQs). For complex questions, the model generates responses. TinyLlama 1.1B is a small model - for better quality, consider using a larger model like Llama-3-8B or Mistral-7B.
 
 ## ⚙️ Configuration
 
