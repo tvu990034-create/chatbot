@@ -1668,6 +1668,32 @@ class TestCalibrationVerifyGate:
             assert gw._verify_speed_answer("q?", "draft") == "Paris."
         assert calls == [False]
 
+    def test_should_verify_draft_grades_by_confidence(self):
+        """Extracted gate used by both speed and balanced paths: hedged
+        math drafts verify, confident ones skip."""
+        from types import SimpleNamespace
+        from gateway import universal_enhanced_gateway as mod
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="balanced")
+        math = SimpleNamespace(is_math=True, is_coding=False,
+                               needs_reasoning=True)
+        assert gw._should_verify_draft(math, "maybe 42, not sure") is True
+        confident = "The answer is definitely 42, exactly."
+        assert gw._should_verify_draft(math, confident) is False
+
+    def test_balanced_math_path_does_not_second_guess(self):
+        """Regression, learned the hard way: a verify pass on the balanced
+        (eval) path replaced a correct terse verdict ('7') with prose and
+        broke TestEquationRunnerRetryBudget.  Balanced math gets exactly one
+        generation; second-guessing belongs to the speed gate and to a
+        future measured multi-sample pass."""
+        import inspect
+        from gateway import universal_enhanced_gateway as mod
+        src = inspect.getsource(mod.UniversalEnhancedGateway._unified_generate)
+        assert "_should_verify_draft(" not in src
+        assert "_verify_speed_answer(" not in src
+
     def test_verify_pass_uses_small_budget(self):
         """The verify second pass answers [[CORRECT]] or a short correction:
         a 300-token budget doubles its cost for zero gain. 128 suffices."""

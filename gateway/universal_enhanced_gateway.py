@@ -1140,44 +1140,7 @@ class UniversalEnhancedGateway:
                     and (query_analysis.is_math or query_analysis.is_coding
                          or query_analysis.needs_reasoning or query_analysis.is_complex
                          or query_analysis.expected_response_length == "long")):
-                # Calibration gate (calibration_math: calibrated_confidence +
-                # should_defer_to_verify): high-confidence drafts skip the
-                # second model call (faster); low-confidence drafts are still
-                # verified (smarter).  Fail-open: any error verifies as
-                # before, never silently skips.
-                _verify_needed = True
-                try:
-                    from gateway.calibration_metrics import (
-                        estimate_confidence_from_response)
-                    from gateway.equations.calibration_math import (
-                        calibrated_confidence, should_defer_to_verify)
-                    try:
-                        from gateway.adaptive_temperature import (
-                            get_adaptive_temperature)
-                        _at = get_adaptive_temperature().get_temperature()
-                    except Exception:  # noqa: BLE001
-                        _at = 1.0
-                    _qtype = ("reasoning"
-                              if (query_analysis.is_math
-                                  or query_analysis.needs_reasoning)
-                              else "factual")
-                    _conf = calibrated_confidence(
-                        estimate_confidence_from_response(
-                            response_text, _qtype),
-                        temperature=float(_at or 1.0))
-                    # Math/code drafts are cheap to get wrong and expensive
-                    # to serve wrong: verify at the standard bar.  Other
-                    # reasoning drafts (explainers) verify only when
-                    # confidence is very low — the think-off path that wrote
-                    # them is already careful, and a second full generation
-                    # for every explainer doubles speed-mode cost.
-                    _bar = (0.6 if (query_analysis.is_math
-                                    or query_analysis.is_coding) else 0.4)
-                    _verify_needed = should_defer_to_verify(
-                        _conf, threshold=_bar)
-                except Exception:  # noqa: BLE001
-                    _verify_needed = True
-                if _verify_needed:
+                if self._should_verify_draft(query_analysis, response_text):
                     verified = self._verify_speed_answer(query_analysis.query if hasattr(query_analysis, "query") else query, response_text)
                     if verified:
                         response_text = verified
@@ -3590,6 +3553,12 @@ Code:"""
             # item == the configured cap, exactly.
             response_text = self._thinkoff_call(
                 query, budget=budget)
+            # NOTE: no verify pass here by design.  A verify second-guess on
+            # the balanced path (the eval path) can replace a correct terse
+            # verdict ("7") with prose, flipping graded accuracy; the speed
+            # staircase keeps its verify gate, and disputed multi-sample
+            # cases belong to a future measured CISC/opt-in pass, not an
+            # unmeasured second guess on every math answer.
             if response_text is None:
                 # First attempt failed.  Whatever is left of the SAME deadline
                 # is the only thing the retry may spend (Eq 33/34).
@@ -3959,6 +3928,42 @@ Code:"""
         except Exception as e:
             logger.info(f"Raw fallback retry failed: {e}")
         return None
+
+    def _should_verify_draft(self, query_analysis, response_text: str) -> bool:
+        """Calibration gate: is a verify pass worth its model call?
+
+        High-confidence drafts skip the second generation (faster);
+        low-confidence drafts are verified (smarter), using
+        calibration_math (calibrated_confidence + should_defer_to_verify).
+        Math/code verify at the standard bar; other reasoning only when
+        confidence is very low.  Fail-open True: any error verifies as
+        before, never silently skips.  Shared by the speed staircase and
+        the balanced math path.
+        """
+        try:
+            from gateway.calibration_metrics import (
+                estimate_confidence_from_response)
+            from gateway.equations.calibration_math import (
+                calibrated_confidence, should_defer_to_verify)
+            try:
+                from gateway.adaptive_temperature import (
+                    get_adaptive_temperature)
+                _at = get_adaptive_temperature().get_temperature()
+            except Exception:  # noqa: BLE001
+                _at = 1.0
+            _qtype = ("reasoning"
+                      if (query_analysis.is_math
+                          or query_analysis.needs_reasoning)
+                      else "factual")
+            _conf = calibrated_confidence(
+                estimate_confidence_from_response(
+                    response_text, _qtype),
+                temperature=float(_at or 1.0))
+            _bar = (0.6 if (query_analysis.is_math
+                            or query_analysis.is_coding) else 0.4)
+            return bool(should_defer_to_verify(_conf, threshold=_bar))
+        except Exception:  # noqa: BLE001
+            return True
 
     def _verify_speed_answer(self, query: str, answer: str) -> Optional[str]:
         """Verify a fast speed-mode draft answer with a focused second pass.
