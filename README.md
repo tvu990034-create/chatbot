@@ -46,16 +46,11 @@ wget https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/
 
 ### Step 3: Install Python dependencies
 
-**Windows Prerequisites (Important)**:
-- Python 3.14 on Windows requires [Microsoft C++ Build Tools](https://visualstudio.microsoft.com/visual-cpp-build-tools/) to compile llama-cpp-python
-- During installation, select "Desktop development with C++"
-- **Alternative**: Use Python 3.11 or 3.12 (has pre-built wheels, no C++ Build Tools needed)
-- **Alternative**: Download pre-compiled wheel from [llama-cpp-python releases](https://github.com/abetlen/llama-cpp-python/releases)
-
 **Windows PowerShell:**
 ```powershell
 py -m venv .venv
 .venv\Scripts\activate
+pip install llama-cpp-python --extra-index-url https://abetlen.github.io/llama-cpp-python/whl/cpu
 pip install -r requirements.txt
 ```
 
@@ -66,7 +61,7 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-**Note**: If you need the legacy cloud app dependencies, use `requirements-cloud.txt` instead (requires Microsoft C++ Build Tools on Windows).
+**Note**: The Windows command uses pre-built wheels to avoid requiring C++ Build Tools. If you need the legacy cloud app dependencies, use `requirements-cloud.txt` instead.
 
 ### Step 4: Configure environment
 
@@ -157,14 +152,22 @@ python test_user_speed.py
 
 ## 🎯 Performance
 
+**Real AI Generation (No Fast Paths)**:
 | Feature | Speed |
 |---------|-------|
-| Startup | ~7 seconds |
-| FAQ responses | ~4ms (457x faster) |
-| Zero-token | ~2ms (964x faster) |
-| First LLM | ~77s (includes model load) |
-| Subsequent LLM | ~18s |
-| Cache hit | 2.37x faster |
+| Startup | ~2 seconds |
+| AI responses | ~3-5 seconds |
+| Model load (first request) | ~0.1s |
+| Cache hit | Slightly faster |
+
+**With Fast Paths Enabled (FAQ/Zero-Token)**:
+| Feature | Speed |
+|---------|-------|
+| FAQ responses | ~0.06ms (pre-written answers) |
+| Zero-token greetings | ~0.07ms (generic responses) |
+| AI responses | ~3-5 seconds (real generation) |
+
+**Note**: Fast paths use pre-written answers for common questions, which makes them appear "fake fast". Disable them in `.env` by setting `USE_FAQ=false` and `USE_ZERO_TOKEN=false` for genuine AI responses on all questions.
 
 ## ⚙️ Configuration
 
