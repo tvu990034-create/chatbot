@@ -38,43 +38,10 @@ jobs:
         python -c "from local_chatbot.server import app; print('Server OK')"
 
     - name: Test CLI initialization
-      run: |
-        python -c "
-import time
-from local_chatbot.config import ChatbotConfig
-from local_chatbot.graph import LocalChatGraph
-
-start = time.time()
-cfg = ChatbotConfig()
-chatbot = LocalChatGraph(cfg)
-init_time = time.time() - start
-
-print(f'Init time: {init_time:.2f}s')
-assert init_time < 5.0, f'Too slow: {init_time:.2f}s'
-print('CLI init test PASSED')
-"
+      run: python .github/scripts/smoke_init.py
 
     - name: Test fast path (FAQ)
-      run: |
-        python -c "
-import time
-from local_chatbot.config import ChatbotConfig
-from local_chatbot.graph import LocalChatGraph
-
-cfg = ChatbotConfig()
-chatbot = LocalChatGraph(cfg)
-
-start = time.time()
-result = chatbot.chat('What is the capital of France?')
-latency = time.time() - start
-
-print(f'Response: {result.response}')
-print(f'Source: {result.source}')
-print(f'Latency: {latency:.2f}s')
-assert result.source == 'faq', f'Expected FAQ source, got {result.source}'
-assert latency < 1.0, f'FAQ response too slow: {latency:.2f}s'
-print('Fast path test PASSED')
-"
+      run: python .github/scripts/smoke_faq.py
 
   # Build and push Docker image
   build-and-push:
