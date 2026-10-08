@@ -29,11 +29,14 @@ def test_llama_index_rag_koopman_import_fixed():
     assert rag._koopman_available is True
 
 
-def test_semantic_cache_install_and_hit():
+def test_semantic_cache_install_and_hit(tmp_path):
     import sys
     from gateway.simple_cache import SimpleCache
     from gateway.equation_wiring import install_semantic_cache
-    cache = SimpleCache(persist=False)
+    # Isolated dir: install_semantic_cache restores the persisted sidecar
+    # (semantic_embs.json), so the default cache dir would leak live-run
+    # state into this hermetic test.
+    cache = SimpleCache(cache_dir=str(tmp_path), persist=False)
     assert install_semantic_cache(cache) is True
     cache.set(query="what is the capital of france?", response="Paris", _key="k1")
     # exact hit
@@ -42,14 +45,14 @@ def test_semantic_cache_install_and_hit():
     assert cache.get(_key="unknown") is None
 
 
-def test_semantic_fallback_is_mode_scoped():
+def test_semantic_fallback_is_mode_scoped(tmp_path):
     """A near-miss must never retrieve an answer cached under a different
     performance_mode (diag: balanced chats were served speed drafts in ~1ms
     via mode-blind similarity matching)."""
     from gateway.simple_cache import SimpleCache
     from gateway import equation_wiring as wiring
     wiring._embs.clear()
-    cache = SimpleCache(persist=False)
+    cache = SimpleCache(cache_dir=str(tmp_path), persist=False)
     assert wiring.install_semantic_cache(cache) is True
     ctx_speed = {"model": "m", "performance_mode": "speed"}
     ctx_bal = {"model": "m", "performance_mode": "balanced"}
@@ -66,14 +69,14 @@ def test_semantic_fallback_is_mode_scoped():
     wiring._embs.clear()
 
 
-def test_embs_index_bounded():
+def test_embs_index_bounded(tmp_path):
     """rank() scans every candidate per miss: the embedding index must stay
     bounded or long server sessions turn each miss into a ~0.5s full scan."""
     from gateway.simple_cache import SimpleCache
     from gateway import equation_wiring as wiring
     wiring._embs.clear()
     try:
-        cache = SimpleCache(persist=False)
+        cache = SimpleCache(cache_dir=str(tmp_path), persist=False)
         assert wiring.install_semantic_cache(cache) is True
         for i in range(1100):
             cache.set("unique padding query number %d here" % i, "a",
