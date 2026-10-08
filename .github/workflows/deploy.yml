@@ -82,5 +82,7 @@ jobs:
         push: ${{ github.event_name != 'pull_request' }}
         tags: ${{ steps.meta.outputs.tags }}
         labels: ${{ steps.meta.outputs.labels }}
-        cache-from: type=gha
-        cache-to: type=gha,mode=max
+        # NOTE: no type=gha cache here on purpose.  The gha cache backend
+        # needs actions: read/write permission and hard-fails the build
+        # without it (buildx cache-backend error).  Builds take ~2-3 min
+        # uncached; re-add caching deliberately (e.g. registry cache) later.
