@@ -21,7 +21,7 @@ cd chatbot-phase1
 # Create models directory (may already exist - ignore error)
 New-Item -ItemType Directory -Path models -ErrorAction SilentlyContinue
 
-# Download model
+# Download model,bigger and smarter model can give better ressult tinyllama is jusn an example
 Invoke-WebRequest -Uri "https://huggingface.co/TheBloke/TinyLlama-1.1B-Chat-v1.0-GGUF/resolve/main/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf" -OutFile "models/tinyllama-1.1b-chat-v1.0.Q4_K_M.gguf"
 ```
 
