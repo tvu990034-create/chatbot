@@ -276,28 +276,44 @@ def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
             except Exception:  # noqa: BLE001
                 pass
     rows: List[Dict[str, Any]] = []
-    for question in qs:
+    for idx, question in enumerate(qs):
         msgs = [{"role": "user", "content": question}]
         row: Dict[str, Any] = {"question": question}
-        try:
-            t0 = time.perf_counter()
-            gw.chat(msgs)
-            row["cold_ms"] = (time.perf_counter() - t0) * 1000.0
-        except Exception as exc:  # noqa: BLE001
-            row["cold_error"] = f"{type(exc).__name__}: {exc}"
-        try:
-            t0 = time.perf_counter()
-            gw.chat(msgs)
-            row["warm_ms"] = (time.perf_counter() - t0) * 1000.0
-        except Exception as exc:  # noqa: BLE001
-            row["warm_error"] = f"{type(exc).__name__}: {exc}"
-        if use_baseline:
+        # Fairness: alternate which path runs first per row.  The model
+        # sits hotter as a run progresses, so a fixed opt-then-raw order
+        # would hand the baseline a systematic warm-model advantage on
+        # every row.  Reply lengths are recorded alongside timings so a
+        # speedup can be checked against answer verbosity (ms alone can't
+        # tell a faster answer from a shorter one).
+        raw_first = (idx % 2 == 1)
+        row["order"] = "raw-first" if raw_first else "opt-first"
+
+        def _run_opt(tag: str) -> None:
             try:
                 t0 = time.perf_counter()
-                raw_fn(msgs, model=model_name, max_tokens=raw_max_tokens)
+                reply = gw.chat(msgs)
+                row[tag] = (time.perf_counter() - t0) * 1000.0
+                row[tag.replace("_ms", "_chars")] = len(reply or "")
+            except Exception as exc:  # noqa: BLE001
+                row[tag.replace("_ms", "_error")] = (
+                    f"{type(exc).__name__}: {exc}")
+
+        def _run_raw() -> None:
+            try:
+                t0 = time.perf_counter()
+                response, _hit, _used = raw_fn(
+                    msgs, model=model_name, max_tokens=raw_max_tokens)
                 row["baseline_ms"] = (time.perf_counter() - t0) * 1000.0
+                row["baseline_chars"] = len(response or "")
             except Exception as exc:  # noqa: BLE001
                 row["baseline_error"] = f"{type(exc).__name__}: {exc}"
+
+        if raw_first and use_baseline:
+            _run_raw()
+        _run_opt("cold_ms")
+        _run_opt("warm_ms")
+        if not raw_first and use_baseline:
+            _run_raw()
         rows.append(row)
     if show:
         table = Table(title="Optimized vs. baseline (local AI)",

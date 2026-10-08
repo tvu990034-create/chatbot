@@ -587,6 +587,41 @@ def test_bench_warmup_bypasses_cache():
     assert first_kwargs.get("use_cache") is False
 
 
+def test_run_bench_alternates_path_order():
+    """Fairness: odd rows run the baseline first so the fixed opt-then-raw
+    order can't hand raw a systematic warm-model advantage every row."""
+    seq = []
+
+    class SeqGateway(FakeGateway):
+        def chat(self, messages, **kwargs):
+            seq.append(("opt", messages[-1]["content"]))
+            return self.reply
+
+    def fake_raw(messages, model=None, max_tokens=None):
+        seq.append(("raw", messages[-1]["content"]))
+        return ("base", False, model)
+
+    summary = optimizer_cli.run_bench(
+        n=2, gateway=SeqGateway(), raw=fake_raw,
+        use_baseline=True, show=False, warmup=False)
+    assert summary["rows"][0]["order"] == "opt-first"
+    assert summary["rows"][1]["order"] == "raw-first"
+    kinds = [k for k, _ in seq]
+    assert kinds == ["opt", "opt", "raw", "raw", "opt", "opt"]
+
+
+def test_run_bench_records_reply_lengths():
+    """A speedup is meaningless if the faster path just wrote less; rows
+    must carry both sides' reply lengths for per-token normalization."""
+    summary = optimizer_cli.run_bench(
+        n=1, gateway=FakeGateway(reply="pong"), raw=lambda *a, **k: ("base!", False, "m"),
+        use_baseline=True, show=False, warmup=False)
+    row = summary["rows"][0]
+    assert row["cold_chars"] == 4
+    assert row["warm_chars"] == 4
+    assert row["baseline_chars"] == 5
+
+
 def test_run_eval_restores_timeout_when_gateway_fails(monkeypatch):
     """The eval-timeout boost must not leak if gateway creation raises."""
     from config import settings
