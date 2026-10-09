@@ -585,6 +585,67 @@ class TestChatDirectGatewayFirst:
         assert mock_plain.call_args[1]["temperature"] == 0.9
 
 
+class TestChatRagDegenerateFallback:
+    """A degenerate RAG answer must fall through to the direct path, never
+    serve the degenerate text (diag: 12*8 served the literal model text
+    'Empty Response' after 143 s with sources pointing at an irrelevant
+    note). Stale sources must not survive the fallback either."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        return TestClient(app, raise_server_exceptions=False)
+
+    def _rag(self, answer, sources=None):
+        rag = MagicMock()
+        rag.aquery = AsyncMock(return_value={
+            "answer": answer, "sources": sources or []})
+        return rag
+
+    def _gw(self, reply):
+        gw = MagicMock()
+        gw.chat.return_value = reply
+        gw.model_name = "gw-model"
+        return gw
+
+    def test_empty_response_falls_back_to_direct(self):
+        with patch("rag.llama_index_rag.get_rag",
+                   return_value=self._rag("Empty Response", ["note.txt"])), \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("The answer is 96")), \
+             patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_plain:
+            mock_plain.return_value = ("plain reply", False, "m")
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": True,
+            })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["response"] == "The answer is 96"
+        assert body["sources"] == []
+        mock_plain.assert_not_called()
+
+    def test_good_rag_answer_served_as_is(self):
+        with patch("rag.llama_index_rag.get_rag",
+                   return_value=self._rag(
+                       "The harbor lights mark the entrance.",
+                       ["note.txt"])), \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway") as mock_gw, \
+             patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_plain:
+            resp = self._client().post("/chat", json={
+                "message": "What do the harbor lights mark?",
+                "use_agent": False, "use_rag": True,
+            })
+        assert resp.status_code == 200
+        body = resp.json()
+        assert body["response"] == "The harbor lights mark the entrance."
+        assert body["sources"] == ["note.txt"]
+        mock_gw.assert_not_called()
+        mock_plain.assert_not_called()
+
+
 # ===================================================================
 # 14. Request bounds — oversized payloads rejected before inference
 # ===================================================================

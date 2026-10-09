@@ -242,6 +242,7 @@ async def chat_endpoint(req: ChatRequest):
     actual_model: str | None = None
     rag_used   = False
     policy     = ""
+    reply: str = ""
 
     effective_max_tokens = req.max_tokens
 
@@ -273,7 +274,17 @@ async def chat_endpoint(req: ChatRequest):
             result  = await get_rag().aquery(req.message)
             reply   = result["answer"]
             sources = result.get("sources", [])
-        else:
+            if (not (reply or "").strip()
+                    or reply.strip().lower() == "empty response"):
+                # Degenerate RAG output: retrieval found nothing usable and
+                # the model burned its budget emitting nothing (diag: 12*8
+                # served the literal text "Empty Response" after 143 s).
+                # Fall through to the direct path below instead of serving
+                # the degenerate text.
+                logger.warning("RAG answer degenerate; falling back to direct path")
+                reply = ""
+                sources = []
+        if not req.use_agent and not (reply or "").strip():
             from gateway.litellm_gateway import achat
             msgs = history + [{"role": "user", "content": req.message}]
             reply, cache_hit, actual_model = "", False, None
@@ -282,8 +293,7 @@ async def chat_endpoint(req: ChatRequest):
             # instant answers (greetings, math, cache) return in ms
             # instead of burning a full plain generation -- which on
             # thinking models can ALSO come back empty after the whole
-            # budget (12*8 cost 143 s and served "Empty Response" via the
-            # plain path).  Explicit overrides still go plain-first so
+            # budget.  Explicit overrides still go plain-first so
             # caller-controlled generation is honored byte-for-byte.
             _overrides = (req.model, req.temperature, req.max_tokens,
                           req.system_prompt)
