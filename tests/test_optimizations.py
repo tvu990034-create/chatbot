@@ -716,6 +716,34 @@ class TestQuickWordProblem:
         q = "If a train travels 60 km per hour, how far does it go in 2 hours?"
         assert gw._tool_calculator(q) == "120"
 
+
+class TestQuickPathFollowups:
+    """Multi-turn continuations must resolve instantly: 'And 13*13?'
+    is the same arithmetic as '13*13?' (diag: follow-ups fell through
+    to a full generation and timed out server-side), and 'Hello there!'
+    must greet like 'hello' (agent gate missed it -> 123 s TTFB)."""
+
+    def test_followup_conjunction_math(self):
+        from gateway.opt_core import quick_arithmetic
+        assert quick_arithmetic("And 13*13?") == "169"
+        assert quick_arithmetic("then 2 + 3?") == "5"
+        assert quick_arithmetic("So 10 - 4?") == "6"
+
+    def test_conjunction_strip_is_conservative(self):
+        from gateway.opt_core import quick_arithmetic
+        assert quick_arithmetic("android phones?") is None
+        assert quick_arithmetic("also known as Bob?") is None
+        assert quick_arithmetic("And") is None
+
+    def test_followup_math_is_quick_path(self):
+        from gateway.opt_core import is_safe_quick_path
+        assert is_safe_quick_path("And 13*13?") is True
+
+    def test_greeting_there_tolerance(self):
+        from gateway.opt_core import is_safe_quick_path
+        assert is_safe_quick_path("Hello there!") is True
+        assert is_safe_quick_path("hi there.") is True
+
 class TestPerformanceModePrecedence:
     """BUG 15: speed mode must cap max_tokens for simple queries but keep a
     reasoning budget for math/code/reasoning so answers are not truncated."""

@@ -203,6 +203,27 @@ def api(
     _start_api_server(host=host, port=port, reload=reload)
 
 
+def _terminate_procs(procs, timeout: float = 10.0) -> None:
+    """Stop child processes on EVERY exit path, not just Ctrl+C.
+
+    Daemon children die with a clean parent exit, but an exception (or an
+    external stop) leaves them holding ports/sockets as orphans -- the
+    next start then fails to bind while /health still answers from the
+    orphan.  Safe to call repeatedly; never raises.
+    """
+    for proc in procs:
+        try:
+            if proc.is_alive():
+                proc.terminate()
+        except Exception:  # noqa: BLE001 - best effort
+            pass
+    for proc in procs:
+        try:
+            proc.join(timeout=timeout)
+        except Exception:  # noqa: BLE001 - best effort
+            pass
+
+
 @app.command()
 def both(
     api_host:   str  = typer.Option(settings.api_host, "--api-host"),
@@ -238,8 +259,8 @@ def both(
         ui_proc.join()
     except KeyboardInterrupt:
         console.print("\n[yellow]Shutting down …[/yellow]")
-        api_proc.terminate()
-        ui_proc.terminate()
+    finally:
+        _terminate_procs((api_proc, ui_proc))
 
 
 @app.command()

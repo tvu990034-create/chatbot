@@ -1116,10 +1116,20 @@ def is_safe_quick_path(query: str) -> bool:
         return False
     if low in {"hello", "hi", "hey", "greetings", "thanks", "thank you", "ok", "okay"}:
         return True
-    # Arithmetic (possibly multi-operator with precedence).
-    if re.fullmatch(r"[\d\s\+\-\*/\(\)\.]+", q.rstrip("?")):
-        if re.search(r"\d", q):
-            return quick_arithmetic(q) is not None
+    # Tolerate "hello there!" / "hi there." like the gateway's quick
+    # templates do; without this the agent paths miss the greeting and
+    # burn a full generation on two words.
+    if re.fullmatch(r"(?:hello|hi|hey|greetings|yo)(?:\s+there)?[!.,]*", low):
+        return True
+    # Arithmetic (possibly multi-operator with precedence).  Strip
+    # follow-up conjunctions first ("And 13*13?" -> "13*13?") so
+    # multi-turn continuations resolve instantly instead of burning a
+    # full generation on arithmetic.
+    _arith = re.sub(r"^(?:and|then|also|so)\b[\s,?]*", "", q,
+                    flags=re.IGNORECASE).strip()
+    if re.fullmatch(r"[\d\s\+\-\*/\(\)\.]+", _arith.rstrip("?")):
+        if re.search(r"\d", _arith):
+            return quick_arithmetic(_arith) is not None
     return False
 
 
@@ -1172,6 +1182,12 @@ def quick_arithmetic(query: str) -> Optional[str]:
         r"^(?:what(?:'s|\s+is)|\s*calculate|\s*compute|\s*evaluate|\s*solve|"
         r"\s*how\s+much\s+is)\s+",
         "", expr, flags=re.IGNORECASE).strip()
+    # Strip follow-up conjunctions so multi-turn continuations ("And 13*13?",
+    # "then +4?") resolve instantly instead of falling through to a full
+    # model generation.  Only leading fillers are removed; the remainder
+    # must still be a pure numeric expression to match below.
+    expr = re.sub(r"^(?:and|then|also|so)\b[\s,?]*", "", expr,
+                  flags=re.IGNORECASE).strip()
     if not re.fullmatch(r"[\d\s\+\-\*/\(\)\.]+", expr):
         return None
     tokens = re.findall(r"\d+\.?\d*|[()+\-*/]", expr)

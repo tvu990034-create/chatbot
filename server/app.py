@@ -276,16 +276,40 @@ async def chat_endpoint(req: ChatRequest):
         else:
             from gateway.litellm_gateway import achat
             msgs = history + [{"role": "user", "content": req.message}]
-            reply, cache_hit, actual_model = await achat(
-                msgs,
-                model=req.model,
-                temperature=req.temperature,
-                max_tokens=effective_max_tokens,
-                system_prompt=req.system_prompt,
-                use_cache=req.use_cache,
-                use_router=req.use_router,
-                speed_mode=req.speed_mode,
-            )
+            reply, cache_hit, actual_model = "", False, None
+            # Gateway-first when the caller did NOT override generation
+            # (model/temperature/max_tokens/system_prompt all default):
+            # instant answers (greetings, math, cache) return in ms
+            # instead of burning a full plain generation -- which on
+            # thinking models can ALSO come back empty after the whole
+            # budget (12*8 cost 143 s and served "Empty Response" via the
+            # plain path).  Explicit overrides still go plain-first so
+            # caller-controlled generation is honored byte-for-byte.
+            _overrides = (req.model, req.temperature, req.max_tokens,
+                          req.system_prompt)
+            if all(p is None for p in _overrides):
+                try:
+                    from gateway.universal_enhanced_gateway import (
+                        get_universal_gateway)
+                    _gw = get_universal_gateway(
+                        (settings.default_model or "phi3:mini"),
+                        True, "balanced")
+                    _cand = _gw.chat(msgs, use_cache=req.use_cache)
+                    if _cand and _cand.strip():
+                        reply, actual_model = _cand, _gw.model_name
+                except Exception as exc:  # noqa: BLE001 - fall through
+                    logger.warning("Gateway-first attempt failed: %s", exc)
+            if not (reply or "").strip():
+                reply, cache_hit, actual_model = await achat(
+                    msgs,
+                    model=req.model,
+                    temperature=req.temperature,
+                    max_tokens=effective_max_tokens,
+                    system_prompt=req.system_prompt,
+                    use_cache=req.use_cache,
+                    use_router=req.use_router,
+                    speed_mode=req.speed_mode,
+                )
             if not (reply or "").strip():
                 # Thinking models (qwen3) return empty content on the plain
                 # litellm path when hidden reasoning consumes the budget.

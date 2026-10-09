@@ -522,6 +522,70 @@ class TestChatEndpointParams:
 
 
 # ===================================================================
+# 13b. /chat direct path — gateway-first ordering
+# ===================================================================
+
+class TestChatDirectGatewayFirst:
+    """/chat with use_agent=false must try the thinking-aware gateway
+    BEFORE the plain path when generation is not overridden (diag: plain
+    first burned 143 s on 12*8 and served 'Empty Response' on qwen3).
+    Explicit overrides still go plain-first; empty gateway answers
+    still fall back to plain."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        return TestClient(app, raise_server_exceptions=False)
+
+    def _gw(self, reply):
+        gw = MagicMock()
+        gw.chat.return_value = reply
+        gw.model_name = "gw-model"
+        return gw
+
+    def test_instant_answer_skips_plain_path(self):
+        with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("The answer is 96")), \
+             patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_plain:
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": False,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "The answer is 96"
+        mock_plain.assert_not_called()
+
+    def test_empty_gateway_falls_back_to_plain(self):
+        with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("   ")), \
+             patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_plain:
+            mock_plain.return_value = ("plain reply", False, "m")
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": False,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "plain reply"
+        mock_plain.assert_called_once()
+
+    def test_explicit_override_goes_plain_first(self):
+        with patch("gateway.universal_enhanced_gateway.get_universal_gateway") as mock_gw, \
+             patch("gateway.litellm_gateway.achat",
+                   new_callable=AsyncMock) as mock_plain:
+            mock_plain.return_value = ("plain reply", False, "m")
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": False,
+                "temperature": 0.9,
+            })
+        assert resp.status_code == 200
+        mock_gw.assert_not_called()
+        assert mock_plain.call_args[1]["temperature"] == 0.9
+
+
+# ===================================================================
 # 14. Request bounds — oversized payloads rejected before inference
 # ===================================================================
 

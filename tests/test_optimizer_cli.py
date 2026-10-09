@@ -674,3 +674,36 @@ def test_main_ingest_none_provider_warns(monkeypatch):
     result = CliRunner().invoke(main.app, ["ingest", "--path", "."])
     assert result.exit_code == 0
     assert "nothing ingested" in result.stdout
+
+
+class TestTerminateProcs:
+    """both() must stop children on EVERY exit path: an exception (or an
+    external stop) used to leave port-holding orphans behind, so the next
+    start failed to bind while /health still answered from the orphan."""
+
+    def test_terminates_live_and_skips_dead(self):
+        import main
+
+        class FakeProc:
+            def __init__(self, alive=True, boom=False):
+                self._alive = alive
+                self.terminated = False
+                self.joined = False
+                self._boom = boom
+
+            def is_alive(self):
+                if self._boom:
+                    raise RuntimeError("gone")
+                return self._alive
+
+            def terminate(self):
+                self.terminated = True
+
+            def join(self, timeout=None):
+                self.joined = True
+
+        live, dead, flaky = FakeProc(True), FakeProc(False), FakeProc(boom=True)
+        main._terminate_procs((live, dead, flaky))  # must not raise
+        assert live.terminated is True and live.joined is True
+        assert dead.terminated is False and dead.joined is True
+        assert flaky.joined is True
