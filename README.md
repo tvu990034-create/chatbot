@@ -1,10 +1,16 @@
-# 🤖 Local Chatbot — CLI
+# ⚡ Turbo Optimizer — faster + smarter local AI
 
-A fully local AI chatbot run from the terminal. It talks to a local Ollama
-model through a **balanced mode** that routes trivial questions to a fast
-model, hard reasoning to a strong reasoning model, caches repeat questions,
-and time-boxes slow generations so a request never hangs. No API keys, no
-cloud, no GPU required.
+An **optimizer layer** that sits in front of local Ollama models and makes
+every request faster, cheaper, or smarter: instant answers for trivial
+questions (no model call), deterministic solvers for arithmetic, model
+routing by complexity, response caching, bounded think-off reasoning, and
+time-boxed generations that never hang. No API keys, no cloud, no GPU.
+
+It ships with a **chatbot interface** (terminal chat, REPL, REST API,
+Gradio UI, RAG ingest) so you can use the optimizer as a daily driver —
+but the chatbot is the demo surface. The product is the stack underneath:
+every claim below is measured **optimized vs raw baseline** (see
+`benchmark_results/`).
 
 ---
 
@@ -337,10 +343,11 @@ each, 50MB total); `/rag/query` takes `{"question": "..."}`.
 
 ---
 
-## How balanced mode answers questions
+## How the optimizer answers questions
 
 Every question makes ONE adaptive call to the local model (no fallback
-chains), classified and routed on the fly:
+chains), classified and routed on the fly. (Exposed as `main.py chat`;
+the same stack serves the REPL, the REST API, and the Gradio UI.)
 
 | Query type | Example | Model | Latency |
 |---|---|---|---|
