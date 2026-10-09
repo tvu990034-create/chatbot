@@ -327,9 +327,16 @@ def chat(
     no_agent:  bool = typer.Option(False, "--no-agent", help="(deprecated) direct balanced call — this is the default"),
     use_agent: bool = typer.Option(False, "--use-agent", help="Route through the LangGraph agent (tools/RAG)"),
     stream:    bool = typer.Option(True,  "--stream/--no-stream", help="(accepted for compatibility; output prints at once, no live streaming)"),
+    verbose:   bool = typer.Option(False, "--verbose", "-v", help="Show INFO logs (default: answer only)"),
 ) -> None:
     """Send a single message to the chatbot and print the reply."""
-    _print_banner()
+    if not verbose:
+        # Single-shot UX: the answer is the output.  Module INFO logs
+        # (gateway init, cache warming, routing) stay available via
+        # --verbose but never bury a one-line answer by default.
+        logging.getLogger().setLevel(logging.WARNING)
+    else:
+        logging.getLogger().setLevel(logging.INFO)
 
     if use_agent:
         # Agent flow (LangGraph tools/RAG).

@@ -900,9 +900,15 @@ class TestEquationSolverCoverage:
 
     def _gw(self):
         import logging
+        # Silence noisy gateway construction, but ALWAYS restore: a bare
+        # logging.disable() leaks process-wide and blinds every later
+        # test that asserts on log records.
         logging.disable(logging.INFO)
-        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
-        return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        try:
+            from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+            return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        finally:
+            logging.disable(logging.NOTSET)
 
     def test_coefficient_1_forms(self):
         gw = self._gw()
@@ -1040,9 +1046,15 @@ class TestDirectSolverRefinement:
 
     def _gw(self):
         import logging
+        # Silence noisy gateway construction, but ALWAYS restore: a bare
+        # logging.disable() leaks process-wide and blinds every later
+        # test that asserts on log records.
         logging.disable(logging.INFO)
-        from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
-        return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        try:
+            from gateway.universal_enhanced_gateway import UniversalEnhancedGateway
+            return UniversalEnhancedGateway("phi3:mini", enable_all_optimizations=True)
+        finally:
+            logging.disable(logging.NOTSET)
 
     def test_pure_arithmetic_still_resolves(self):
         gw = self._gw()

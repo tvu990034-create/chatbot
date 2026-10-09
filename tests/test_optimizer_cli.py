@@ -666,6 +666,51 @@ def test_main_chat_direct_uses_gateway():
     assert "direct hi" in result.stdout
 
 
+def test_main_chat_quiet_by_default(caplog):
+    """Single-shot chat prints the answer, not module INFO logs."""
+    import logging
+    from unittest.mock import MagicMock, patch
+    import main
+
+    def noisy_chat(messages):
+        # Neutral logger name: the "gateway" namespace is pinned to
+        # WARNING process-wide by _quiet_library_logging(), so probing
+        # through it could never observe INFO regardless of --verbose.
+        logging.getLogger("test_probe_chat").info("noisy init line")
+        return "quiet answer"
+
+    gw = MagicMock()
+    gw.chat.side_effect = noisy_chat
+    with caplog.at_level(logging.INFO), patch(
+            "gateway.universal_enhanced_gateway.get_universal_gateway",
+            return_value=gw):
+        result = CliRunner().invoke(main.app, ["chat", "hi"])
+    assert result.exit_code == 0
+    assert "quiet answer" in result.output
+    assert "noisy init line" not in caplog.text
+
+
+def test_main_chat_verbose_shows_logs(caplog):
+    """--verbose restores INFO logs for debugging."""
+    import logging
+    from unittest.mock import MagicMock, patch
+    import main
+
+    def noisy_chat(messages):
+        logging.getLogger("test_probe_chat").info("loud init line")
+        return "loud answer"
+
+    gw = MagicMock()
+    gw.chat.side_effect = noisy_chat
+    with caplog.at_level(logging.INFO), patch(
+            "gateway.universal_enhanced_gateway.get_universal_gateway",
+            return_value=gw):
+        result = CliRunner().invoke(main.app, ["chat", "hi", "--verbose"])
+    assert result.exit_code == 0
+    assert "loud answer" in result.output
+    assert "loud init line" in caplog.text
+
+
 def test_main_ingest_none_provider_warns(monkeypatch):
     """Provider 'none' must say so instead of silently ingesting nothing."""
     import main
