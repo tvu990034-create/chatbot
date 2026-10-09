@@ -23,7 +23,7 @@ git clone https://github.com/tvu990034-create/chatbot.git
 cd chatbot
 ollama pull qwen3:4b
 ollama pull phi3:mini
-python -m venv .venv
+py -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
 pip install -r requirements.txt
@@ -34,9 +34,9 @@ Copy-Item .env.example .env   # Windows PowerShell
 Smoke test (proves the install works):
 
 ```bash
-python optimizer_cli.py check --quiet   # 30 wiring checks, offline, ~2 s
-python main.py chat "Hello there!"      # instant-path greeting, ~1 s
-python main.py chat "What is 12 * 8?"   # deterministic math solver, ~1 s
+py optimizer_cli.py check --quiet   # 30 wiring checks, offline, ~2 s
+py main.py chat "Hello there!"      # instant-path greeting, ~1 s
+py main.py chat "What is 12 * 8?"   # deterministic math solver, ~1 s
 ```
 
 Chat:
@@ -44,27 +44,27 @@ Chat:
 ```bash
 # One question, balanced gateway (routing + cache + full budgets), ~1 s if
 # instant (greeting/math), seconds-to-minutes if the model must generate:
-python main.py chat "What is the capital of France?"
+py main.py chat "What is the capital of France?"
 # Same, but pinned to the fast model (higher tok/s, weaker reasoning):
-python main.py chat --model phi3:mini "What is 7*6?"
+py main.py chat --model phi3:mini "What is 7*6?"
 # Agent path: tools + retrieval + multi-step reasoning (slowest, smartest):
-python main.py chat --use-agent "Tell me about LangGraph"
+py main.py chat --use-agent "Tell me about LangGraph"
 # Agent without retrieval (math/tools only, no documents consulted):
-python main.py chat --use-agent --no-rag "What is 7*6?"
+py main.py chat --use-agent --no-rag "What is 7*6?"
 # Interactive loop, balanced budgets, with /stats /reset /quit (/quit to exit):
-python optimizer_cli.py run                    # interactive loop (/quit to exit)
+py optimizer_cli.py run                    # interactive loop (/quit to exit)
 # Same loop, speed budgets (terser answers, lower latency):
-python optimizer_cli.py run --mode speed
+py optimizer_cli.py run --mode speed
 # One turbo question + raw-baseline timing side by side (proves the speedup):
-python optimizer_cli.py chat "Hi" --mode balanced --baseline
+py optimizer_cli.py chat "Hi" --mode balanced --baseline
 ```
 
 Server + API:
 
 ```bash
-python main.py api --port 8000 --no-reload   # REST server, this terminal blocks
+py main.py api --port 8000 --no-reload   # REST server, this terminal blocks
 # docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/health
-python main.py both                              # API + Gradio UI together
+py main.py both                              # API + Gradio UI together
 ```
 
 RAG (documents):
@@ -72,19 +72,19 @@ RAG (documents):
 ```bash
 mkdir data\docs   # folder the indexer watches (default docs dir)
 echo "The harbor lights mark the entrance." > data\docs\note.txt   # one sample doc
-python main.py ingest --path data\docs          # build the vector index (~1 s)
-python main.py ingest --path data\docs --rebuild  # force full rebuild
+py main.py ingest --path data\docs          # build the vector index (~1 s)
+py main.py ingest --path data\docs --rebuild  # force full rebuild
 ```
 
 Measure:
 
 ```bash
-python optimizer_cli.py bench --n 5          # 5 questions, optimized vs raw table
-python optimizer_cli.py bench --n 5 --mode speed  # same, speed budgets
-python optimizer_cli.py eval --n 5           # grade 5 GSM8K items, JSON report
-python optimizer_cli.py stats                # live cache hits, hit rate, timings
-python main.py status                         # config + backend health
-python main.py benchmark --top 3              # hardware bench, model picks
+py optimizer_cli.py bench --n 5          # 5 questions, optimized vs raw table
+py optimizer_cli.py bench --n 5 --mode speed  # same, speed budgets
+py optimizer_cli.py eval --n 5           # grade 5 GSM8K items, JSON report
+py optimizer_cli.py stats                # live cache hits, hit rate, timings
+py main.py status                         # config + backend health
+py main.py benchmark --top 3              # hardware bench, model picks
 ```
 
 Maintain:
@@ -92,7 +92,7 @@ Maintain:
 ```bash
 del cache\*.json              # Windows: cold restart (forget cached answers)
 # rm cache/*.json             # macOS / Linux
-python -m pytest tests -q     # full test suite (needs: pip install -e ".[dev]")
+py -m pytest tests -q     # full test suite (needs: pip install -e ".[dev]")
 ```
 
 Advanced (`finetune`, `adapters`, `merge`, `advanced-benchmark`) each
@@ -121,14 +121,14 @@ You need Python 3.10–3.13. On Windows install from
 with `Python was not found`. Verify first:
 
 ```bash
-python --version     # must print 3.10+ (not open the Store)
+py --version     # must print 3.10+ (not open the Store)
 ```
 
 ### 3. Install dependencies
 
 ```bash
 cd chatbot
-python -m venv .venv
+py -m venv .venv
 .venv\Scripts\activate        # Windows
 # source .venv/bin/activate   # macOS / Linux
 
@@ -159,11 +159,11 @@ per call via `--mode`, not the environment.)
 ### 5. Verify the install (in order)
 
 ```bash
-python --version                  # 3.10+, real Python, not the Store shim
+py --version                  # 3.10+, real Python, not the Store shim
 ollama list                       # qwen3:4b + phi3:mini present
-python optimizer_cli.py check --quiet   # ~2 s, proves wiring
-python main.py chat "Hello there!"      # ~1 s, proves model path
-python main.py status              # backend health + config
+py optimizer_cli.py check --quiet   # ~2 s, proves wiring
+py main.py chat "Hello there!"      # ~1 s, proves model path
+py main.py status              # backend health + config
 ```
 
 If `check` passes but chat hangs: Ollama isn't serving (`ollama serve`).
@@ -199,9 +199,9 @@ Documents → `main.py ingest`, then ask via the agent path.
 the numbers, not the feeling:
 
 ```bash
-python optimizer_cli.py chat "Hi" --mode balanced --baseline  # one question, both paths
-python optimizer_cli.py bench --n 5                            # 5 questions, full table
-python optimizer_cli.py bench --n 5 --mode speed                # speed-mode table
+py optimizer_cli.py chat "Hi" --mode balanced --baseline  # one question, both paths
+py optimizer_cli.py bench --n 5                            # 5 questions, full table
+py optimizer_cli.py bench --n 5 --mode speed                # speed-mode table
 ```
 
 Read the tables honestly: `0.00x` rows are routing (no model call), not
@@ -213,7 +213,7 @@ so shorter answers can't masquerade as faster thinking.
 ## CLI usage
 
 ```
-python main.py <command>
+py main.py <command>
 
 Commands:
   chat       Ask a single question (terminal)
@@ -224,11 +224,11 @@ Commands:
 ### Chat
 
 ```bash
-python main.py chat "How many days are in a week?"   # trivial factual, fast model
-python main.py chat "Prove that sqrt(2) is irrational"  # hard reasoning, full budget
-python main.py chat --model qwen3:4b "Why is the sky blue?"   # use a specific model
-python main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent (tools/RAG)
-python main.py chat --use-agent --no-rag "..."                 # agent without retrieval
+py main.py chat "How many days are in a week?"   # trivial factual, fast model
+py main.py chat "Prove that sqrt(2) is irrational"  # hard reasoning, full budget
+py main.py chat --model qwen3:4b "Why is the sky blue?"   # use a specific model
+py main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent (tools/RAG)
+py main.py chat --use-agent --no-rag "..."                 # agent without retrieval
 ```
 
 (`--no-rag` applies to the agent path; the direct path never retrieves.
@@ -241,27 +241,27 @@ runs to a real final answer instead of being cut off mid-thought.
 ### Status
 
 ```bash
-python main.py status
+py main.py status
 ```
 
 ### Benchmark
 
 ```bash
-python main.py benchmark                        # CPU recommendations
-python main.py benchmark --gpu "RTX 4090"        # simulate a GPU
-python main.py benchmark --gpu "RTX 4090" --top 3 --speed fast  # top 3, fast tier only
-python main.py benchmark --json                  # JSON output
+py main.py benchmark                        # CPU recommendations
+py main.py benchmark --gpu "RTX 4090"        # simulate a GPU
+py main.py benchmark --gpu "RTX 4090" --top 3 --speed fast  # top 3, fast tier only
+py main.py benchmark --json                  # JSON output
 ```
 
-Run `python main.py --help` for the full list of options.
+Run `py main.py --help` for the full list of options.
 
 ### Turbo bench / eval (optimized vs raw)
 
 ```bash
-python optimizer_cli.py bench --n 5 --mode speed      # 5 curated questions, timed
-python optimizer_cli.py bench --n 5 --mode balanced   # default smart path
-python optimizer_cli.py bench --n 2 --no-baseline --questions "6*7|8+9"  # no raw timing, custom questions
-python optimizer_cli.py eval --n 5                     # grade 5 GSM8K items, report to benchmark_results/
+py optimizer_cli.py bench --n 5 --mode speed      # 5 curated questions, timed
+py optimizer_cli.py bench --n 5 --mode balanced   # default smart path
+py optimizer_cli.py bench --n 2 --no-baseline --questions "6*7|8+9"  # no raw timing, custom questions
+py optimizer_cli.py eval --n 5                     # grade 5 GSM8K items, report to benchmark_results/
 ```
 
 Modes: `speed` (tight token caps, short drafts get a verification pass),
@@ -271,8 +271,8 @@ budgets, multi-model selection on hard queries).
 ### Interactive chat (REPL)
 
 ```bash
-python optimizer_cli.py run                # type messages, live answers + timings
-python optimizer_cli.py run --mode speed   # same loop, speed budgets
+py optimizer_cli.py run                # type messages, live answers + timings
+py optimizer_cli.py run --mode speed   # same loop, speed budgets
 ```
 
 In-chat commands: `/quit` (or `/exit`), `/reset` (clear history),
@@ -281,9 +281,9 @@ In-chat commands: `/quit` (or `/exit`), `/reset` (clear history),
 ### Health check + telemetry
 
 ```bash
-python optimizer_cli.py check              # 30 module checks, offline, ~seconds
-python optimizer_cli.py stats              # live cache hits, hit rate, timings
-python optimizer_cli.py stats --json       # machine-readable
+py optimizer_cli.py check              # 30 module checks, offline, ~seconds
+py optimizer_cli.py stats              # live cache hits, hit rate, timings
+py optimizer_cli.py stats --json       # machine-readable
 ```
 
 ---
@@ -293,9 +293,9 @@ python optimizer_cli.py stats --json       # machine-readable
 Start it (default `http://127.0.0.1:8000`):
 
 ```bash
-python main.py api                          # REST server
-python main.py api --port 9000 --no-reload  # custom port, no auto-reload
-python main.py both                          # API + Gradio UI, two processes
+py main.py api                          # REST server
+py main.py api --port 9000 --no-reload  # custom port, no auto-reload
+py main.py both                          # API + Gradio UI, two processes
 ```
 
 Health and docs (no model needed):
@@ -371,8 +371,8 @@ are bounded so a wedged generation can't stall a training batch. Point
 ```bash
 mkdir data\docs                                   # Windows (default docs dir)
 echo "The harbor lights mark the entrance." > data\docs\harbor.txt
-python main.py ingest --path data\docs            # build the vector index
-python main.py ingest --path data\docs --rebuild  # force rebuild
+py main.py ingest --path data\docs            # build the vector index
+py main.py ingest --path data\docs --rebuild  # force rebuild
 ```
 
 Then ask with retrieval (agent path, or `use_rag` on the endpoints).
@@ -399,7 +399,7 @@ each, 50MB total); `/rag/query` takes `{"question": "..."}`.
   (add `[dev]` via `pip install -e ".[dev]"` if you run the test suite).
 - **`Python was not found`** (Windows): you have only the Store shortcut —
   install real Python from python.org with PATH enabled, close and reopen
-  the terminal, then `python --version`.
+  the terminal, then `py --version`.
 
 ---
 
@@ -445,7 +445,7 @@ default (next request pays ~60s cold load). All local calls request
 ollama *server* environment.
 
 The think-off token budget is measured, not hardcoded: run
-`python benchmark_results/probe_num_predict.py --three-point` on a quiet
+`py benchmark_results/probe_num_predict.py --three-point` on a quiet
 machine (20-40 min CPU) and the gateway adopts the resulting b* from
 `benchmark_results/num_predict_scan.json` automatically. Re-probe when
 the model, hardware, or ollama version changes. (Benchmarks don't run in
