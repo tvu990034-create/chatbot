@@ -92,7 +92,7 @@ document themselves — run any of them with `--help`.
 
 ---
 
-## Quick start
+## Setup step by step
 
 ### 1. Install Ollama + a model pair
 
@@ -147,6 +147,58 @@ DEFAULT_MODEL=ollama/qwen3:4b
 That is all — balanced mode is the default and needs nothing else.
 (There is no `PERFORMANCE_MODE` setting: speed/balanced/quality is chosen
 per call via `--mode`, not the environment.)
+
+### 5. Verify the install (in order)
+
+```bash
+python --version                  # 3.10+, real Python, not the Store shim
+ollama list                       # qwen3:4b + phi3:mini present
+python optimizer_cli.py check --quiet   # ~2 s, proves wiring
+python main.py chat "Hello there!"      # ~1 s, proves model path
+python main.py status              # backend health + config
+```
+
+If `check` passes but chat hangs: Ollama isn't serving (`ollama serve`).
+If the first answer takes ~60 s: that's the cold model load (one time;
+later answers reuse the resident model).
+
+---
+
+## How to choose: chatbot or optimizer?
+
+Two ways to use this repo. Same models, different trade-offs:
+
+| | Chatbot (`main.py chat`) | Optimizer (`optimizer_cli.py`) |
+|---|---|---|
+| What it is | Direct answers, one question at a time | Timed runs, comparisons, REPL, telemetry |
+| Best for | Daily use, scripts, piping | Proving speed, tuning, benchmarking |
+| Modes | balanced default (+ `--model` override) | `--mode speed/balanced/quality` + `--baseline` |
+| Measure anything? | No | Yes: `bench`, `eval`, `stats` |
+| Serve over HTTP? | `main.py api` / `both` (either entry) | Same server (optimizer stack inside) |
+
+**Which mode?** `balanced` (default) for everything unless you know why
+not: instant answers stay instant, trivia routes to the fast model, hard
+reasoning gets full budgets. `speed` only for short/trivial traffic where
+you want minimum latency and accept terse answers. `quality` for hard
+queries where you want multi-model selection and generous budgets.
+
+**Which interface?** Terminal one-liners → `main.py chat`. Back-and-forth
+→ `optimizer_cli.py run` (REPL with `/stats`). Other apps/code →
+`main.py api` (REST + OpenAI-compatible `/v1`). Browser → `main.py both`.
+Documents → `main.py ingest`, then ask via the agent path.
+
+**How to prove it's faster?** Run the same question both ways and compare
+the numbers, not the feeling:
+
+```bash
+python optimizer_cli.py chat "Hi" --mode balanced --baseline  # one question, both paths
+python optimizer_cli.py bench --n 5                            # 5 questions, full table
+python optimizer_cli.py bench --n 5 --mode speed                # speed-mode table
+```
+
+Read the tables honestly: `0.00x` rows are routing (no model call), not
+generation speed; generation rows include per-token (`ms/char`) figures
+so shorter answers can't masquerade as faster thinking.
 
 ---
 
