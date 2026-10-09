@@ -34,27 +34,35 @@ Copy-Item .env.example .env   # Windows PowerShell
 Smoke test (proves the install works):
 
 ```bash
-python optimizer_cli.py check --quiet
-python main.py chat "Hello there!"
-python main.py chat "What is 12 * 8?"
+python optimizer_cli.py check --quiet   # 30 wiring checks, offline, ~2 s
+python main.py chat "Hello there!"      # instant-path greeting, ~1 s
+python main.py chat "What is 12 * 8?"   # deterministic math solver, ~1 s
 ```
 
 Chat:
 
 ```bash
+# One question, balanced gateway (routing + cache + full budgets), ~1 s if
+# instant (greeting/math), seconds-to-minutes if the model must generate:
 python main.py chat "What is the capital of France?"
+# Same, but pinned to the fast model (higher tok/s, weaker reasoning):
 python main.py chat --model phi3:mini "What is 7*6?"
+# Agent path: tools + retrieval + multi-step reasoning (slowest, smartest):
 python main.py chat --use-agent "Tell me about LangGraph"
+# Agent without retrieval (math/tools only, no documents consulted):
 python main.py chat --use-agent --no-rag "What is 7*6?"
+# Interactive loop, balanced budgets, with /stats /reset /quit (/quit to exit):
 python optimizer_cli.py run                    # interactive loop (/quit to exit)
+# Same loop, speed budgets (terser answers, lower latency):
 python optimizer_cli.py run --mode speed
+# One turbo question + raw-baseline timing side by side (proves the speedup):
 python optimizer_cli.py chat "Hi" --mode balanced --baseline
 ```
 
 Server + API:
 
 ```bash
-python main.py api --port 8000 --no-reload
+python main.py api --port 8000 --no-reload   # REST server, this terminal blocks
 # docs: http://127.0.0.1:8000/docs   health: http://127.0.0.1:8000/health
 python main.py both                              # API + Gradio UI together
 ```
@@ -62,21 +70,21 @@ python main.py both                              # API + Gradio UI together
 RAG (documents):
 
 ```bash
-mkdir data\docs
-echo "The harbor lights mark the entrance." > data\docs\note.txt
-python main.py ingest --path data\docs
-python main.py ingest --path data\docs --rebuild
+mkdir data\docs   # folder the indexer watches (default docs dir)
+echo "The harbor lights mark the entrance." > data\docs\note.txt   # one sample doc
+python main.py ingest --path data\docs          # build the vector index (~1 s)
+python main.py ingest --path data\docs --rebuild  # force full rebuild
 ```
 
 Measure:
 
 ```bash
-python optimizer_cli.py bench --n 5
-python optimizer_cli.py bench --n 5 --mode speed
-python optimizer_cli.py eval --n 5
-python optimizer_cli.py stats
-python main.py status
-python main.py benchmark --top 3
+python optimizer_cli.py bench --n 5          # 5 questions, optimized vs raw table
+python optimizer_cli.py bench --n 5 --mode speed  # same, speed budgets
+python optimizer_cli.py eval --n 5           # grade 5 GSM8K items, JSON report
+python optimizer_cli.py stats                # live cache hits, hit rate, timings
+python main.py status                         # config + backend health
+python main.py benchmark --top 3              # hardware bench, model picks
 ```
 
 Maintain:
@@ -216,8 +224,8 @@ Commands:
 ### Chat
 
 ```bash
-python main.py chat "How many days are in a week?"
-python main.py chat "Prove that sqrt(2) is irrational"
+python main.py chat "How many days are in a week?"   # trivial factual, fast model
+python main.py chat "Prove that sqrt(2) is irrational"  # hard reasoning, full budget
 python main.py chat --model qwen3:4b "Why is the sky blue?"   # use a specific model
 python main.py chat --use-agent "Tell me about LangGraph"     # LangGraph agent (tools/RAG)
 python main.py chat --use-agent --no-rag "..."                 # agent without retrieval
@@ -241,7 +249,7 @@ python main.py status
 ```bash
 python main.py benchmark                        # CPU recommendations
 python main.py benchmark --gpu "RTX 4090"        # simulate a GPU
-python main.py benchmark --gpu "RTX 4090" --top 3 --speed fast
+python main.py benchmark --gpu "RTX 4090" --top 3 --speed fast  # top 3, fast tier only
 python main.py benchmark --json                  # JSON output
 ```
 
@@ -252,7 +260,7 @@ Run `python main.py --help` for the full list of options.
 ```bash
 python optimizer_cli.py bench --n 5 --mode speed      # 5 curated questions, timed
 python optimizer_cli.py bench --n 5 --mode balanced   # default smart path
-python optimizer_cli.py bench --n 2 --no-baseline --questions "6*7|8+9"
+python optimizer_cli.py bench --n 2 --no-baseline --questions "6*7|8+9"  # no raw timing, custom questions
 python optimizer_cli.py eval --n 5                     # grade 5 GSM8K items, report to benchmark_results/
 ```
 
