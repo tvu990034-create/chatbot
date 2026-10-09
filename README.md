@@ -355,6 +355,26 @@ budgets + verification pass), so `balanced` is the default fast path and
 `speed` wins on short/trivial traffic. Latency SLOs: instant <1s,
 factual <60s, explainer <120s, code <300s (balanced, warm model).
 
+### User experience vs baseline (measured)
+
+Same questions, optimized server vs raw unoptimized path (qwen3:4b,
+CPU-only box; full logs in `benchmark_results/readme_sweep_report.txt`):
+
+| Question | Optimized | Raw baseline |
+|---|---|---|
+| `12*8` (direct) | 6.6 s, "The answer is 96" | 47 s essay |
+| `And 13*13?` (agent + history) | 0.1 s, "169" | 33 s essay |
+| `Hello there!` (stream, time-to-first-byte) | 5.9 s | 27 s greeting |
+| `What is the capital of France?` | 12 s, "Paris." | 38–159 s essay |
+
+CLI answers greetings and simple arithmetic in ~1 s with no model call
+at all; the REPL answers two questions plus `/stats` in ~2 s total;
+the API serves `/health` ~2 s after boot. Raw has no routing, so every
+question pays a full generation. Ratios swing with backend load -- remedial
+detail: the server used to serve these same questions in 79–200+ s
+(empty/timeout); gateway-first ordering, follow-up math normalization,
+and degenerate-RAG fallback fixed that (see report).
+
 Keep the model resident: ollama unloads models after 5 idle minutes by
 default (next request pays ~60s cold load). All local calls request
 `keep_alive=30m`; for full effect also set `OLLAMA_KEEP_ALIVE=30m` in the
