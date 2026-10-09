@@ -159,3 +159,47 @@ def test_haystack_llm_points_at_ollama():
     src = pathlib.Path("rag/haystack_pipeline.py").read_text(encoding="utf-8")
     assert "http://127.0.0.1:11434" in src
     assert "localhost:4000" not in src
+
+
+class TestRagLazyBuild:
+    """build_index must check for retrievable content BEFORE configuring
+    embeddings: _configure_llama_settings() downloads a ~133 MB model,
+    and every agent call on a docs-less box paid it before the user got
+    any response (user-perceived latency)."""
+
+    def _rag(self, tmp_path, docs=True):
+        from rag.llama_index_rag import LlamaIndexRAG
+        docs_dir = tmp_path / "docs"
+        docs_dir.mkdir()
+        if docs:
+            (docs_dir / "note.txt").write_text(
+                "The harbor lights mark the entrance.", encoding="utf-8")
+        return LlamaIndexRAG(
+            docs_dir=docs_dir, persist_dir=tmp_path / "chroma")
+
+    def test_empty_docs_skips_embedding_config(self, tmp_path):
+        from unittest.mock import patch
+        rag = self._rag(tmp_path, docs=False)
+        with patch.object(
+                rag, "_configure_llama_settings") as mock_cfg:
+            rag.build_index()
+            mock_cfg.assert_not_called()
+        assert rag._empty_index is True
+        assert rag._query_engine is None
+
+    def test_empty_retrieve_is_instant_and_empty(self, tmp_path):
+        from unittest.mock import patch
+        rag = self._rag(tmp_path, docs=False)
+        with patch.object(rag, "_configure_llama_settings") as mock_cfg:
+            out = rag.retrieve("What do the harbor lights mark?")
+            mock_cfg.assert_not_called()
+        assert out == {"answer": "", "chunks": [], "sources": [],
+                       "retrieval_confidence": 0.0}
+
+    def test_docs_present_reports_content_without_deps(self, tmp_path):
+        rag = self._rag(tmp_path, docs=True)
+        assert rag._has_retrievable_content() is True
+
+    def test_empty_dir_reports_no_content(self, tmp_path):
+        rag = self._rag(tmp_path, docs=False)
+        assert rag._has_retrievable_content() is False

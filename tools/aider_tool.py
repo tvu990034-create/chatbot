@@ -345,6 +345,9 @@ def get_code_tools() -> list:
             tools.append(AiderEditTool())
         return tools
     except ImportError:
-        # Aider is not installed, return basic tools only
-        logger.warning("Aider not installed, code tools disabled. Install with: pip install aider-chat")
+        # Aider is not installed, return basic tools only.  Debug level:
+        # single-shot UX shows the answer only; the install hint is one
+        # --verbose away instead of noise on every agent call.
+        logger.debug("Aider not installed, code tools disabled. "
+                     "Install with: pip install aider-chat")
         return []

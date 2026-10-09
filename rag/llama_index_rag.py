@@ -152,6 +152,41 @@ class LlamaIndexRAG:
         collection = client.get_or_create_collection(self.collection_name)
         return ChromaVectorStore(chroma_collection=collection)
 
+    def _has_retrievable_content(self) -> bool:
+        """True if docs exist on disk or the persisted collection is non-empty.
+
+        Cheap checks only (pathlib + a collection count): must never
+        trigger an embedding-model download itself, or the laziness is
+        pointless.
+        """
+        try:
+            docs_path = Path(self.docs_dir)
+            if docs_path.exists() and any(docs_path.iterdir()):
+                return True
+        except Exception:  # noqa: BLE001 - treat as empty
+            pass
+        try:
+            vector_store = self._get_chroma_vector_store()
+            store_client = getattr(vector_store, "client", None)
+            collection = None
+            if store_client is not None:
+                if hasattr(store_client, "get_collection"):
+                    try:
+                        collection = store_client.get_collection(
+                            self.collection_name)
+                    except Exception:  # noqa: BLE001 - treat as empty
+                        collection = None
+                elif hasattr(store_client, "count"):
+                    collection = store_client
+            if collection is not None:
+                try:
+                    return collection.count() > 0
+                except Exception:  # noqa: BLE001 - treat as empty
+                    return False
+        except Exception:  # noqa: BLE001 - treat as empty
+            pass
+        return False
+
     def build_index(self, force_rebuild: bool = False) -> None:
         """
         Build (or load) the vector index.
@@ -163,6 +198,20 @@ class LlamaIndexRAG:
             StorageContext, VectorStoreIndex,
             SentenceSplitter, _, _, _,
         ) = _get_dependencies()
+
+        # LAZY FIRST: check for retrievable content BEFORE configuring
+        # embeddings.  _configure_llama_settings() instantiates the
+        # HuggingFace embedding model (a ~133 MB first-time download); with
+        # no docs on disk and nothing persisted, no retrieval could ever
+        # match, so skip the download AND the build.  Previously every
+        # agent call on a docs-less box paid the download before the user
+        # got any response (user-perceived latency).
+        if not force_rebuild and not self._has_retrievable_content():
+            self._empty_index = True
+            self._index = None
+            self._query_engine = None
+            logger.info("RAG index skipped: no documents and nothing persisted.")
+            return
 
         self._configure_llama_settings()
         vector_store  = self._get_chroma_vector_store()
@@ -293,7 +342,8 @@ class LlamaIndexRAG:
         Returns dict with keys: answer (""), chunks (list[str]),
                                 sources (list[str]), retrieval_confidence (float)
         """
-        if self._query_engine is None:
+        if self._query_engine is None and not getattr(
+                self, "_empty_index", False):
             self.build_index()
 
         # Known-empty index: skip query embedding entirely (it can never
@@ -329,7 +379,8 @@ class LlamaIndexRAG:
         dict with keys: answer (str), sources (list[str]),
                         retrieval_confidence (float), eq8_max_tokens (int|None)
         """
-        if self._query_engine is None:
+        if self._query_engine is None and not getattr(
+                self, "_empty_index", False):
             self.build_index()
 
         # --- retrieval only (no synthesis yet), via the shared seam ---
@@ -396,7 +447,8 @@ class LlamaIndexRAG:
         """
         Async variant of query() with Eq8 confidence-gated token budget.
         """
-        if self._query_engine is None:
+        if self._query_engine is None and not getattr(
+                self, "_empty_index", False):
             self.build_index()
 
         import asyncio
