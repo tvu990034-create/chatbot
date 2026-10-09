@@ -244,7 +244,18 @@ async def chat_endpoint(req: ChatRequest):
     policy     = ""
     reply: str = ""
 
-    effective_max_tokens = req.max_tokens
+    # Default generation budget scales with question length (ported legacy
+    # EQ-DYNAMIC-TOKENS): short questions stop rambling instead of burning
+    # an unbounded default, explainers keep room to finish.  Reasoning
+    # queries return None (no safe small cap exists for hidden
+    # chain-of-thought) and fall back to the configured default.
+    # Caller-specified max_tokens always wins.
+    if req.max_tokens is None:
+        from gateway.equations.budget_math import dynamic_max_tokens
+        effective_max_tokens = (
+            dynamic_max_tokens(req.message) or settings.litellm_max_tokens)
+    else:
+        effective_max_tokens = req.max_tokens
 
     try:
         if req.use_agent:

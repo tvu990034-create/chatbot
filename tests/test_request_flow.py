@@ -646,6 +646,55 @@ class TestChatRagDegenerateFallback:
         mock_plain.assert_not_called()
 
 
+class TestDynamicDefaultMaxTokens:
+    """Server default generation budget scales with question length
+    (ported legacy EQ-DYNAMIC-TOKENS); caller-specified max_tokens wins."""
+
+    def _post(self, monkeypatch, message, no_max=True):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        seen = {}
+
+        async def fake_plain(messages, **kwargs):
+            seen.update(kwargs)
+            return ("plain reply", False, "m")
+
+        gw = MagicMock()
+        # Empty: force the fall-through to the plain path so the
+        # forwarded max_tokens becomes observable.
+        gw.chat.return_value = ""
+        gw.model_name = "gw-model"
+        monkeypatch.setattr("gateway.litellm_gateway.achat", fake_plain)
+        monkeypatch.setattr(
+            "gateway.universal_enhanced_gateway.get_universal_gateway",
+            lambda *a, **k: gw)
+        body = {"message": message, "use_agent": False, "use_rag": False}
+        if not no_max:
+            body["max_tokens"] = 500
+        resp = TestClient(app, raise_server_exceptions=False).post(
+            "/chat", json=body)
+        assert resp.status_code == 200
+        return seen
+
+    def test_short_question_gets_small_default_cap(self, monkeypatch):
+        seen = self._post(monkeypatch, "What is 12*8?")
+        # 3 words -> 20 + 2*3 = 26, not an unbounded default
+        assert seen["max_tokens"] == 26
+
+    def test_explainer_gets_long_cap(self, monkeypatch):
+        seen = self._post(monkeypatch, "Explain what a transformer does")
+        assert seen["max_tokens"] == 150
+
+    def test_caller_max_tokens_wins(self, monkeypatch):
+        seen = self._post(monkeypatch, "What is 12*8?", no_max=False)
+        assert seen["max_tokens"] == 500
+
+    def test_reasoning_falls_back_to_configured_default(self, monkeypatch):
+        from config import settings
+        seen = self._post(monkeypatch, "Prove that sqrt(2) is irrational")
+        assert seen["max_tokens"] == settings.litellm_max_tokens
+
+
 # ===================================================================
 # 14. Request bounds — oversized payloads rejected before inference
 # ===================================================================

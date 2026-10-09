@@ -342,6 +342,19 @@ def run_bench(n: int = 5, mode: str = DEFAULT_MODE, model: Optional[str] = None,
         console.print(table)
         console.print("[dim]cold/raw: the ratio of optimized-cold to raw latency "
                       "(lower = optimized faster). warm 0 ms = served from cache.[/dim]")
+        if use_baseline:
+            # Length-normalized throughput: ms alone cannot tell a faster
+            # answer from a shorter one, so show ms/char alongside.
+            _c_ms = sum(r.get("cold_ms", 0) for r in rows if "baseline_ms" in r)
+            _c_ch = sum(r.get("cold_chars", 0) for r in rows if "baseline_ms" in r)
+            _b_ms = sum(r["baseline_ms"] for r in rows if "baseline_ms" in r)
+            _b_ch = sum(r.get("baseline_chars", 0) for r in rows if "baseline_ms" in r)
+            if _c_ch > 0 and _b_ch > 0:
+                console.print(
+                    "[dim]length-normalized: "
+                    f"{_c_ms / _c_ch:.1f} ms/char optimized vs "
+                    f"{_b_ms / _b_ch:.1f} ms/char raw "
+                    "(over rows where both answered)[/dim]")
     return {"mode": mode, "model": model_name, "rows": rows}
 
 
