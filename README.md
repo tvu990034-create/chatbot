@@ -416,23 +416,20 @@ factual <60s, explainer <120s, code <300s (balanced, warm model).
 
 ### User experience vs baseline (measured)
 
-Same questions, optimized server vs raw unoptimized path (qwen3:4b,
-CPU-only box; full logs in `benchmark_results/readme_sweep_report.txt`):
+Same questions, optimized vs raw unoptimized path (qwen3:4b, CPU-only
+box; full logs in `benchmark_results/readme_sweep_report.txt`):
 
 | Question | Optimized | Raw baseline |
 |---|---|---|
-| `12*8` (direct) | 6.6 s, "The answer is 96" | 47 s essay |
-| `And 13*13?` (agent + history) | 0.1 s, "169" | 33 s essay |
-| `Hello there!` (stream, time-to-first-byte) | 5.9 s | 27 s greeting |
-| `What is the capital of France?` | 12 s, "Paris." | 38–159 s essay |
-
-CLI answers greetings and simple arithmetic in ~1 s with no model call
-at all; the REPL answers two questions plus `/stats` in ~2 s total;
-the API serves `/health` ~2 s after boot. Raw has no routing, so every
-question pays a full generation. Ratios swing with backend load -- remedial
-detail: the server used to serve these same questions in 79–200+ s
-(empty/timeout); gateway-first ordering, follow-up math normalization,
-and degenerate-RAG fallback fixed that (see report).
+| Hello there! (instant) | 0 ms | 22.6–29.1 s |
+| What is 12*8? (instant) | 0–1 ms | 44.1–47.3 s |
+| 12*8 (direct) | 6.6 s — "The answer is 96" | 47.3 s — "The product of 12 and 8 is calculated as follows:…" |
+| And 13*13? (agent + history) | 0.1 s — "169" | 33.0 s — "13 multiplied by 13 equals **169**. Here's the quick calculation…" |
+| Hello there! (stream, first bytes) | 5.9 s | 27.3 s — "Hello! 👋 How can I assist you today?" |
+| Capital of France? | 12 s — "Paris." | 159.4 s — full Paris essay (431 chars) |
+| Transformer in one sentence | 42.5–48.5 s | 51.7–83.0 s |
+| Reverse-string function | 83.5 s | 116.2 s |
+| Throughput (length-normalized) | 192–287 ms/char | 151–355 ms/char — no systematic edge either way |
 
 Keep the model resident: ollama unloads models after 5 idle minutes by
 default (next request pays ~60s cold load). All local calls request
