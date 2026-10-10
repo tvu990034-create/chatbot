@@ -484,6 +484,20 @@ File-by-file guide to every module: [`REPO_GUIDE.md`](REPO_GUIDE.md).
 
 ---
 
+## Docs
+
+- [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — all measured numbers:
+  UX-vs-baseline tables, cross-run bench comparison, throughput
+  honesty (ms/char), accuracy notes.
+- [`REPO_GUIDE.md`](REPO_GUIDE.md) — every file in the repo, what it
+  does, how a request flows, live vs dormant modules.
+- [`BUSINESS.md`](BUSINESS.md) — integration guide for companies
+  (OpenAI-compatible harnesses, cost case).
+- [`SPEED_EQUATIONS.md`](SPEED_EQUATIONS.md) — legacy design notes on
+  the equation sets.
+
+---
+
 ## Licence
 
 MIT
