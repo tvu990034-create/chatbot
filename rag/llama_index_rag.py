@@ -152,21 +152,26 @@ class LlamaIndexRAG:
         collection = client.get_or_create_collection(self.collection_name)
         return ChromaVectorStore(chroma_collection=collection)
 
-    def _has_retrievable_content(self) -> bool:
-        """True if docs exist on disk or the persisted collection is non-empty.
+    def _docs_present(self) -> bool:
+        """True if the docs directory exists and holds at least one entry.
 
-        Cheap checks only (pathlib + a collection count): must never
-        trigger an embedding-model download itself, or the laziness is
-        pointless.
+        Pure pathlib: deliberately import-free so the laziness check in
+        build_index never triggers a dependency import itself.
         """
         try:
             docs_path = Path(self.docs_dir)
-            if docs_path.exists() and any(docs_path.iterdir()):
-                return True
+            return docs_path.exists() and any(docs_path.iterdir())
         except Exception:  # noqa: BLE001 - treat as empty
-            pass
+            return False
+
+    def _persisted_count(self) -> int:
+        """Documents already in the persisted Chroma collection (0 if the
+        vector deps are not installed -- no retrieval is possible then)."""
         try:
             vector_store = self._get_chroma_vector_store()
+        except Exception:  # noqa: BLE001 - deps missing, treat as empty
+            return 0
+        try:
             store_client = getattr(vector_store, "client", None)
             collection = None
             if store_client is not None:
@@ -180,12 +185,21 @@ class LlamaIndexRAG:
                     collection = store_client
             if collection is not None:
                 try:
-                    return collection.count() > 0
+                    return int(collection.count() or 0)
                 except Exception:  # noqa: BLE001 - treat as empty
-                    return False
+                    return 0
         except Exception:  # noqa: BLE001 - treat as empty
             pass
-        return False
+        return 0
+
+    def _has_retrievable_content(self) -> bool:
+        """True if docs exist on disk or the persisted collection is non-empty.
+
+        Cheap checks only (pathlib + a collection count): must never
+        trigger an embedding-model download itself, or the laziness is
+        pointless.
+        """
+        return self._docs_present() or self._persisted_count() > 0
 
     def build_index(self, force_rebuild: bool = False) -> None:
         """
@@ -193,25 +207,26 @@ class LlamaIndexRAG:
         If the ChromaDB collection already has documents and force_rebuild
         is False, just load the existing index.
         """
-        (
-            _, _, SimpleDirectoryReader,
-            StorageContext, VectorStoreIndex,
-            SentenceSplitter, _, _, _,
-        ) = _get_dependencies()
-
-        # LAZY FIRST: check for retrievable content BEFORE configuring
-        # embeddings.  _configure_llama_settings() instantiates the
-        # HuggingFace embedding model (a ~133 MB first-time download); with
-        # no docs on disk and nothing persisted, no retrieval could ever
-        # match, so skip the download AND the build.  Previously every
-        # agent call on a docs-less box paid the download before the user
-        # got any response (user-perceived latency).
+        # LAZY FIRST: check for retrievable content BEFORE importing heavy
+        # dependencies or configuring embeddings.  The import itself raises
+        # on boxes without the vector stack, and _configure_llama_settings()
+        # downloads a ~133 MB embedding model; with no docs on disk and
+        # nothing persisted, no retrieval could ever match, so skip the
+        # download AND the build.  Previously every agent call on a
+        # docs-less box paid the download before the user got any response
+        # (user-perceived latency).
         if not force_rebuild and not self._has_retrievable_content():
             self._empty_index = True
             self._index = None
             self._query_engine = None
             logger.info("RAG index skipped: no documents and nothing persisted.")
             return
+
+        (
+            _, _, SimpleDirectoryReader,
+            StorageContext, VectorStoreIndex,
+            SentenceSplitter, _, _, _,
+        ) = _get_dependencies()
 
         self._configure_llama_settings()
         vector_store  = self._get_chroma_vector_store()
