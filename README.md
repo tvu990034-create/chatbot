@@ -1,5 +1,7 @@
 # ⚡ Turbo Optimizer — faster + smarter local AI
 
+[![ci](https://github.com/tvu990034-create/chatbot/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/tvu990034-create/chatbot/actions/workflows/ci.yml)
+
 An **optimizer layer** that sits in front of local Ollama models and makes
 every request faster, cheaper, or smarter: instant answers for trivial
 questions (no model call), deterministic solvers for arithmetic, model
@@ -475,8 +477,10 @@ Repeat questions are served from cache in ~0ms.
 ## Tests
 
 ```bash
-pytest
+py -m pytest tests -q     # full suite (~700 tests, green in CI — see badge above)
 ```
+
+File-by-file guide to every module: [`REPO_GUIDE.md`](REPO_GUIDE.md).
 
 ---
 
