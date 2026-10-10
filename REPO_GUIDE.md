@@ -1,10 +1,17 @@
 # Repository Guide — every file in this project, what it does
 
-A fully local AI chatbot (Ollama models, no cloud) with an optimizer stack
-that routes, caches, and time-boxes inference. ~290 tracked files. Status
-tags used below: **LIVE** (executes on request paths), **LAZY** (loaded on
-demand), **TESTED** (covered by `tests/`), **DORMANT** (no importers;
-kept, not executed), **SCRATCH** (gitignored local tooling/output).
+A **measured optimizer layer** for local Ollama models (no cloud):
+instant routing, deterministic solvers, response caches, model tiers,
+and budgeted reasoning — with a chatbot CLI/API/UI on top as the
+interface. ~290 tracked files. Status tags used below: **LIVE**
+(executes on request paths), **LAZY** (loaded on demand), **TESTED**
+(covered by `tests/`), **DORMANT** (no importers; kept, not executed),
+**SCRATCH** (gitignored local tooling/output).
+
+Branches: `main` is this project (the optimizer). `main-local` tracks
+the same tip. `archive/legacy-chatbot` preserves the unrelated older
+snapshot that used to occupy `main` (a TinyLlama FAQ/canned-reply
+chatbot; see its own docs there, not here).
 
 ## How a request flows (read this first)
 
@@ -24,8 +31,8 @@ kept, not executed), **SCRATCH** (gitignored local tooling/output).
 
 | File | Role |
 |---|---|
-| `main.py` | **LIVE** CLI: `chat`, `run` REPL, `api`, `both`, `ui`, `ingest`, `status`, `benchmark`, `finetune`, `adapters`, `merge`, `advanced-benchmark` |
-| `optimizer_cli.py` | **LIVE** turbo CLI: `chat`, `run` REPL, `check` (30 module smoke checks), `stats`, `bench` (cold/warm/raw), `eval` (HF benchmarks + accuracy) |
+| `main.py` | **LIVE** CLI: `chat` (answer-only by default, `--verbose` for logs), `run` REPL, `api`, `both` (children terminated on every exit path), `ui`, `ingest`, `status`, `benchmark`, `finetune`, `adapters`, `merge`, `advanced-benchmark` |
+| `optimizer_cli.py` | **LIVE** turbo CLI: `chat`, `run` REPL, `check` (30 module smoke checks), `stats`, `bench` (cold/warm/raw + alternating order + reply lengths + ms/char readout), `eval` (HF benchmarks + accuracy) |
 | `server/app.py` | **LIVE** FastAPI: `/chat`, `/api/v1/chat`, `/v1/chat/completions` (OpenAI shape), `/chat/stream` (SSE), `/rag/ingest`, `/rag/query`, health/models/docs routes |
 | `deploy.py` | One-shot deploy/health-check script (**SCRATCH**-adjacent, manual use) |
 
@@ -71,20 +78,22 @@ kept, not executed), **SCRATCH** (gitignored local tooling/output).
 `memory_math` (**LIVE** window trim) · `planning_math` (consensus available;
 CISC uses routing consensus) · `retrieval_math` (**LIVE** RRF fusion) ·
 `routing_math` (**LIVE** consensus/clearance/load balancer) ·
+`budget_math` (**LIVE** length-based default token budgets; reasoning
+queries return no cap so hidden chain-of-thought is never truncated) ·
 `not_implementable` (documents the deliberate boundary).
 
 ## Agents, RAG, server
 
 | File | Role |
 |---|---|
-| `agents/langgraph_agent.py` | **LIVE** `achat`/`chat`/streaming: cache (speed-scoped), quick path, parallel RAG prefetch with RRF fusion, router, generation policy, thinking-aware timeouts |
+| `agents/langgraph_agent.py` | **LIVE** `achat`/`chat`/streaming: cache (speed-scoped), quick path (greeting tolerance, follow-up-conjunction math), parallel RAG prefetch with RRF fusion, router, generation policy, thinking-aware timeouts |
 | `agents/__init__.py` | Package marker |
-| `rag/llama_index_rag.py` | **LIVE** retrieve/query/aquery over one `_retrieve_nodes` seam, Eq8-gated budgets, empty-index short-circuit |
+| `rag/llama_index_rag.py` | **LIVE** retrieve/query/aquery over one `_retrieve_nodes` seam, Eq8-gated budgets, empty-index short-circuit; `build_index` checks for retrievable content BEFORE configuring embeddings (no 133 MB download on docs-less boxes), ingest force-rebuilds |
 | `rag/haystack_pipeline.py` | **LIVE** alt provider (embed+retrieve; generator targets local Ollama) |
 | `rag/self_rag.py`, `rag/advanced_embeddings.py` | **DORMANT** self-reflective RAG / hybrid retriever (no live callers) |
-| `server/app.py` | **LIVE** (see entry points); request bounds (message/history/system/images/questions capped), upload limits, SSE |
+| `server/app.py` | **LIVE** (see entry points); direct path is gateway-first (plain only for overrides/fallback), degenerate RAG answers fall through instead of serving model gibberish, dynamic default token budgets, request bounds, upload limits, SSE |
 | `server/anomaly_detector.py` | **DORMANT** per-endpoint anomaly detectors, healthy code, no callers |
-| `tools/aider_tool.py` | **LAZY** code tools for the agent (empty list when aider missing) |
+| `tools/aider_tool.py` | **LAZY** code tools for the agent (empty list + debug note when aider missing) |
 | `backends/model_server.py` | Backend health checker used by `status` |
 
 ## Research collections (all DORMANT, paper implementations, no live callers)
@@ -99,17 +108,18 @@ compressors, token pruning), `reasoning/` (CoT, reflexion, self-refine,
 self-consistency, ReAct, efficient reasoning, cache, manager, zero-shot;
 `gateway_integration` lazy-loads optional deps).
 
-## Tests (`tests/`, 26 files, ~680 tests, all green in CI)
+## Tests (`tests/`, 26 files, ~705 tests, all green in CI)
 
 `test_optimizations` (largest: gateway behaviors + regression tests) ·
 `test_optimizer_cli` (bench/eval/CLI) · `test_request_flow` (server
 contracts + bounds) · `test_langgraph_audit` (agent paths) ·
 `test_tool_execution` (tools + TIR sandbox) · `test_rag` (providers +
-seams) · `test_gateway` · `test_cache_concurrency` (threads/singleton) ·
+seams + lazy build) · `test_gateway` · `test_cache_concurrency` (threads/singleton) ·
 `test_prefix_response_cache` · `test_pass2/3/4/5` (solver/router/context) ·
 `test_perf_regression` · `test_config` · `test_repo_hygiene` (BOM,
-import case, no-prints lint) · `test_equations_*` (one per math family) ·
-`test_equation_wiring_smoke`.
+import case, no-prints lint) · `test_equations_*` (one per math family,
+incl. `budget`) ·
+`test_equation_wiring_smoke` (hermetic: tmp cache dirs).
 
 ## Data, runtime, and scratch (not in git)
 
@@ -126,7 +136,8 @@ not the suite.
 `README.md` (copy-paste usage for every command) · `BUSINESS.md`
 (company integration guide) · `SPEED_EQUATIONS.md` (legacy design notes) ·
 `LICENSE` (MIT) · `Dockerfile` + `docker-compose.yml` (container deploy) ·
-`.github/workflows/ci.yml` (test suite on push/PR) · `ALL_15_STEPS_COMPLETE.md`,
+`.github/workflows/ci.yml` (test suite on push to main + PRs; node24
+actions, ubuntu-24.04, offline env) · `ALL_15_STEPS_COMPLETE.md`,
 `*_REPOSITORIES_INTEGRATION_COMPLETE.md`, assorted `*_REPORT.md` (historical
 status notes, informational only) · `react-ui/` (77-file web UI) ·
 `static/index.html` · `ui/` + `ui_components/` (Gradio + dashboard pieces).
