@@ -489,6 +489,11 @@ File-by-file guide to every module: [`REPO_GUIDE.md`](REPO_GUIDE.md).
 - [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) — all measured numbers:
   UX-vs-baseline tables, cross-run bench comparison, throughput
   honesty (ms/char), accuracy notes.
+- [`docs/EQUATIONS.md`](docs/EQUATIONS.md) — every equation set: what
+  it models, where it runs live, what's available vs rejected.
+- [`docs/SPEED.md`](docs/SPEED.md) — every latency method, measured.
+- [`docs/SMART.md`](docs/SMART.md) — every correctness method, with
+  proof status.
 - [`REPO_GUIDE.md`](REPO_GUIDE.md) — every file in the repo, what it
   does, how a request flows, live vs dormant modules.
 - [`BUSINESS.md`](BUSINESS.md) — integration guide for companies
