@@ -600,6 +600,9 @@ class TestChatRagDegenerateFallback:
         rag = MagicMock()
         rag.aquery = AsyncMock(return_value={
             "answer": answer, "sources": sources or []})
+        rag.retrieve = MagicMock(return_value={
+            "answer": "", "chunks": ["relevant chunk"],
+            "sources": sources or [], "retrieval_confidence": 0.9})
         return rag
 
     def _gw(self, reply):
@@ -627,8 +630,7 @@ class TestChatRagDegenerateFallback:
         mock_plain.assert_not_called()
 
     def test_good_rag_answer_served_as_is(self):
-        with patch("rag.llama_index_rag.get_rag",
-                   return_value=self._rag(
+        with patch("rag.llama_index_rag.get_rag",                   return_value=self._rag(
                        "The harbor lights mark the entrance.",
                        ["note.txt"])), \
              patch("gateway.universal_enhanced_gateway.get_universal_gateway") as mock_gw, \
@@ -644,6 +646,87 @@ class TestChatRagDegenerateFallback:
         assert body["sources"] == ["note.txt"]
         mock_gw.assert_not_called()
         mock_plain.assert_not_called()
+
+
+class TestRagRetrieveGate:
+    """Weak retrieval must skip synthesis: a full LLM generation over
+    irrelevant chunks burns minutes (diag: 68 s before fallback). The
+    direct path answers instead, with no model call for instant
+    questions."""
+
+    def _client(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        return TestClient(app, raise_server_exceptions=False)
+
+    def _rag(self, chunks, confidence):
+        rag = MagicMock()
+        rag.retrieve = MagicMock(return_value={
+            "answer": "", "chunks": chunks, "sources": ["s"],
+            "retrieval_confidence": confidence})
+        rag.aquery = AsyncMock(return_value={
+            "answer": "should never synthesize", "sources": ["s"]})
+        return rag
+
+    def _gw(self, reply):
+        gw = MagicMock()
+        gw.chat.return_value = reply
+        gw.model_name = "gw-model"
+        return gw
+
+    def test_empty_retrieval_skips_synthesis(self):
+        with patch("rag.llama_index_rag.get_rag",
+                   return_value=self._rag([], 0.0)) as mock_get, \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("The answer is 96")):
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": True,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "The answer is 96"
+        mock_get.return_value.aquery.assert_not_called()
+
+    def test_low_confidence_skips_synthesis(self):
+        with patch("rag.llama_index_rag.get_rag",
+                   return_value=self._rag(["junk"], 0.1)) as mock_get, \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("The answer is 96")):
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": True,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "The answer is 96"
+        mock_get.return_value.aquery.assert_not_called()
+
+
+class TestLifespanPrewarm:
+    """Server boot prewarms gateway + agent so the first request doesn't
+    pay init; a prewarm failure must never fail the boot."""
+
+    def test_prewarm_runs_and_boot_survives_failure(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        gw = MagicMock()
+        with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=gw) as mock_gw, \
+             patch("agents.langgraph_agent.get_agent") as mock_agent:
+            with TestClient(app) as client:
+                resp = client.get("/health")
+            assert resp.status_code == 200
+            mock_gw.assert_called_once()
+            gw.chat.assert_called_once()
+            mock_agent.assert_called_once()
+
+    def test_prewarm_failure_still_boots(self):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   side_effect=RuntimeError("no backend")):
+            with TestClient(app) as client:
+                resp = client.get("/health")
+            assert resp.status_code == 200
 
 
 class TestDynamicDefaultMaxTokens:

@@ -32,6 +32,24 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting local-chatbot API server …")
+    try:
+        # Prewarm so the FIRST user request doesn't pay init: one instant
+        # question through the gateway (zero model calls) triggers all
+        # lazy inits (classifier, CoT, template/cache warmup), and the
+        # agent graph compiles once here instead of mid-request.
+        # Anything failing here only costs a slower first request, never
+        # a failed boot.
+        from gateway.universal_enhanced_gateway import get_universal_gateway
+        _gw = get_universal_gateway(
+            (settings.default_model or "phi3:mini"), True, "balanced")
+        _gw.chat([{"role": "user", "content": "hello"}],
+                 use_cache=False)
+        from agents.langgraph_agent import get_agent
+        get_agent()
+        logger.info("Startup prewarm complete.")
+    except Exception as exc:  # noqa: BLE001 - degraded first request only
+        logger.warning("Startup prewarm failed (first request pays init): %s",
+                       exc)
     yield
     logger.info("Shutting down.")
 
@@ -282,9 +300,23 @@ async def chat_endpoint(req: ChatRequest):
             # system_prompt.  Use the agent path (use_agent=True) if you need
             # to control LLM generation parameters alongside RAG.
             from rag.llama_index_rag import get_rag
-            result  = await get_rag().aquery(req.message)
-            reply   = result["answer"]
-            sources = result.get("sources", [])
+            # Retrieve BEFORE synthesizing: a full LLM generation over
+            # irrelevant chunks burns minutes and can emit degenerate text.
+            # Weak retrieval skips synthesis entirely and falls through to
+            # the direct path below (instant answers, no model call).
+            _rag = get_rag()
+            _pre = _rag.retrieve(req.message)
+            _conf = float(_pre.get("retrieval_confidence") or 0.0)
+            _gate = float(getattr(settings, "eq8_gate_threshold", 0.45))
+            if _pre.get("chunks") and _conf >= _gate:
+                result  = await _rag.aquery(req.message)
+                reply   = result["answer"]
+                sources = result.get("sources", [])
+            else:
+                logger.info("RAG retrieval too weak (conf=%.3f); "
+                            "skipping synthesis.", _conf)
+                reply = ""
+                sources = []
             if (not (reply or "").strip()
                     or reply.strip().lower() == "empty response"):
                 # Degenerate RAG output: retrieval found nothing usable and
