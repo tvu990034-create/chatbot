@@ -168,6 +168,17 @@ class LlamaIndexRAG:
         """Documents already in the persisted Chroma collection (0 if the
         vector deps are not installed -- no retrieval is possible then)."""
         try:
+            # Filesystem short-circuit BEFORE importing chromadb: opening
+            # a client just to count an empty/missing directory costs
+            # ~18 s of imports on first touch per process.  A missing or
+            # empty persist dir cannot hold documents.
+            persist_path = Path(self.persist_dir)
+            if not persist_path.exists() or not any(
+                    persist_path.iterdir()):
+                return 0
+        except Exception:  # noqa: BLE001 - fall through to client check
+            pass
+        try:
             vector_store = self._get_chroma_vector_store()
         except Exception:  # noqa: BLE001 - deps missing, treat as empty
             return 0

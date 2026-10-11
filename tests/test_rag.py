@@ -203,3 +203,16 @@ class TestRagLazyBuild:
     def test_empty_dir_reports_no_content(self, tmp_path):
         rag = self._rag(tmp_path, docs=False)
         assert rag._has_retrievable_content() is False
+
+    def test_missing_persist_dir_skips_vector_import(self, tmp_path):
+        """The persist check must not import chromadb just to count a
+        missing/empty directory (measured ~18 s of imports on first
+        touch per process)."""
+        from unittest.mock import patch
+        rag = self._rag(tmp_path, docs=False)
+        with patch.object(
+                rag, "_get_chroma_vector_store",
+                side_effect=AssertionError("must not open a client")):
+            assert rag._has_retrievable_content() is False
+            rag.build_index()
+        assert rag._empty_index is True
