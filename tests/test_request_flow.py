@@ -601,7 +601,9 @@ class TestChatRagDegenerateFallback:
         rag.aquery = AsyncMock(return_value={
             "answer": answer, "sources": sources or []})
         rag.retrieve = MagicMock(return_value={
-            "answer": "", "chunks": ["relevant chunk"],
+            "answer": "",
+            "chunks": ["12 times 8 equals 96",
+                       "The harbor lights mark the entrance."],
             "sources": sources or [], "retrieval_confidence": 0.9})
         return rag
 
@@ -699,6 +701,44 @@ class TestRagRetrieveGate:
         assert resp.status_code == 200
         assert resp.json()["response"] == "The answer is 96"
         mock_get.return_value.aquery.assert_not_called()
+
+    def test_confident_but_irrelevant_skips_synthesis(self):
+        """Embedding confidence alone let the harbor note through for
+        arithmetic (60 s+ synthesis over nothing). Near-zero lexical
+        overlap must skip even confident junk."""
+        with patch("rag.llama_index_rag.get_rag",
+                   return_value=self._rag(
+                       ["The harbor lights mark the entrance."], 0.9)) \
+                as mock_get, \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=self._gw("The answer is 96")):
+            resp = self._client().post("/chat", json={
+                "message": "What is 12*8?",
+                "use_agent": False, "use_rag": True,
+            })
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "The answer is 96"
+        mock_get.return_value.aquery.assert_not_called()
+
+
+class TestLexicalOverlap:
+    def test_zero_overlap(self):
+        from server.app import _max_lexical_overlap
+        assert _max_lexical_overlap(
+            "What is 12*8?",
+            ["The harbor lights mark the entrance."]) == 0.0
+
+    def test_partial_overlap(self):
+        from server.app import _max_lexical_overlap
+        score = _max_lexical_overlap(
+            "What do the harbor lights mark?",
+            ["The harbor lights mark the entrance."])
+        assert score >= 0.05
+
+    def test_empty_inputs(self):
+        from server.app import _max_lexical_overlap
+        assert _max_lexical_overlap("", ["text"]) == 0.0
+        assert _max_lexical_overlap("hi", []) == 0.0
 
 
 class TestLifespanPrewarm:

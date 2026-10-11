@@ -29,27 +29,58 @@ logger = logging.getLogger(__name__)
 # Lifespan
 # ---------------------------------------------------------------------------
 
+def _max_lexical_overlap(question: str, chunks: list) -> float:
+    """Max Jaccard token overlap between question and any chunk (0..1).
+
+    Embedding confidence alone lets through topically unrelated chunks
+    (diag: the harbor note retrieved for arithmetic questions, then a
+    60 s+ synthesis over nothing). Near-zero lexical overlap means the
+    chunk cannot ground the answer; the 0.05 bar mirrors the agent
+    node's conservative relevance gate. Server-RAG-only rule: the agent
+    path keeps full semantic recall.
+    """
+    import re
+    qtok = set(re.findall(r"[a-z0-9]+", (question or "").lower()))
+    if not qtok:
+        return 0.0
+    best = 0.0
+    for chunk in chunks or []:
+        text = chunk if isinstance(chunk, str) else str(chunk)
+        ctok = set(re.findall(r"[a-z0-9]+", text.lower()))
+        if not ctok:
+            continue
+        best = max(best, len(qtok & ctok) / len(qtok | ctok))
+    return best
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting local-chatbot API server …")
     try:
-        # Prewarm so the FIRST user request doesn't pay init: one instant
-        # question through the gateway (zero model calls) triggers all
-        # lazy inits (classifier, CoT, template/cache warmup), and the
-        # agent graph compiles once here instead of mid-request.
-        # Anything failing here only costs a slower first request, never
-        # a failed boot.
-        from gateway.universal_enhanced_gateway import get_universal_gateway
-        _gw = get_universal_gateway(
-            (settings.default_model or "phi3:mini"), True, "balanced")
-        _gw.chat([{"role": "user", "content": "hello"}],
-                 use_cache=False)
-        from agents.langgraph_agent import get_agent
-        get_agent()
-        logger.info("Startup prewarm complete.")
-    except Exception as exc:  # noqa: BLE001 - degraded first request only
-        logger.warning("Startup prewarm failed (first request pays init): %s",
-                       exc)
+        # Prewarm in the BACKGROUND so boot stays fast (~2 s): the first
+        # request pays init only if it arrives during warmup; steady state
+        # is unaffected.  One instant question through the gateway (zero
+        # model calls) triggers lazy inits, and the agent graph compiles
+        # once here instead of mid-request.  Failures only cost a slower
+        # first request, never the boot.
+        async def _prewarm() -> None:
+            try:
+                from gateway.universal_enhanced_gateway import (
+                    get_universal_gateway)
+                _gw = get_universal_gateway(
+                    (settings.default_model or "phi3:mini"), True, "balanced")
+                _gw.chat([{"role": "user", "content": "hello"}],
+                         use_cache=False)
+                from agents.langgraph_agent import get_agent
+                get_agent()
+                logger.info("Startup prewarm complete.")
+            except Exception as exc:  # noqa: BLE001 - degraded first request
+                logger.warning("Startup prewarm failed "
+                               "(first request pays init): %s", exc)
+
+        asyncio.create_task(_prewarm())
+    except Exception as exc:  # noqa: BLE001 - never fail boot
+        logger.warning("Prewarm scheduling failed: %s", exc)
     yield
     logger.info("Shutting down.")
 
@@ -308,7 +339,9 @@ async def chat_endpoint(req: ChatRequest):
             _pre = _rag.retrieve(req.message)
             _conf = float(_pre.get("retrieval_confidence") or 0.0)
             _gate = float(getattr(settings, "eq8_gate_threshold", 0.45))
-            if _pre.get("chunks") and _conf >= _gate:
+            _chunks = _pre.get("chunks") or []
+            _lex = _max_lexical_overlap(req.message, _chunks)
+            if _chunks and _conf >= _gate and _lex >= 0.05:
                 result  = await _rag.aquery(req.message)
                 reply   = result["answer"]
                 sources = result.get("sources", [])
