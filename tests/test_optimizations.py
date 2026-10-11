@@ -1773,6 +1773,41 @@ class TestCalibrationVerifyGate:
         assert seen.get("options", {}).get("num_predict") == 128
         assert "max_tokens" not in seen
 
+    def test_verify_telemetry_counts_fires_confirms_overturns(self):
+        """Fires/confirms/overturns justify the gate: a verify that never
+        overturns is pure latency tax (diag: 1.33x slower than raw)."""
+        from unittest.mock import patch
+        from gateway import universal_enhanced_gateway as mod
+
+        def resp_with(text):
+            class _Msg:
+                content = text
+
+            class _Choice:
+                message = _Msg()
+
+            class _Resp:
+                choices = [_Choice()]
+            return _Resp()
+
+        gw = mod.UniversalEnhancedGateway(
+            "phi3:mini", enable_all_optimizations=True,
+            performance_mode="speed")
+        assert (gw.verify_fires, gw.verify_confirms,
+                gw.verify_overturns) == (0, 0, 0)
+        with patch.object(mod, "completion",
+                          return_value=resp_with("[[CORRECT]]")):
+            assert gw._verify_speed_answer("q?", "draft") is None
+        with patch.object(mod, "completion",
+                          return_value=resp_with("Paris.")):
+            assert gw._verify_speed_answer("q?", "draft") == "Paris."
+        assert (gw.verify_fires, gw.verify_confirms,
+                gw.verify_overturns) == (2, 1, 1)
+        stats = gw.get_optimization_stats()
+        assert stats["verify_fires"] == 2
+        assert stats["verify_confirms"] == 1
+        assert stats["verify_overturns"] == 1
+
 
 class TestMakeGatewayInstallsWiring:
     """make_optimized_gateway must install the equation wiring so

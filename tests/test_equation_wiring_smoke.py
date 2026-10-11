@@ -71,7 +71,9 @@ def test_semantic_fallback_is_mode_scoped(tmp_path):
 
 def test_embs_index_bounded(tmp_path):
     """rank() scans every candidate per miss: the embedding index must stay
-    bounded or long server sessions turn each miss into a ~0.5s full scan."""
+    bounded or long server sessions turn each miss into a long full scan
+    (measured ~41 ms at 1024 entries with hashed embeddings; unbounded
+    growth would scale that linearly per miss)."""
     from gateway.simple_cache import SimpleCache
     from gateway import equation_wiring as wiring
     wiring._embs.clear()

@@ -616,6 +616,13 @@ class UniversalEnhancedGateway:
         self.calibration_window = []
         self.cache_hits = 0
         self.cache_misses = 0
+        # Verify-pass telemetry: fires vs confirms ([[CORRECT]]) vs
+        # overturns (corrected text).  A verify that never overturns is
+        # pure latency tax; these counters (surfaced via stats) are the
+        # data that justifies tightening or loosening the gate.
+        self.verify_fires = 0
+        self.verify_confirms = 0
+        self.verify_overturns = 0
         self.max_cache_size = 2000  # Increased cache size for better hit rates
         
         # RouteLLM-inspired model routing
@@ -3977,6 +3984,7 @@ Code:"""
         """
         try:
             model = self.model_name if self.model_name.startswith("ollama/") else f"ollama/{self.model_name}"
+            self.verify_fires = getattr(self, "verify_fires", 0) + 1
             check_prompt = (
                 "Question: {q}\n\n"
                 "Proposed answer:\n{answer}\n\n"
@@ -4001,11 +4009,13 @@ Code:"""
             text = (response.choices[0].message.content or "").strip()
             if not text or "[[CORRECT]]" in text:
                 self._record_temp_feedback(True)
+                self.verify_confirms = getattr(self, "verify_confirms", 0) + 1
                 return None
             if "apologize" in text.lower() or len(text) < 3:
                 self._record_temp_feedback(False)
                 return None
             self._record_temp_feedback(False)
+            self.verify_overturns = getattr(self, "verify_overturns", 0) + 1
             return text
         except Exception as e:
             logger.info(f"Speed verify failed: {e}")
@@ -4156,6 +4166,9 @@ Code:"""
             "code_semantic_cache_size": len(_code_semantic_cache) if _code_semantic_cache_enabled else 0,
             "cache_hits": self.cache_hits,
             "cache_misses": self.cache_misses,
+            "verify_fires": getattr(self, "verify_fires", 0),
+            "verify_confirms": getattr(self, "verify_confirms", 0),
+            "verify_overturns": getattr(self, "verify_overturns", 0),
             "code_semantic_cache_hits": _code_semantic_cache_hits,
             "cache_hit_rate": cache_hit_rate,
             "model_routing_enabled": self.enable_model_routing,
