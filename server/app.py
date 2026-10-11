@@ -95,27 +95,32 @@ def _rag_docs_match(question: str, threshold: float = 0.05,
     return False
 
 
+def _prewarm_sync() -> None:
+    """Blocking warmup body: runs in a worker thread (never on the event
+    loop, which it would stall for ~10 s during agent compile)."""
+    from gateway.universal_enhanced_gateway import get_universal_gateway
+    _gw = get_universal_gateway(
+        (settings.default_model or "phi3:mini"), True, "balanced")
+    _gw.chat([{"role": "user", "content": "hello"}],
+             use_cache=False)
+    from agents.langgraph_agent import get_agent
+    get_agent()
+    logger.info("Startup prewarm complete.")
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting local-chatbot API server …")
     try:
-        # Prewarm in the BACKGROUND so boot stays fast (~2 s): the first
-        # request pays init only if it arrives during warmup; steady state
-        # is unaffected.  One instant question through the gateway (zero
-        # model calls) triggers lazy inits, and the agent graph compiles
-        # once here instead of mid-request.  Failures only cost a slower
-        # first request, never the boot.
+        # Prewarm in a worker THREAD so boot stays fast (~2 s): the sync
+        # warmup body would block the event loop for ~10 s (agent
+        # compile), delaying /health and the first request.  The first
+        # request pays init only if it lands mid-warmup; steady state is
+        # unaffected.  Failures only cost a slower first request, never
+        # the boot.
         async def _prewarm() -> None:
             try:
-                from gateway.universal_enhanced_gateway import (
-                    get_universal_gateway)
-                _gw = get_universal_gateway(
-                    (settings.default_model or "phi3:mini"), True, "balanced")
-                _gw.chat([{"role": "user", "content": "hello"}],
-                         use_cache=False)
-                from agents.langgraph_agent import get_agent
-                get_agent()
-                logger.info("Startup prewarm complete.")
+                await asyncio.to_thread(_prewarm_sync)
             except Exception as exc:  # noqa: BLE001 - degraded first request
                 logger.warning("Startup prewarm failed "
                                "(first request pays init): %s", exc)

@@ -819,6 +819,7 @@ class TestLifespanPrewarm:
     pay init; a prewarm failure must never fail the boot."""
 
     def test_prewarm_runs_and_boot_survives_failure(self):
+        import time
         from fastapi.testclient import TestClient
         from server.app import app
         gw = MagicMock()
@@ -827,6 +828,11 @@ class TestLifespanPrewarm:
              patch("agents.langgraph_agent.get_agent") as mock_agent:
             with TestClient(app) as client:
                 resp = client.get("/health")
+                # Prewarm runs in a worker thread: poll for completion.
+                deadline = time.perf_counter() + 15
+                while ((not mock_gw.called or not mock_agent.called)
+                       and time.perf_counter() < deadline):
+                    time.sleep(0.1)
             assert resp.status_code == 200
             mock_gw.assert_called_once()
             gw.chat.assert_called_once()
