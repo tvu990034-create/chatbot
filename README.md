@@ -503,6 +503,6 @@ File-by-file guide to every module: [`REPO_GUIDE.md`](REPO_GUIDE.md).
 
 ---
 
-## Licence
+## License
 
 MIT
