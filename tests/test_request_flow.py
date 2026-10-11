@@ -614,8 +614,9 @@ class TestChatRagDegenerateFallback:
         return gw
 
     def test_empty_response_falls_back_to_direct(self):
-        with patch("rag.llama_index_rag.get_rag",
-                   return_value=self._rag("Empty Response", ["note.txt"])), \
+        with patch("server.app._rag_docs_match", return_value=True), \
+             patch("rag.llama_index_rag.get_rag",
+                    return_value=self._rag("Empty Response", ["note.txt"])), \
              patch("gateway.universal_enhanced_gateway.get_universal_gateway",
                    return_value=self._gw("The answer is 96")), \
              patch("gateway.litellm_gateway.achat",
@@ -632,7 +633,8 @@ class TestChatRagDegenerateFallback:
         mock_plain.assert_not_called()
 
     def test_good_rag_answer_served_as_is(self):
-        with patch("rag.llama_index_rag.get_rag",                   return_value=self._rag(
+        with patch("server.app._rag_docs_match", return_value=True), \
+             patch("rag.llama_index_rag.get_rag",                   return_value=self._rag(
                        "The harbor lights mark the entrance.",
                        ["note.txt"])), \
              patch("gateway.universal_enhanced_gateway.get_universal_gateway") as mock_gw, \
@@ -677,8 +679,9 @@ class TestRagRetrieveGate:
         return gw
 
     def test_empty_retrieval_skips_synthesis(self):
-        with patch("rag.llama_index_rag.get_rag",
-                   return_value=self._rag([], 0.0)) as mock_get, \
+        with patch("server.app._rag_docs_match", return_value=True), \
+             patch("rag.llama_index_rag.get_rag",
+                    return_value=self._rag([], 0.0)) as mock_get, \
              patch("gateway.universal_enhanced_gateway.get_universal_gateway",
                    return_value=self._gw("The answer is 96")):
             resp = self._client().post("/chat", json={
@@ -690,8 +693,9 @@ class TestRagRetrieveGate:
         mock_get.return_value.aquery.assert_not_called()
 
     def test_low_confidence_skips_synthesis(self):
-        with patch("rag.llama_index_rag.get_rag",
-                   return_value=self._rag(["junk"], 0.1)) as mock_get, \
+        with patch("server.app._rag_docs_match", return_value=True), \
+             patch("rag.llama_index_rag.get_rag",
+                    return_value=self._rag(["junk"], 0.1)) as mock_get, \
              patch("gateway.universal_enhanced_gateway.get_universal_gateway",
                    return_value=self._gw("The answer is 96")):
             resp = self._client().post("/chat", json={
@@ -706,7 +710,8 @@ class TestRagRetrieveGate:
         """Embedding confidence alone let the harbor note through for
         arithmetic (60 s+ synthesis over nothing). Near-zero lexical
         overlap must skip even confident junk."""
-        with patch("rag.llama_index_rag.get_rag",
+        with patch("server.app._rag_docs_match", return_value=True), \
+             patch("rag.llama_index_rag.get_rag",
                    return_value=self._rag(
                        ["The harbor lights mark the entrance."], 0.9)) \
                 as mock_get, \
@@ -739,6 +744,74 @@ class TestLexicalOverlap:
         from server.app import _max_lexical_overlap
         assert _max_lexical_overlap("", ["text"]) == 0.0
         assert _max_lexical_overlap("hi", []) == 0.0
+
+
+class TestRagDocsMatch:
+    """Raw-docs pre-gate: skip RAG init (incl. ~20 s embedding-model
+    load) on clean mismatches, before get_rag() is even called."""
+
+    def _settings(self, monkeypatch, tmp_path, docs=None, persist=True):
+        from config import settings
+        docs_dir = tmp_path / "docs"
+        if docs is None:
+            pass  # missing dir
+        else:
+            docs_dir.mkdir(exist_ok=True)
+            for i, text in enumerate(docs):
+                (docs_dir / ("d%d.txt" % i)).write_text(
+                    text, encoding="utf-8")
+        persist_dir = tmp_path / "chroma"
+        if persist:
+            persist_dir.mkdir(exist_ok=True)
+            (persist_dir / "junk.bin").write_bytes(b"x")
+        monkeypatch.setattr(settings, "rag_docs_dir", str(docs_dir))
+        monkeypatch.setattr(settings, "chroma_persist_dir", str(persist_dir))
+
+    def test_mismatch_skips(self, monkeypatch, tmp_path):
+        from server.app import _rag_docs_match
+        self._settings(monkeypatch, tmp_path,
+                       docs=["The harbor lights mark the entrance."],
+                       persist=False)
+        assert _rag_docs_match("What is 12*8?") is False
+
+    def test_match_passes(self, monkeypatch, tmp_path):
+        from server.app import _rag_docs_match
+        self._settings(monkeypatch, tmp_path,
+                       docs=["The harbor lights mark the entrance."],
+                       persist=False)
+        assert _rag_docs_match("What do the harbor lights mark?") is True
+
+    def test_missing_dirs_skip(self, monkeypatch, tmp_path):
+        from server.app import _rag_docs_match
+        self._settings(monkeypatch, tmp_path, docs=None, persist=False)
+        assert _rag_docs_match("anything at all") is False
+
+    def test_nonempty_persist_passes_without_reading_docs(
+            self, monkeypatch, tmp_path):
+        # Persisted collection may outlive its source docs: presence
+        # alone lets retrieval decide (no imports needed for the check).
+        from server.app import _rag_docs_match
+        self._settings(monkeypatch, tmp_path, docs=None, persist=True)
+        assert _rag_docs_match("What is 12*8?") is True
+
+    def test_branch_skips_get_rag_on_mismatch(self, monkeypatch, tmp_path):
+        from fastapi.testclient import TestClient
+        from server.app import app
+        self._settings(monkeypatch, tmp_path,
+                       docs=["The harbor lights mark the entrance."],
+                       persist=False)
+        gw = MagicMock()
+        gw.chat.return_value = "The answer is 96"
+        gw.model_name = "gw-model"
+        with patch("rag.llama_index_rag.get_rag") as mock_get, \
+             patch("gateway.universal_enhanced_gateway.get_universal_gateway",
+                   return_value=gw):
+            resp = TestClient(app, raise_server_exceptions=False).post(
+                "/chat", json={"message": "What is 12*8?",
+                               "use_agent": False, "use_rag": True})
+        assert resp.status_code == 200
+        assert resp.json()["response"] == "The answer is 96"
+        mock_get.assert_not_called()
 
 
 class TestLifespanPrewarm:

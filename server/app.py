@@ -53,6 +53,48 @@ def _max_lexical_overlap(question: str, chunks: list) -> float:
     return best
 
 
+def _rag_docs_match(question: str, threshold: float = 0.05,
+                    max_files: int = 50, max_bytes: int = 20000) -> bool:
+    """Do the RAG sources plausibly cover this question? (no imports).
+
+    Reads raw doc files (bounded count/size) for lexical overlap and
+    checks the persist dir for a collection that may outlive its source
+    docs.  Lets the server skip RAG init entirely -- including the
+    embedding-model load (~20 s first touch) -- on clean mismatches.
+    Fail-open True on IO surprises (let retrieval decide); False only
+    on a clean no-match.  Paraphrase-only queries can be missed here;
+    the threshold mirrors the other conservative relevance gates.
+    """
+    from pathlib import Path
+    try:
+        persist = Path(settings.chroma_persist_dir)
+        if persist.exists() and any(persist.iterdir()):
+            return True
+    except Exception:  # noqa: BLE001 - fall through to docs scan
+        pass
+    try:
+        docs = Path(settings.rag_docs_dir)
+        if not docs.exists():
+            return False
+        checked = 0
+        for p in docs.rglob("*"):
+            if checked >= max_files:
+                break
+            if not p.is_file():
+                continue
+            try:
+                text = p.read_text(
+                    encoding="utf-8", errors="replace")[:max_bytes]
+            except Exception:  # noqa: BLE001 - skip unreadable files
+                continue
+            checked += 1
+            if _max_lexical_overlap(question, [text]) >= threshold:
+                return True
+    except Exception:  # noqa: BLE001 - fail open, let retrieval decide
+        return True
+    return False
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     logger.info("Starting local-chatbot API server …")
@@ -335,8 +377,17 @@ async def chat_endpoint(req: ChatRequest):
             # irrelevant chunks burns minutes and can emit degenerate text.
             # Weak retrieval skips synthesis entirely and falls through to
             # the direct path below (instant answers, no model call).
-            _rag = get_rag()
-            _pre = _rag.retrieve(req.message)
+            # Raw-docs pre-gate first: on a clean mismatch skip RAG init
+            # entirely (no embedding-model load, ~20 s first touch).
+            _rag = get_rag() if _rag_docs_match(req.message) else None
+            if _rag is None:
+                logger.info("RAG docs do not cover the question; "
+                            "skipping retrieval.")
+                reply = ""
+                sources = []
+                _pre = {}
+            else:
+                _pre = _rag.retrieve(req.message)
             _conf = float(_pre.get("retrieval_confidence") or 0.0)
             _gate = float(getattr(settings, "eq8_gate_threshold", 0.45))
             _chunks = _pre.get("chunks") or []
