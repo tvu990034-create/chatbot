@@ -1,0 +1,17 @@
+# Keep the image lean and hermetic: never bake the builder's venv,
+# caches, history, or run outputs into the image (stale cache files
+# would poison every container started from it).
+.venv/
+venv/
+.git/
+__pycache__/
+*.py[cod]
+cache/
+benchmark_results/
+.hf_cache/
+monitoring_logs/
+ml_data/
+*.log
+pytest.ini
+tests/
+test_*.py
