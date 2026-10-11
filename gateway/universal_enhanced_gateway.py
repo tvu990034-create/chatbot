@@ -1100,7 +1100,7 @@ class UniversalEnhancedGateway:
                             messages=optimized_messages,
                             **adaptive_params,
                             timeout=self._main_generation_timeout(adaptive_params),
-                            api_base="http://localhost:11434"
+                            api_base="http://127.0.0.1:11434"
                         )
                         response_text = response.choices[0].message.content
                     duration = time.time() - start_time
@@ -1130,7 +1130,7 @@ class UniversalEnhancedGateway:
                         messages=optimized_messages,
                         **adaptive_params,
                         timeout=self._main_generation_timeout(adaptive_params),
-                        api_base="http://localhost:11434"
+                        api_base="http://127.0.0.1:11434"
                     )
                     response_text = response.choices[0].message.content
                 duration = time.time() - start_time
@@ -1613,7 +1613,7 @@ class UniversalEnhancedGateway:
                         model=f"ollama/{model}",
                         messages=[{"role": "user", "content": query}],
                         timeout=_adaptive_timeout(None, settings),
-                        api_base="http://localhost:11434"
+                        api_base="http://127.0.0.1:11434"
                     )
                     content = response.choices[0].message.content
                     # Skip empty / missing generations - never offer a blank
@@ -1677,7 +1677,7 @@ class UniversalEnhancedGateway:
                 messages=[{"role": "user", "content": code_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             code = code_response.choices[0].message.content
@@ -1834,7 +1834,7 @@ Provide the fixed code only, no explanation."""
                     messages=[{"role": "user", "content": repair_prompt}],
                     temperature=0.2,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 
                 code = response.choices[0].message.content
@@ -1871,7 +1871,7 @@ Provide the fixed code only, no explanation."""
                 messages=[{"role": "user", "content": generator_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             code = gen_response.choices[0].message.content
             if code is None or not str(code).strip():
@@ -1893,7 +1893,7 @@ Provide the fixed code only, no explanation."""
                 messages=[{"role": "user", "content": test_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             tests = test_response.choices[0].message.content
             if tests is None or not str(tests).strip():
@@ -1908,7 +1908,7 @@ Provide the fixed code only, no explanation."""
                 messages=[{"role": "user", "content": review_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             review = review_response.choices[0].message.content
             if review is None or not str(review).strip():
@@ -2105,7 +2105,7 @@ You have access to the following tools:
                     messages=[{"role": "user", "content": query}],
                     temperature=0.3 + (i * 0.2),  # Vary temperature
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 
                 code = response.choices[0].message.content
@@ -2166,7 +2166,7 @@ You have access to the following tools:
                 messages=[{"role": "user", "content": translation_prompt}],
                 temperature=0.2,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             translated_code = response.choices[0].message.content
@@ -2265,7 +2265,7 @@ Provide your solution with step-by-step reasoning and Python code for calculatio
                 messages=[{"role": "user", "content": tir_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             response_text = response.choices[0].message.content
@@ -2304,7 +2304,7 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                         ],
                         temperature=0.2,
                         timeout=_adaptive_timeout(None, settings),
-                        api_base="http://localhost:11434"
+                        api_base="http://127.0.0.1:11434"
                     )
                     
                     response_text = final_response.choices[0].message.content
@@ -2344,7 +2344,7 @@ Use this result to provide your final answer in \\boxed{{}} format."""
                     messages=[{"role": "user", "content": query}],
                     temperature=0.7 + (i * 0.1),  # Vary temperature
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 
                 response_text = response.choices[0].message.content
@@ -2471,7 +2471,7 @@ Relevant strategies to consider:
                 messages=[{"role": "user", "content": strategy_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             logger.info(f"SSR: Applied {len(strategies)} strategies")
@@ -2521,7 +2521,7 @@ Provide your evaluation in JSON format:
                 messages=[{"role": "user", "content": judge_prompt}],
                 temperature=0.2,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             judge_text = judge_response.choices[0].message.content
@@ -2572,7 +2572,7 @@ Provide your evaluation in JSON format:
                     messages=[{"role": "user", "content": analysis_prompt}],
                     temperature=0.3,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 _c = analysis_response.choices[0].message.content
                 if _c is not None and str(_c).strip():
@@ -2588,7 +2588,7 @@ Provide your evaluation in JSON format:
                     messages=[{"role": "user", "content": execution_prompt}],
                     temperature=0.3,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 _c = execution_response.choices[0].message.content
                 if _c is not None and str(_c).strip():
@@ -2610,7 +2610,7 @@ Provide the final synthesized response."""
                     messages=[{"role": "user", "content": synthesis_prompt}],
                     temperature=0.3,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 
                 logger.info(f"AgentVerse: Multi-agent synthesis completed")
@@ -2647,7 +2647,7 @@ Provide sub-questions as a numbered list."""
                 messages=[{"role": "user", "content": decomposition_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             sub_questions = decomposition_response.choices[0].message.content
@@ -2678,7 +2678,7 @@ Provide sub-questions as a numbered list."""
                     messages=[{"role": "user", "content": q}],
                     temperature=0.3,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 
                 answer = answer_response.choices[0].message.content
@@ -2710,7 +2710,7 @@ Provide the final synthesized response."""
                 messages=[{"role": "user", "content": synthesis_prompt}],
                 temperature=0.3,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             
             logger.info(f"MindSearch: Graph construction with {len(questions)} nodes")
@@ -3189,7 +3189,7 @@ Code:"""
                 messages=enhanced_messages,
                 **temp_params,
                 timeout=_adaptive_timeout(None, settings),
-                api_base="http://localhost:11434"
+                api_base="http://127.0.0.1:11434"
             )
             return response.choices[0].message.content
         except Exception as e:
@@ -3222,7 +3222,7 @@ Code:"""
                     messages=messages,
                     **temp_params,
                     timeout=_adaptive_timeout(None, settings),
-                    api_base="http://localhost:11434"
+                    api_base="http://127.0.0.1:11434"
                 )
                 responses.append(response.choices[0].message.content)
             except Exception as e:

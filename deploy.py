@@ -36,9 +36,11 @@ class DeploymentManager:
         venv_exists = self.venv_dir.exists()
         checks.append(("Virtual Environment", venv_exists, str(self.venv_dir)))
         
-        # Ollama check
+        # Ollama check (127.0.0.1, never localhost: Windows resolves
+        # localhost IPv6-first and stalls ~2s per call, which would false-
+        # negative this 2 s-timeout health check).
         try:
-            response = requests.get("http://localhost:11434/api/tags", timeout=2)
+            response = requests.get("http://127.0.0.1:11434/api/tags", timeout=2)
             ollama_ok = response.status_code == 200
             checks.append(("Ollama Service", ollama_ok, "Running"))
         except:

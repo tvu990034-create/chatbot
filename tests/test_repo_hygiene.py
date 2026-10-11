@@ -116,3 +116,20 @@ def test_no_bare_print_in_libraries():
             tree = ast.parse(fh.read())
         _walk(tree, False, bad, rel)
     assert not bad, "bare print() in library code: %s" % sorted(set(bad))
+
+
+def test_no_localhost_api_base():
+    """No http://localhost:11434 in library code: on Windows it resolves
+    IPv6-first and stalls ~2s per call (a 2 s-timeout health check can
+    even false-negative). Use http://127.0.0.1:11434; the completion
+    proxy normalizes stragglers as backstop, not as policy."""
+    bad = []
+    for path in _py_files():
+        rel = os.path.relpath(path, ROOT)
+        if rel.split(os.sep)[0] not in NO_PRINT_DIRS:
+            continue
+        with open(path, encoding="utf-8-sig") as fh:
+            for i, line in enumerate(fh, 1):
+                if "http://localhost:11434" in line:
+                    bad.append("%s:%d" % (rel, i))
+    assert not bad, "localhost api_base in library code: %s" % bad
