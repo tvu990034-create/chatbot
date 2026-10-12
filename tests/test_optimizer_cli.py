@@ -659,9 +659,11 @@ def test_main_chat_direct_uses_gateway():
     import main
     gw = MagicMock()
     gw.chat.return_value = "direct hi"
-    with patch("gateway.universal_enhanced_gateway.get_universal_gateway",
-               return_value=gw):
-        result = CliRunner().invoke(main.app, ["chat", "hi"])
+    with patch("main._ensure_model_available",
+               return_value="test-model"), patch(
+            "gateway.universal_enhanced_gateway.get_universal_gateway",
+            return_value=gw):
+        result = CliRunner().invoke(main.app, ["chat", "hi", "--no-stream"])
     assert result.exit_code == 0
     assert "direct hi" in result.stdout
 
@@ -682,9 +684,11 @@ def test_main_chat_quiet_by_default(caplog):
     gw = MagicMock()
     gw.chat.side_effect = noisy_chat
     with caplog.at_level(logging.INFO), patch(
+            "main._ensure_model_available",
+            return_value="test-model"), patch(
             "gateway.universal_enhanced_gateway.get_universal_gateway",
             return_value=gw):
-        result = CliRunner().invoke(main.app, ["chat", "hi"])
+        result = CliRunner().invoke(main.app, ["chat", "hi", "--no-stream"])
     assert result.exit_code == 0
     assert "quiet answer" in result.output
     assert "noisy init line" not in caplog.text
@@ -705,10 +709,98 @@ def test_main_chat_verbose_shows_logs(caplog):
     with caplog.at_level(logging.INFO), patch(
             "gateway.universal_enhanced_gateway.get_universal_gateway",
             return_value=gw):
-        result = CliRunner().invoke(main.app, ["chat", "hi", "--verbose"])
+        result = CliRunner().invoke(main.app, ["chat", "hi", "--verbose",
+                                               "--no-stream"])
     assert result.exit_code == 0
     assert "loud answer" in result.output
     assert "loud init line" in caplog.text
+
+
+class TestChatStream:
+    """--stream prints live: instant answers at once, generations chunk
+    by chunk. Cached/streamed plumbing already tested in the gateway;
+    here only the CLI wiring."""
+
+    def test_instant_answer_prints_at_once(self):
+        from unittest.mock import MagicMock, patch
+        import main
+        gw = MagicMock()
+        gw._get_quick_response.return_value = "instant hi"
+        with patch("main._ensure_model_available",
+                   return_value="test-model"), patch(
+                "gateway.universal_enhanced_gateway.get_universal_gateway",
+                return_value=gw), patch(
+                "gateway.litellm_gateway.achat_stream") as mock_stream:
+            result = CliRunner().invoke(main.app, ["chat", "hi"])
+        assert result.exit_code == 0
+        assert "instant hi" in result.output
+        mock_stream.assert_not_called()
+
+    def test_generation_streams_chunks(self):
+        from unittest.mock import MagicMock, patch
+        import main
+
+        async def fake_stream(*args, **kwargs):
+            yield "Hel"
+            yield "lo"
+
+        gw = MagicMock()
+        gw._get_quick_response.return_value = None
+        with patch("main._ensure_model_available",
+                   return_value="test-model"), patch(
+                "gateway.universal_enhanced_gateway.get_universal_gateway",
+                return_value=gw), patch(
+                "gateway.litellm_gateway.achat_stream",
+                side_effect=fake_stream):
+            result = CliRunner().invoke(main.app, ["chat", "tell me stuff"])
+        assert result.exit_code == 0
+        assert "Hello" in result.output.replace("\n", "")
+
+
+class TestEnsureModelAvailable:
+    """Fresh boxes pull the small default once instead of dying."""
+
+    def test_installed_model_returned_no_pull(self):
+        from unittest.mock import patch
+        import main
+        with patch("main._resolve_local_model",
+                   return_value="mymodel"), patch(
+                "gateway.opt_core.check_model_available",
+                return_value=True), patch(
+                "subprocess.run") as mock_run:
+            assert main._ensure_model_available(None) == "mymodel"
+            mock_run.assert_not_called()
+
+    def test_missing_ollama_binary_no_pull(self):
+        from unittest.mock import patch
+        import main
+        with patch("main._resolve_local_model",
+                   return_value="mymodel"), patch(
+                "gateway.opt_core.check_model_available",
+                return_value=False), patch(
+                "shutil.which", return_value=None), patch(
+                "subprocess.run") as mock_run:
+            assert main._ensure_model_available(None) == "mymodel"
+            mock_run.assert_not_called()
+
+    def test_empty_box_pulls_small_default(self):
+        from unittest.mock import patch
+        import main
+        calls = {"n": 0}
+
+        def fake_check(name):
+            calls["n"] += 1
+            return calls["n"] > 1
+
+        with patch("main._resolve_local_model",
+                   return_value="mymodel"), patch(
+                "gateway.opt_core.check_model_available",
+                side_effect=fake_check), patch(
+                "shutil.which", return_value="/usr/bin/ollama"), patch(
+                "subprocess.run") as mock_run:
+            assert main._ensure_model_available(None) == "phi3:mini"
+            mock_run.assert_called_once()
+            assert mock_run.call_args[0][0][:2] == ["ollama", "pull"]
 
 
 def test_main_ingest_none_provider_warns(monkeypatch):

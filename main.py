@@ -326,7 +326,7 @@ def chat(
     no_rag:    bool = typer.Option(False, "--no-rag",   help="Disable RAG retrieval (agent path; direct path never retrieves)"),
     no_agent:  bool = typer.Option(False, "--no-agent", help="(deprecated) direct balanced call — this is the default"),
     use_agent: bool = typer.Option(False, "--use-agent", help="Route through the LangGraph agent (tools/RAG)"),
-    stream:    bool = typer.Option(True,  "--stream/--no-stream", help="(accepted for compatibility; output prints at once, no live streaming)"),
+    stream:    bool = typer.Option(True,  "--stream/--no-stream", help="Print tokens live as they generate (instant answers still print at once)"),
     verbose:   bool = typer.Option(False, "--verbose", "-v", help="Show INFO logs (default: answer only)"),
 ) -> None:
     """Send a single message to the chatbot and print the reply."""
@@ -351,12 +351,91 @@ def chat(
     # repeat questions, time-box slow generations).  This replaces the old
     # LiteLLM chat_stream call that returned empty/slow answers.
     from gateway.universal_enhanced_gateway import get_universal_gateway
-    selected = _resolve_local_model(model)
+    selected = _ensure_model_available(model)
     gw = get_universal_gateway(
         selected, enable_all_optimizations=True, performance_mode="balanced")
+    if stream:
+        _stream_direct(gw, selected, message)
+        return
     reply = gw.chat([{"role": "user", "content": message}])
     reply = (reply or "").strip()
     console.print(f"[bold cyan]Assistant:[/bold cyan] {reply}")
+
+
+def _stream_direct(gw, model: str, message: str) -> None:
+    """Print a direct-path answer with live tokens.
+
+    Instant answers (templates/solvers/cache) print at once; anything
+    needing the model streams token-by-token as it generates, so a
+    minute-long answer starts appearing in seconds instead of after a
+    silent minute.  Trade-off, documented: the streamed generation uses
+    the resolved model with think-off handling (raw-equivalent quality),
+    NOT the full routed/verified gateway staircase -- pass --no-stream
+    for maximum smarts on hard questions.
+    """
+    msgs = [{"role": "user", "content": message}]
+    try:
+        instant = gw._get_quick_response(
+            message, msgs)
+    except Exception:  # noqa: BLE001 - fall through to streaming
+        instant = None
+    console.print("[bold cyan]Assistant:[/bold cyan] ", end="")
+    if instant and str(instant).strip():
+        console.print(str(instant).strip())
+        return
+    import asyncio
+    from gateway.litellm_gateway import achat_stream
+    from gateway.universal_enhanced_gateway import THINKING_MODEL_MARKERS
+    kwargs: dict = {}
+    if any(m in (model or "").lower() for m in THINKING_MODEL_MARKERS):
+        # Same think-off handling as the raw path: thinking models burn
+        # the budget on hidden CoT and return empty content otherwise.
+        from config import settings as _settings
+        budget = int(_settings.litellm_max_tokens)
+        kwargs["options"] = {"think": False, "num_predict": budget}
+
+    async def _run() -> None:
+        async for chunk in achat_stream(msgs, model=model, **kwargs):
+            if chunk:
+                print(str(chunk), end="", flush=True)
+        print(flush=True)
+
+    asyncio.run(_run())
+
+
+def _ensure_model_available(explicit: Optional[str] = None) -> str:
+    """Resolve the chat model, pulling the small default if NOTHING is
+    installed.  A fresh box otherwise dies with a backend error on the
+    first question; a one-time ~2 GB pull with clear messaging is the
+    better first-run UX.  Never raises anything new: failures fall back
+    to the resolved name and downstream errors behave as before.
+    """
+    from gateway.opt_core import check_model_available
+    selected = _resolve_local_model(explicit)
+    try:
+        if selected and check_model_available(selected):
+            return selected
+    except Exception:  # noqa: BLE001 - fall through to pull attempt
+        pass
+    import shutil
+    import subprocess
+    if shutil.which("ollama") is None:
+        console.print("[yellow]Ollama is not installed; get it from "
+                      "https://ollama.com, then `ollama pull "
+                      "phi3:mini`.[/yellow]")
+        return selected
+    console.print("[cyan]No local models found; pulling phi3:mini "
+                  "(one-time download, ~2 GB)…[/cyan]")
+    try:
+        subprocess.run(["ollama", "pull", "phi3:mini"], check=False)
+    except Exception:  # noqa: BLE001 - fall through, keep old behavior
+        pass
+    try:
+        if check_model_available("phi3:mini"):
+            return "phi3:mini"
+    except Exception:  # noqa: BLE001 - keep old behavior
+        pass
+    return selected
 
 
 @app.command()

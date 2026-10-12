@@ -114,6 +114,8 @@ ollama pull phi3:mini   # fast model for trivia (auto-detected)
 ```
 
 Only pulling one model is fine too — simple chat will just use that model.
+With no models installed at all, the first `chat` pulls `phi3:mini`
+automatically (one-time ~2 GB) instead of erroring.
 
 ### 2. Install Python (real one, on PATH)
 
@@ -234,7 +236,8 @@ py main.py chat --use-agent --no-rag "..."                 # agent without retri
 ```
 
 (`--no-rag` applies to the agent path; the direct path never retrieves.
-`--stream` is accepted for compatibility but output prints at once.)
+`--stream` prints tokens live as they generate; `--no-stream` waits for
+the full routed/verified answer. `--verbose` shows INFO logs.)
 
 Each `chat` call runs the balanced gateway: greetings and simple arithmetic
 answer instantly, other trivia in seconds on a fast model, and hard reasoning
