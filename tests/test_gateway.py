@@ -98,3 +98,80 @@ def test_total_optimizations_counts_live_flags():
                    if k.endswith("_enabled") and v is True)
     assert stats["total_optimizations"] == expected
     assert stats["total_optimizations"] < 900
+
+
+class TestAchatStreamOptions:
+    """achat_stream must accept options (think-off num_predict) like
+    chat(): the CLI streamed path passes them, and the missing kwarg
+    crashed every streamed thinking-model call (diag: live TypeError on
+    the default model)."""
+
+    def test_options_forwarded_and_max_tokens_dropped(self):
+        import asyncio
+        from gateway import litellm_gateway as mod
+
+        seen = {}
+
+        class _Delta:
+            content = "hi"
+
+        class _Choice:
+            delta = _Delta()
+
+        class _Chunk:
+            choices = [_Choice()]
+
+        def fake_completion(**kwargs):
+            seen.update(kwargs)
+            return [_Chunk(), _Chunk()]
+
+        async def collect():
+            out = []
+            async for c in mod.achat_stream(
+                    [{"role": "user", "content": "Why sky?"}],
+                    model="qwen3:4b", use_cache=False,
+                    options={"think": False, "num_predict": 64}):
+                out.append(c)
+            return "".join(out)
+
+        with patch.object(mod, "completion", side_effect=fake_completion):
+            assert asyncio.run(collect()) == "hihi"
+        assert seen["options"] == {"think": False, "num_predict": 64}
+        assert "max_tokens" not in seen
+
+    def test_cache_identity_includes_options(self):
+        """Think-off and think-on streams of the SAME query must not
+        serve each other's cached answers."""
+        import asyncio
+        import uuid
+        from gateway import litellm_gateway as mod
+
+        calls = {"n": 0}
+
+        class _Delta:
+            content = "x"
+
+        class _Choice:
+            delta = _Delta()
+
+        class _Chunk:
+            choices = [_Choice()]
+
+        def fake_completion(**kwargs):
+            calls["n"] += 1
+            return [_Chunk()]
+
+        async def run():
+            msgs = [{"role": "user",
+                     "content": "Why sky? %s" % uuid.uuid4().hex}]
+            async for _ in mod.achat_stream(
+                    msgs, model="qwen3:4b", use_cache=True,
+                    options={"think": False, "num_predict": 64}):
+                pass
+            async for _ in mod.achat_stream(msgs, model="qwen3:4b",
+                                            use_cache=True):
+                pass
+
+        with patch.object(mod, "completion", side_effect=fake_completion):
+            asyncio.run(run())
+        assert calls["n"] == 2

@@ -240,6 +240,7 @@ async def achat_stream(
     use_router: bool = False,
     system_prompt: str = None,
     speed_mode: bool = False,
+    options: dict = None,
 ):
     """
     Async streaming chat function with caching.
@@ -273,7 +274,7 @@ async def achat_stream(
         'rag_enabled': False,
         # Must match chat(): api_base is part of the cache identity.
         'api_base': api_base or "",
-        'options': None,
+        'options': options,
     }
 
     # BUG 2 FIX: Check cache first if use_cache is enabled
@@ -318,6 +319,12 @@ async def achat_stream(
         getattr(settings, "generation_timeout", 15),
         thinking=any(m in (model or "").lower() for m in _THINK),
     )
+    if options is not None:
+        # Same ollama rule as chat(): top-level max_tokens together with
+        # options{num_predict} returns EMPTY content on thinking models.
+        kwargs["options"] = dict(options)
+        if "num_predict" in options:
+            kwargs.pop("max_tokens", None)
     # Keep the model resident (see chat()).
     kwargs["keep_alive"] = "30m"
 
