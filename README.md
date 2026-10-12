@@ -430,19 +430,21 @@ factual <60s, explainer <120s, code <300s (balanced, warm model).
 ### User experience vs baseline (measured)
 
 Same questions, optimized vs raw unoptimized path (qwen3:4b, CPU-only
-box; full logs in `benchmark_results/readme_sweep_report.txt`):
+box). Times are wall-clock; responses quoted verbatim:
 
 | Question | Optimized | Raw baseline |
 |---|---|---|
-| Hello there! (instant) | 0 ms | 22.6–29.1 s |
-| What is 12*8? (instant) | 0–1 ms | 44.1–47.3 s |
-| 12*8 (direct) | 6.6 s — "The answer is 96" | 47.3 s — "The product of 12 and 8 is calculated as follows:…" |
-| And 13*13? (agent + history) | 0.1 s — "169" | 33.0 s — "13 multiplied by 13 equals **169**. Here's the quick calculation…" |
-| Hello there! (stream, first bytes) | 5.9 s | 27.3 s — "Hello! 👋 How can I assist you today?" |
-| Capital of France? | 12 s — "Paris." | 159.4 s — full Paris essay (431 chars) |
-| Transformer in one sentence | 42.5–48.5 s | 51.7–83.0 s |
-| Reverse-string function | 83.5 s | 116.2 s |
-| Throughput (length-normalized) | 192–287 ms/char | 151–355 ms/char — no systematic edge either way |
+| Hello there! | 0 ms — instant greeting | 31.0 s — greeting |
+| What is 12*8? | 1 ms — "The answer is 96" | 44.1 s — full explanation |
+| Transformer in one sentence | 38.1 s — "A transformer model processes sequential data in parallel by using self-attention mechanisms to dynamically weigh the relevance of each element…" (276 chars) | 47.0 s — "A transformer model processes sequential data (like text) by simultaneously calculating relationships between all elements using self-attention mechanisms…" (236 chars) |
+| Reverse-string function | 121.3 s — "def reverse_string(s): return s[::-1]" (41 chars) | 131.3 s — 1786-char tutorial with approach section, complexity analysis, and code |
+| Capital of France? | 11.3 s — "Paris." | 57.8 s — 513-char essay (Middle Ages, Élysée, Eiffel Tower, Lyon/Marseille note) |
+
+Why responses take so long: local CPU generates ~1–4 tokens/s, so a
+2000-character answer costs minutes before any optimization; the first
+call also loads the model (~60 s cold). Optimized wins by *skipping*
+generation (instant routing, cache repeats at ~0 ms) and by writing
+less; per-character throughput is even (see `docs/BENCHMARKS.md`).
 
 Keep the model resident: ollama unloads models after 5 idle minutes by
 default (next request pays ~60s cold load). All local calls request
